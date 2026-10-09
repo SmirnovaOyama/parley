@@ -12,5 +12,5 @@
     "erasableSyntaxOnly": true,
     "skipLibCheck": true
   },
-  "include": ["./**/*.ts", "../scripts/**/*.ts"]
+  "include": ["./**/*.ts", "../scripts/**/*.ts", "../test/**/*.ts"]
 }

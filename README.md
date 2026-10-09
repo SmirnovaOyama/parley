@@ -129,9 +129,10 @@ src/               React app
   icons/           hand-drawn icon set and doodles
   styles/          tokens.css (design tokens), oyama.css, app.css
 scripts/           setup and the dev API runner
+test/              tests: providers against mock APIs, keys and prices, the API end to end, database upgrades
 ```
 
-`npm run typecheck` checks both the app and the server. See [CONTRIBUTING.md](CONTRIBUTING.md).
+`npm run typecheck` checks both the app and the server, and `npm test` runs the tests, which need no network or API keys. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

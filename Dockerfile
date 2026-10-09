@@ -1,14 +1,13 @@
 # Builds the site, then runs the API (which serves it too) on Node, with only what it needs at run
 # time. The database, uploads and files the AI made live in /data: keep that volume.
 
-FROM node:24-slim AS build
+# The built site is the same on every platform, so it's built natively even when the image is for
+# another one (arm64 images are made on amd64).
+FROM --platform=$BUILDPLATFORM node:24-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-# The site's name is part of the built pages.
-ARG VITE_APP_NAME=Parley
-ENV VITE_APP_NAME=$VITE_APP_NAME
 RUN npm run build
 
 FROM node:24-slim

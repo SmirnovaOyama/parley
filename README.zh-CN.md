@@ -42,20 +42,58 @@
 
 ### 用 Docker
 
+每个版本都会发布 x86 和 ARM（linux/amd64 和 linux/arm64）两种架构的镜像，服务器、NAS 和装了 64 位系统的树莓派都能跑：
+
 ```bash
-git clone https://github.com/SmirnovaOyama/parley.git && cd parley
-cp .env.example .env
+docker pull ghcr.io/smirnovaoyama/parley:latest
 ```
 
-在 `.env` 里把 `KEY_ENCRYPTION_SECRET` 设成至少 32 个字符的随机字符串（比如 `openssl rand -base64 48` 的输出），然后：
+Parley 需要一个至少 32 个字符的随机密钥。先生成一个并妥善保存：每次启动都必须用同一个，备份没有它也没用。
+
+```bash
+openssl rand -base64 48
+```
+
+然后把下面的 `your-secret` 换成你的密钥，启动 Parley：
+
+```bash
+docker run -d --name parley -p 8787:8787 -v parley-data:/data -e KEY_ENCRYPTION_SECRET='your-secret' --restart unless-stopped ghcr.io/smirnovaoyama/parley:latest
+```
+
+打开 http://localhost:8787。**第一个注册的账号会成为管理员**，所以部署好请马上注册，然后去「Admin → API keys」添加 key。
+
+Parley 保存的所有东西（数据库、上传的文件、AI 生成的文件）都在 `parley-data` 这个数据卷里。其他配置（见[配置](#配置)）用更多的 `-e` 传入，比如加上 `-e VITE_APP_NAME='我们的聊天'` 给网站换个名字。
+
+#### 用 Docker Compose
+
+[`docker-compose.yml`](docker-compose.yml) 运行的是同一个镜像，配置从同一文件夹里的 `.env` 读取。在一个空文件夹里运行：
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/SmirnovaOyama/parley/main/docker-compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/SmirnovaOyama/parley/main/.env.example
+```
+
+在 `.env` 里填好 `KEY_ENCRYPTION_SECRET`，然后：
 
 ```bash
 docker compose up -d
 ```
 
-打开 http://localhost:8787。**第一个注册的账号会成为管理员**，所以部署好请马上注册，然后去「Admin → API keys」添加 key。
+#### 版本和升级
 
-Parley 保存的所有东西（数据库、上传的文件、AI 生成的文件）都在 `parley-data` 这个数据卷里。
+`latest` 始终是最新版本。想固定在某个版本，就把 `latest` 换成版本号：`0.1.0` 一直停在这个版本，`0.1` 还会跟着拿到这个版本的修复更新。所有版本列在 [Releases](https://github.com/SmirnovaOyama/parley/releases) 页面，每个版本改了什么见 [CHANGELOG.md](CHANGELOG.md)。
+
+用 Compose 升级：
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+用 `docker run` 的话，先拉取新镜像，再删掉旧容器（`docker rm -f parley`），然后重新运行同样的 `docker run` 命令。数据都在数据卷里，数据库会在启动时自动升级。
+
+#### 自己构建镜像
+
+想运行自己改过的代码，先克隆仓库，把 `docker-compose.yml` 里的 `image:` 一行换成 `build: .`（文件里已经有这一行，只是注释掉了），然后运行 `docker compose up -d --build`。
 
 ### 用 Node
 
@@ -85,7 +123,7 @@ API（端口 8787）会同时提供 `dist/` 里构建好的网页。
 | 配置 | 作用 |
 |---|---|
 | `KEY_ENCRYPTION_SECRET` | 必填。用来加密数据库里的 API key。请妥善保管，设定后不要再改，否则已保存的 key 无法解密。 |
-| `VITE_APP_NAME` | 网站名称，显示在侧边栏和浏览器标签上。Docker 部署时它会编译进网页，改了要重新构建。 |
+| `VITE_APP_NAME` | 网站名称，显示在侧边栏和浏览器标签上。Parley 启动时读取，改了重启即可。 |
 | `DATABASE_PATH` | SQLite 数据库的位置（默认 `data/chat.db`），文件存在它旁边。 |
 | `PORT` | API 端口（默认 8787）。 |
 | `SMTP_URL`、`MAIL_FROM` | 发信设置，邮箱奖励功能要用。 |
@@ -100,7 +138,7 @@ API（端口 8787）会同时提供 `dist/` 里构建好的网页。
   }
   ```
 - **备份**：备份数据文件夹或数据卷，并把 `KEY_ENCRYPTION_SECRET` 一起保存好。没有这个密钥，备份里的 key 谁也解不开。运行中要复制数据库，可以用 `sqlite3 chat.db ".backup backup.db"`。
-- **升级**：`git pull` 后运行 `docker compose up -d --build`（或 `npm install && npm run build` 再重启）。数据库会在启动时自动升级。
+- **升级**：用 Docker 的话见[版本和升级](#版本和升级)；从源码运行的话，`git pull` 后运行 `npm install && npm run build` 再重启。数据库会在启动时自动升级。
 
 ## 安全说明
 

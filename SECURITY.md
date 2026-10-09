@@ -4,7 +4,7 @@ Parley stores other people's API keys and chats, so security reports matter a lo
 
 ## Reporting a vulnerability
 
-Please don't open a public issue. Report it privately through GitHub: the repository's **Security** tab → **Report a vulnerability**. Say what you found, how to reproduce it, and what someone could do with it. You'll get a reply within a week, and credit in the fix if you'd like it.
+Please don't open a public issue. Report it privately through GitHub: [report a vulnerability](https://github.com/SmirnovaOyama/parley/security/advisories/new) (the repository's **Security** tab). Say what you found, how to reproduce it, and what someone could do with it. You'll get a reply within a week, and credit in the fix if you'd like it.
 
 Supported versions: the latest commit on `main`.
 

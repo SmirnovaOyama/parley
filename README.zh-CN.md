@@ -43,7 +43,7 @@
 ### 用 Docker
 
 ```bash
-git clone <仓库地址> parley && cd parley
+git clone https://github.com/SmirnovaOyama/parley.git && cd parley
 cp .env.example .env
 ```
 

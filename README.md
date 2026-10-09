@@ -43,7 +43,7 @@ Prices for the cost estimates live in [`server/providers/catalog.ts`](server/pro
 ### With Docker
 
 ```bash
-git clone <this repository> parley && cd parley
+git clone https://github.com/SmirnovaOyama/parley.git && cd parley
 cp .env.example .env
 ```
 

@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "A self-hosted AI chat site for teams: Claude, OpenAI, Gemini, Grok, DeepSeek and any OpenAI-compatible service, with shared API keys, limits and usage",
   "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SmirnovaOyama/parley.git"
+  },
+  "bugs": "https://github.com/SmirnovaOyama/parley/issues",
   "private": true,
   "type": "module",
   "engines": {

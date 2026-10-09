@@ -1,0 +1,811 @@
+/* Layout and the chat-specific pieces the Oyama design system doesn't have yet
+   (thread, composer, Markdown, data tables). Tokens only; no raw colours. */
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+/* No elastic bounce or pull-to-refresh: the page stops dead at its top and bottom (Safari 16+).
+   Sideways stays as it was, so swiping back through history still works. */
+html, body { overscroll-behavior-y: none; }
+body { margin: 0; min-height: 100dvh; }
+h1, h2, h3, p { margin: 0; }
+#root { min-height: 100dvh; }
+
+/* House rule: no all-caps headings. Group headings are sentence case and read as headings:
+   full body size, semibold, in the text colour. */
+.oy-overline { text-transform: none; letter-spacing: -0.01em; font-size: 17px; line-height: 24px; font-weight: 600; color: var(--text); }
+.oy-group > .oy-overline { margin-bottom: 2px; }
+.oy-group + .oy-group { margin-top: 24px; }
+
+.title-lg { font-size: 26px; line-height: 32px; font-weight: 600; letter-spacing: -0.02em; }
+.title-sm { font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.section-title { font-size: 15px; line-height: 22px; font-weight: 600; margin-bottom: 8px; }
+.footnote { margin-top: 16px; font-size: 12px; line-height: 16px; color: var(--text-muted); }
+.text-danger { color: var(--danger); }
+/* House rule: no "…" on titles. Long one-line text fades out at the end instead of being dotted,
+   and page titles wrap. */
+.truncate {
+  /* Full width of its row, so the fade sits at the row's edge and short text never reaches it. */
+  display: block; flex: 1 1 auto;
+  overflow: hidden; white-space: nowrap; min-width: 0;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.oy-page-header h1, .oy-page-header .title { white-space: normal; text-overflow: clip; overflow-wrap: anywhere; }
+.truncate-cell { text-overflow: clip; }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.field { min-width: 0; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+a.oy-nav-item, .oy-page-header a.back { text-decoration: none; }
+/* Header actions sit on a line under the title; the first icon lines up with the title's edge. */
+.oy-page-header .actions { margin: 8px 0 0 -10px; flex-wrap: wrap; }
+/* The header's glass is the page colour itself, so at rest it can't be seen in either theme (the
+   design system's dark glass is a lighter grey, which showed as a strip across the page). Content
+   scrolling under it still frosts, and the hairline marks its edge. */
+.oy-page-header { background: color-mix(in oklab, var(--bg) 82%, transparent); }
+/* A row with a segmented switch keeps its label readable on a narrow screen: the switch moves
+   under it rather than covering it. */
+.oy-row:has(> .oy-segmented) { flex-wrap: wrap; }
+.oy-row:has(> .oy-segmented) > .text { min-width: 5rem; }
+
+/* House rule for buttons: filled buttons that sit together share one shape and size. The main
+   action is terracotta, the way out (Cancel, Keep it) the neutral fill beside it. Two sizes: 40px
+   for pages and forms, 32px (btn-sm) inside the conversation. A minimum width keeps one-word
+   labels from looking stubby. Pills (btn-ghost) are only for light toolbar actions. */
+.btn-primary, .btn-secondary, .btn-tonal, .btn-danger { min-width: 88px; padding: 0 18px; border-radius: var(--radius-md); }
+:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger).btn-sm {
+  height: 32px; min-width: 72px; padding: 0 14px; font-size: 14px; line-height: 20px; border-radius: var(--radius-sm);
+}
+a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-decoration: none; }
+.btn-secondary { color: var(--text); }
+
+/* House rule: every tick draws left to right — the short leg, then the long stroke up and right.
+   (Tick paths start at the left end; a positive dash offset reveals them from their start.)
+   Turning off, the tick fades out whole and resets once it's invisible. */
+.tick-draw path { stroke-dashoffset: 24; transition: stroke-dashoffset 0s linear 180ms; }
+.tick-draw[data-on="true"] path { stroke-dashoffset: 0; transition: stroke-dashoffset var(--duration-base) var(--ease-standard) 60ms; }
+.oy-icon.draw-in path { stroke-dasharray: 24; stroke-dashoffset: 24; animation: tick-in var(--duration-base) var(--ease-standard) 40ms forwards; }
+@keyframes tick-in { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .tick-draw path, .tick-draw[data-on="true"] path { transition: none; }
+  .oy-icon.draw-in path { animation: none; stroke-dashoffset: 0; }
+}
+
+/* House rule: text fields don't light up. No terracotta glow, no focus ring, no red outline;
+   focus just darkens the border, and an error is said in the hint below the field. */
+.input-base:focus, .input-base.is-focus, .input-base:focus-visible,
+.oy-select.is-open, .oy-select:focus-visible {
+  border-color: var(--text);
+  box-shadow: none;
+  outline: none;
+}
+.input-base.is-invalid { border-color: var(--border-strong); }
+.input-base.is-invalid:focus { border-color: var(--text); }
+
+/* ── frame ─────────────────────────────────────────────────────── */
+.app { display: flex; min-height: 100dvh; }
+.app-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.page-body { padding-top: 0; padding-bottom: 64px; }
+
+.app-sidebar { position: sticky; top: 0; height: 100dvh; }
+.app-sidebar .wordmark { padding-bottom: 16px; }
+.oy-nav-item.is-accent { color: var(--accent-ink); font-weight: 500; }
+.oy-nav-item.is-accent:hover { background: var(--accent-subtle); color: var(--accent-ink); }
+.sidebar-heading { padding: 20px 24px 6px; }
+.app-sidebar .sidebar-heading { font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.sidebar-chats { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: none; padding-bottom: 12px; }
+/* Rows keep their height: in a flex column they'd otherwise squash to fit, crowding the list and
+   leaving almost nothing to scroll. */
+.sidebar-chats > * { flex-shrink: 0; }
+.sidebar-chat { height: 36px; font-size: 14px; }
+/* Edges fade where there's more to scroll to. */
+.sidebar-chats[data-more-below] { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent); }
+.sidebar-chats[data-more-above] { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px); mask-image: linear-gradient(to bottom, transparent, #000 28px); }
+.sidebar-chats[data-more-above][data-more-below] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 40px), transparent);
+}
+/* Beside a chat whose reply is being written. */
+.busy-mark { flex-shrink: 0; fill: none; stroke-width: 1.8; stroke-linecap: round; animation: busy-turn 0.9s linear infinite; }
+.busy-track { stroke: var(--border); }
+.busy-arc { stroke: var(--accent-ink); }
+@keyframes busy-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .busy-mark { animation: none; } }
+.sidebar-chat[aria-current="page"] { font-weight: 500; }
+.sidebar-empty { padding: 4px 12px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+/* Admin and Account sit apart by space alone; a rule here crowded the selected pill. */
+.oy-sidebar .sidebar-footer { padding-top: 16px; padding-bottom: 20px; }
+
+.app-bottom-nav {
+  position: fixed; left: 16px; right: 16px; z-index: var(--z-nav);
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  display: none; justify-content: center;
+}
+/* Below the bar the page fades out instead of being cut off by its edge. */
+.app-bottom-nav::before {
+  content: ""; position: absolute; z-index: -1; pointer-events: none;
+  left: -16px; right: -16px; top: -28px; bottom: calc(-12px - env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--bg) 62%);
+}
+/* A capsule that hugs its tabs, with one pill that slides to the current tab. */
+.app-bottom-nav .oy-bottom-nav { --tab: 84px; border-radius: var(--radius-full); }
+.app-bottom-nav .row { position: relative; padding: 5px; gap: 0; }
+.app-bottom-nav .oy-bottom-nav button { position: relative; flex: 0 0 var(--tab); gap: 1px; padding: 6px 0 7px; transition: color var(--duration-base) var(--ease-standard); }
+.app-bottom-nav .oy-bottom-nav button[aria-current="page"] { color: var(--accent-ink); }
+.app-bottom-nav .oy-bottom-nav .pill { width: auto; height: 26px; transition: transform var(--duration-quick) var(--ease-standard); }
+.app-bottom-nav .oy-bottom-nav button[aria-current="page"] .pill { background: none; color: inherit; }
+.app-bottom-nav .oy-bottom-nav button:active .pill { transform: scale(0.9); }
+.nav-indicator {
+  position: absolute; top: 5px; bottom: 5px; left: 5px; width: var(--tab);
+  border-radius: var(--radius-full); background: var(--accent-subtle);
+  transform: translateX(calc(var(--at) * var(--tab))); opacity: 0;
+  transition: transform 380ms var(--ease-out), opacity var(--duration-base) var(--ease-standard);
+}
+.nav-indicator[data-on] { opacity: 1; }
+@media (hover: hover) {
+  .app-bottom-nav .oy-bottom-nav button:not([aria-current="page"]):hover { color: var(--text); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-indicator, .app-bottom-nav .oy-bottom-nav .pill { transition: none; }
+}
+
+@media (max-width: 767px) {
+  .app-sidebar { display: none; }
+  .app-bottom-nav { display: flex; }
+  .app-main:not(.no-tab-bar) .page-body { padding-bottom: calc(var(--nav-clearance) + env(safe-area-inset-bottom)); }
+}
+@media (min-width: 768px) {
+  .oy-page-header .back.mobile-only { display: none; }
+}
+
+.boot { min-height: 100dvh; display: grid; place-items: center; }
+
+/* ── auth ──────────────────────────────────────────────────────── */
+.auth { max-width: 24rem; margin: 0 auto; padding: max(12vh, 48px) 24px 48px; display: flex; flex-direction: column; gap: 20px; }
+.auth-wordmark { font-size: 17px; line-height: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--accent-ink); }
+.auth-switch { font-size: 13px; line-height: 18px; }
+.auth-form { display: flex; flex-direction: column; gap: 22px; }
+.auth-form .btn-primary { margin-top: 10px; }
+
+/* Line fields (sign-in): a hand-drawn rule instead of a box. The label rests on the line and
+   floats up; focus draws an ink stroke over the rule from left to right. */
+.line-field-box { position: relative; padding-top: 16px; }
+.line-field input, .line-field textarea {
+  display: block; width: 100%; padding: 8px 0 9px; border: 0; outline: 0; border-radius: 0;
+  background: transparent; font: inherit; font-size: 17px; line-height: 24px; color: var(--text);
+}
+.line-field input:-webkit-autofill { -webkit-box-shadow: 0 0 0 100px var(--bg) inset; -webkit-text-fill-color: var(--text); }
+.line-field label {
+  position: absolute; left: 0; top: 24px; pointer-events: none;
+  font-size: 17px; line-height: 24px; color: var(--text-muted);
+  transform-origin: left top;
+  transition: transform var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-standard);
+}
+.line-field input:focus + label,
+.line-field input:not(:placeholder-shown) + label,
+.line-field input:-webkit-autofill + label,
+.line-field textarea:focus + label,
+.line-field textarea:not(:placeholder-shown) + label {
+  transform: translateY(-24px) scale(0.765);
+  color: var(--text);
+}
+.line-field textarea { resize: none; overflow: hidden; white-space: pre-wrap; }
+.line-field-rule { position: absolute; left: 0; bottom: -3px; width: 100%; height: 8px; overflow: visible; pointer-events: none; }
+.line-field-rule path { fill: none; stroke-linecap: round; }
+.line-field-rule .base { stroke: var(--border-strong); stroke-width: 1.3; }
+.line-field-rule .ink {
+  stroke: var(--text); stroke-width: 2;
+  stroke-dasharray: 1; stroke-dashoffset: 1;
+  transition: stroke-dashoffset 560ms var(--ease-out);
+}
+.line-field:focus-within .line-field-rule .ink { stroke-dashoffset: 0; }
+.line-field-hint { margin-top: 8px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.line-field-hint.is-error { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .line-field label, .line-field-rule .ink { transition: none; }
+}
+
+/* ── feedback ──────────────────────────────────────────────────── */
+.callout-row { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0; }
+.advisory-line { margin: 8px 0; }
+.advisory-action { padding-inline-start: 18px; margin-top: 4px; }
+.empty-state { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 48px 16px; }
+.empty-state .oy-doodle { margin-bottom: 8px; }
+.empty-state .btn-primary { margin-top: 10px; }
+
+.loading-line { display: flex; justify-content: center; padding: 32px 0; color: var(--text-muted); }
+
+.tag {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px; margin-inline-start: 8px;
+  border-radius: var(--radius-full); font-size: 11px; line-height: 14px; font-weight: 500;
+  color: var(--text-muted); background: var(--surface-muted); vertical-align: 1px;
+}
+.tag.is-accent { color: var(--on-accent-subtle); background: var(--accent-subtle); }
+.tag.is-warning { color: var(--warning); background: var(--surface-muted); }
+
+/* ── chat ──────────────────────────────────────────────────────── */
+.chat { display: flex; flex-direction: column; min-height: 100dvh; }
+/* In a chat the header is a slim bar, so the conversation gets the height. */
+.chat .oy-page-header .bar { padding-top: 14px; padding-bottom: 8px; }
+.chat .oy-page-header h1 { font-size: 20px; line-height: 26px; letter-spacing: -0.015em; }
+.chat .oy-page-header .actions { margin-top: 2px; }
+/* The gear at the far end of a chat's header: level with the back link on a phone, with the title
+   on a wider screen, its icon lined up with the column's edge. */
+.oy-page-header .bar-trailing { align-self: flex-start; flex-shrink: 0; margin-right: -6px; }
+/* A solid button there (New chat on the chat list) sits level with the title and subtitle, flush
+   with the column's edge; the icon side gets a little less padding so it looks centred. */
+.oy-page-header .bar-trailing:has(> .btn-primary) { align-self: center; margin-right: 0; }
+.oy-page-header .bar-trailing > .btn-primary { padding-left: 14px; }
+.btn-ghost.icon-button { width: 32px; padding: 0; justify-content: center; }
+@media (min-width: 768px) { .chat .oy-page-header .bar-trailing { margin-top: -3px; } }
+.chat-body { flex: 1; padding-top: 8px; padding-bottom: 8px; }
+
+.transcript { display: flex; flex-direction: column; gap: 24px; padding: 8px 0 16px; }
+.msg-user { display: flex; flex-direction: column; align-items: flex-end; }
+.msg-user .bubble {
+  max-width: 85%; padding: 10px 14px; border-radius: var(--radius-lg);
+  background: var(--surface-muted); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg-assistant { min-width: 0; }
+.msg-meta { display: flex; align-items: center; gap: 6px; min-height: 24px; margin-top: 4px; font-size: 12px; line-height: 16px; color: var(--text-muted); }
+.msg-meta-user { justify-content: flex-end; }
+/* With only the hover-revealed Edit in it, the row floats in the gap below the bubble and
+   takes no space of its own. */
+.msg-user { position: relative; }
+.msg-meta-user.is-floating { position: absolute; top: 100%; right: 0; margin-top: 0; }
+/* Icon-only, so a reply's actions take no more room than its model name. */
+.msg-action { width: 24px; height: 24px; padding: 0; gap: 0; border-radius: var(--radius-full); }
+.msg-meta > .msg-action:first-child { margin-inline-start: -5px; }
+/* Edit, Copy and Regenerate wait until you point at a message on a wide screen with a mouse. On
+   phones (a narrow screen, or touch) they're always shown, and Edit gets its own line under the
+   bubble instead of floating in the gap. */
+@media (hover: hover) and (min-width: 768px) {
+  .msg .msg-action { opacity: 0; transition: opacity var(--duration-quick) var(--ease-standard), background-color var(--duration-quick) var(--ease-standard), color var(--duration-quick) var(--ease-standard); }
+  .msg:hover .msg-action, .msg:focus-within .msg-action { opacity: 1; }
+}
+@media (hover: none), (max-width: 767px) {
+  .msg-meta-user.is-floating { position: static; margin-top: 4px; }
+}
+
+/* ‹ 2 / 3 › between versions of a message. */
+.versions { display: inline-flex; align-items: center; gap: 0; font-size: 12px; line-height: 16px; color: var(--text-muted); }
+.versions-step { width: 22px; height: 22px; padding: 0; }
+.versions .tabular { min-width: 2.2em; text-align: center; }
+
+/* Editing a message in place: a field the width of the column, the actions under it. */
+.edit-box { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.edit-box textarea {
+  width: 100%; resize: none; padding: 10px 14px; border: 1px solid var(--text); border-radius: var(--radius-lg);
+  background: var(--field); outline: 0; font: inherit; font-size: 15px; line-height: 22px; color: var(--text);
+  white-space: pre-wrap;
+}
+.edit-box-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 767px) { .edit-box textarea { font-size: 16px; } }
+.msg-note { margin-top: 6px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+/* "Waiting for a reply" (and searching, running code) is set exactly like the "Thinking" label that
+   replaces it, so nothing changes size when one gives way to the other. */
+.thinking { display: flex; align-items: center; gap: 6px; min-height: 28px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+
+/* Visible thinking: a quiet toggle above the reply. The thoughts unfold in smaller muted text
+   beside a soft rounded rule, never boxed, and long reasoning scrolls inside the fold. */
+.thought { margin: -2px 0 12px; }
+.thought-toggle {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; margin-inline-start: -10px;
+  border-radius: var(--radius-full); font-size: 13px; line-height: 18px; color: var(--text-muted);
+}
+.thought-toggle:hover { color: var(--text); background: var(--surface-hover); }
+.thought-toggle .chev { width: 14px; height: 14px; opacity: 0.8; }
+/* One left edge for the label's words, the thoughts and the answer. The rule hangs in the margin,
+   under the left end of the label's pill (the fold's clip box reaches out to include it). */
+.thought .disclosure-inner { margin-inline-start: -10px; padding-inline-start: 10px; }
+.thought-body { position: relative; margin: 6px 0 2px; }
+.thought-body::before {
+  content: ""; position: absolute; inset-inline-start: -10px; top: 3px; bottom: 3px;
+  width: 2px; border-radius: 2px; background: var(--border);
+}
+.thought-scroll {
+  max-height: 22rem; overflow-y: auto; overscroll-behavior-y: none;
+  font-size: 14px; line-height: 21px; color: var(--text-muted);
+}
+.thought-scroll .md p, .thought-scroll .md ul, .thought-scroll .md ol, .thought-scroll .md .md-code { margin-bottom: 8px; }
+.thought-scroll .md h1, .thought-scroll .md h2, .thought-scroll .md h3, .thought-scroll .md h4 { margin: 10px 0 4px; font-size: 14px; line-height: 21px; }
+.thought-scroll .md strong { color: var(--text); font-weight: 500; }
+/* Nothing hangs below the last line or above the first, so the rule spans the text evenly. */
+.thought-scroll .md > :first-child { margin-top: 0; }
+.thought-scroll .md > :last-child { margin-bottom: 0; }
+
+/* Web search. While it searches, the query shows beside the dots and wraps when long. */
+.thinking-detail { min-width: 0; overflow-wrap: anywhere; }
+/* Under a reply that searched: "3 sources", unfolding to the numbered pages, toggled like thoughts. */
+.sources { margin-top: 6px; }
+.sources-list { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sources-list li { display: flex; align-items: baseline; gap: 8px; font-size: 14px; line-height: 20px; }
+.sources-n { flex: none; min-width: 16px; font-size: 12px; color: var(--text-muted); }
+.sources-list a { min-width: 0; color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
+.sources-list a:hover .sources-title { text-decoration: underline; text-underline-offset: 2px; }
+.sources-host { margin-inline-start: 6px; font-size: 13px; color: var(--text-muted); }
+.sources-searches { margin: 4px 0 0; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+/* A citation after the cited words: a small raised number chip linking to the page. */
+.md a.cite {
+  display: inline-flex; align-items: center; justify-content: center; position: relative; top: -0.35em;
+  min-width: 16px; height: 16px; padding: 0 4px; margin-inline-start: 2px; border-radius: var(--radius-full);
+  background: var(--surface-muted); color: var(--text-muted); font-size: 11px; line-height: 16px; font-weight: 500;
+  font-variant-numeric: tabular-nums; text-decoration: none; vertical-align: baseline;
+}
+.md a.cite:hover { color: var(--text); }
+.md a.cite + a.cite { margin-inline-start: 3px; }
+
+/* Files a reply made: cards in a row under it, the whole card a download. */
+.file-cards { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.file-card {
+  display: flex; align-items: center; gap: 10px; width: 15rem; max-width: 100%; padding: 8px 12px 8px 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text); text-decoration: none;
+}
+.file-card:hover { background: var(--bg-subtle); }
+.file-card-preview, .file-card-icon {
+  flex: none; width: 44px; height: 44px; border-radius: var(--radius-xs); background: var(--surface-muted); object-fit: cover;
+}
+.file-card-preview { image-rendering: auto; }
+.file-card-icon { display: grid; place-items: center; color: var(--text-muted); }
+.file-card-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.file-card-name { font-size: 14px; line-height: 20px; font-weight: 500; overflow-wrap: anywhere; }
+.file-card-size { font-size: 12px; line-height: 16px; color: var(--text-muted); }
+.file-card-get { flex: none; color: var(--text-muted); }
+
+.composer-dock {
+  position: sticky; bottom: 0; z-index: 10;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--bg) 12px);
+}
+/* Above the box: the model on the left, thinking on the right. Their cards float above this line,
+   which positions them (the picker itself has no box). */
+.composer-head { position: relative; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.composer-head .model-picker { display: contents; }
+/* Both sit on one 28px line, whether the model is plain text or a button that unfolds. */
+.composer-head .model-line { height: 28px; margin-bottom: 0; }
+.composer {
+  display: flex; align-items: flex-end; gap: 8px;
+  padding: 8px 8px 8px 16px;
+  background: var(--field); border: 1px solid var(--border-strong); border-radius: 22px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--duration-quick) var(--ease-standard), box-shadow var(--duration-quick) var(--ease-standard);
+}
+.composer:focus-within { border-color: var(--text); }
+.composer textarea:focus-visible { outline: none; }
+.composer textarea {
+  flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent;
+  padding: 7px 0; font: inherit; font-size: 15px; line-height: 22px; color: var(--text); max-height: 220px;
+}
+.composer textarea::placeholder { color: var(--text-muted); }
+.composer-send {
+  flex-shrink: 0; display: grid; place-items: center; width: 36px; height: 36px;
+  border-radius: var(--radius-full); color: var(--on-accent); background: var(--accent);
+  transition: background-color var(--duration-quick) var(--ease-standard), transform var(--duration-quick) var(--ease-standard), opacity var(--duration-quick) var(--ease-standard);
+}
+.composer-send:hover:not(:disabled) { background: var(--accent-hover); }
+.composer-send:active:not(:disabled) { transform: scale(0.94); }
+.composer-send:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
+.composer-send.is-stop { color: var(--text); background: var(--surface-pressed); }
+.composer-send.is-stop:hover { background: var(--border); }
+/* Model for this chat: a quiet line above the message box that unfolds into a ticked list. */
+.model-line {
+  display: inline-flex; align-items: center; gap: 4px; margin: 0 0 6px 12px;
+  font-size: 13px; line-height: 18px; font-weight: 500; color: var(--text-muted);
+}
+.model-line.is-button { height: 28px; margin-left: 4px; padding: 0 8px; border-radius: var(--radius-full); }
+.model-line.is-button:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); }
+.model-line.is-button:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
+.model-line-muted { color: var(--text-muted); font-weight: 400; margin-right: 4px; }
+/* The thinking slider, floating above the box: "Thinking  High", Faster to Smarter, then a slim
+   rail with a dot per level, a clay fill and a round thumb that sits on the chosen dot. */
+/* The model list and the thinking slider: small cards floating over the conversation right above
+   their buttons, so opening one moves nothing. Each rises a few px as it fades in. */
+.picker-pop {
+  position: absolute; bottom: calc(100% + 6px); z-index: 1; width: 300px; max-width: 100%;
+  opacity: 0; transform: translateY(6px); visibility: hidden;
+  transition: opacity 160ms var(--ease-standard), transform var(--duration-base) var(--ease-out), visibility 0s linear var(--duration-base);
+}
+.picker-pop.is-model { left: 0; }
+.picker-pop.is-thinking { right: 0; }
+.picker-pop[data-open="true"] { opacity: 1; transform: none; visibility: visible; transition-delay: 0s; }
+.model-options, .effort-slider { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-md); }
+/* A long list scrolls inside its card rather than running off the top of the screen. Inside the
+   card the rows are rounded items inset evenly from its edge, with no hairlines between them (page
+   lists bleed their rows past the text, which here ran into the card's edge on one side only). */
+.model-options { display: flex; flex-direction: column; gap: 2px; padding: 6px; max-height: min(360px, 50dvh); overflow-y: auto; }
+.oy-section.model-options > .oy-row + .oy-row::before { content: none; }
+.model-options button.oy-row { margin: 0; width: 100%; min-height: 38px; padding: 8px 10px; border-radius: calc(var(--radius-md) - 6px); }
+.effort-slider { padding: 10px 12px 8px; }
+.effort-head { display: flex; align-items: baseline; gap: 6px; font-size: 14px; line-height: 20px; }
+.effort-head-label { color: var(--text-muted); }
+.effort-head-value { color: var(--accent-ink); font-weight: 600; }
+.effort-ends { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; line-height: 16px; color: var(--text-muted); }
+/* The whole 32px strip takes clicks and drags; only the 6px rail through its middle is drawn. */
+.effort-track { position: relative; height: 32px; margin-top: 2px; touch-action: none; cursor: pointer; outline: none; }
+.effort-rail, .effort-fill { position: absolute; top: 50%; height: 6px; margin-top: -3px; border-radius: var(--radius-full); }
+/* Inset by the gap between the track's padding and the thumb's half-width, so both rounded ends
+   tuck under the thumb at the first and last levels. */
+.effort-rail { left: 3px; right: 3px; background: var(--surface-muted); box-shadow: inset 0 0 0 1px var(--border); }
+.effort-fill { left: 3px; background: var(--accent); transition: width 240ms var(--ease-standard); }
+.effort-stop { position: absolute; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: var(--radius-full); background: var(--text-muted); opacity: 0.5; transition: opacity 160ms var(--ease-standard); }
+/* Stops show on the empty part of the rail only. */
+.effort-stop.is-covered { opacity: 0; }
+.effort-thumb {
+  position: absolute; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: var(--radius-full);
+  background: var(--control-thumb); border: 1px solid var(--border); box-shadow: var(--shadow-sm);
+  /* Glides from level to level (and follows a drag the same way). */
+  transition: left 240ms var(--ease-standard), transform var(--duration-quick) var(--ease-standard);
+}
+.effort-track:active .effort-thumb { transform: scale(1.08); }
+.effort-track:focus-visible .effort-thumb { border-color: var(--text); }
+@media (prefers-reduced-motion: reduce) { .effort-fill, .effort-thumb, .effort-stop, .picker-pop { transition: none; } }
+
+.composer-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 8px; font-size: 12px; line-height: 16px; color: var(--text-muted); }
+@media (max-width: 767px) {
+  .composer textarea { font-size: 16px; } /* iOS doesn't zoom into 16px fields */
+}
+
+/* ── markdown ──────────────────────────────────────────────────── */
+.md { overflow-wrap: anywhere; }
+.md-plain { white-space: pre-wrap; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md blockquote, .md .md-code, .md .md-table { margin: 0 0 12px; }
+.md h1, .md h2, .md h3, .md h4 { margin: 20px 0 8px; font-weight: 600; letter-spacing: -0.01em; }
+.md h1 { font-size: 20px; line-height: 26px; }
+.md h2 { font-size: 17px; line-height: 24px; }
+.md h3, .md h4 { font-size: 15px; line-height: 22px; }
+.md ul, .md ol { padding-inline-start: 22px; }
+.md li + li { margin-top: 4px; }
+.md li > p { margin-bottom: 4px; }
+.md blockquote { padding-inline-start: 12px; border-inline-start: 2px solid var(--border-strong); color: var(--text-muted); }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
+.md code { font-family: var(--font-mono); font-size: 13px; }
+.md :not(pre) > code { padding: 1px 5px; border-radius: var(--radius-xs); background: var(--surface-muted); }
+/* Code blocks: a quiet header (language, copy) over the code, all on one muted surface. */
+.md-code { border-radius: var(--radius-md); background: var(--surface-muted); overflow: hidden; }
+.md-code-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: 32px; padding: 0 6px 0 14px; font-size: 12px; line-height: 16px; color: var(--text-muted);
+}
+.md-code-head .md-copy { opacity: 1; }
+/* Download and copy sit together at the right of the header. */
+.md-code-head .md-download { margin-left: auto; margin-right: -6px; }
+.md-code pre {
+  margin: 0; padding: 2px 16px 14px; overflow-x: auto; background: transparent;
+  font-size: 13px; line-height: 20px; tab-size: 2;
+}
+.md-code pre code { font-size: inherit; background: none; padding: 0; }
+
+/* Syntax colours from the design tokens, so code reads right in light and dark. Four inks:
+   terracotta for keywords, green for strings, blue for numbers and attributes, violet for names. */
+.hljs-comment, .hljs-quote, .hljs-meta { color: var(--text-muted); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-section, .hljs-name { color: var(--accent-ink); }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-selector-attr { color: var(--status-positive); }
+.hljs-number, .hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-selector-id, .hljs-selector-class { color: var(--status-info); }
+.hljs-title, .hljs-title.function_, .hljs-title.class_, .hljs-type, .hljs-built_in, .hljs-params .hljs-type { color: var(--status-violet); }
+.hljs-deletion { color: var(--danger); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+
+/* Tables scroll sideways rather than squeezing; the header reads as a header. */
+.md-table { overflow-x: auto; max-width: 100%; }
+.md table { border-collapse: collapse; font-size: 14px; line-height: 20px; min-width: 60%; }
+.md th, .md td { padding: 8px 14px 8px 0; border-bottom: 1px solid var(--border); text-align: start; vertical-align: top; }
+.md th { font-weight: 600; white-space: nowrap; border-bottom-color: var(--border-strong); }
+.md td:last-child, .md th:last-child { padding-right: 0; }
+.md td code, .md th code { white-space: nowrap; }
+
+/* Formulas: display math scrolls when it's wider than the column; inline math sits in the line. */
+.md .katex { font-size: 1.08em; }
+.md .katex-display { margin: 0 0 12px; padding: 4px 0; overflow-x: auto; overflow-y: hidden; }
+.md .katex-error { color: var(--text-muted); }
+
+/* Task lists from GitHub-style Markdown. */
+.md li.task-list-item { list-style: none; margin-inline-start: -22px; }
+.md li.task-list-item input { margin: 0 8px 0 0; vertical-align: -1px; accent-color: var(--accent); }
+
+/* ── admin ─────────────────────────────────────────────────────── */
+.admin-tabs { margin-bottom: 20px; overflow-x: auto; scrollbar-width: none; }
+/* Tab names stay on one line; on a phone the row scrolls sideways instead. */
+.admin-tabs .oy-tabs { width: max-content; min-width: 100%; }
+.admin-tabs .oy-tab { flex-shrink: 0; white-space: nowrap; }
+/* The admin area, its lists and its forms alike, uses the main area's width rather than sitting
+   in a narrow centred column, so they share one left edge and wide screens aren't mostly margin. */
+.admin-page .oy-page-column { max-width: var(--page-column-wide); }
+
+/* Admin overview: numbers on quiet cards, then the models, then shortcuts. Cards sit on a hairline
+   with large corners; nothing glows, hover only warms the surface a step. */
+.overview { display: flex; flex-direction: column; gap: 12px; container-type: inline-size; }
+.overview-actions { display: flex; flex-wrap: wrap; gap: 4px; margin: -8px 0 0 -10px; }
+/* Column counts step so no card is left alone on a row: three cards go one, two (the third
+   spanning the row) or three across; four go one, two or four across. */
+.stat-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@container (min-width: 32rem) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .stat-grid:not(.is-four) > :nth-child(3):last-child { grid-column: 1 / -1; }
+}
+@container (min-width: 48rem) {
+  .stat-grid:not(.is-four) { grid-template-columns: repeat(3, 1fr); }
+  .stat-grid:not(.is-four) > :nth-child(3):last-child { grid-column: auto; }
+}
+@container (min-width: 52rem) { .stat-grid.is-four { grid-template-columns: repeat(4, 1fr); } }
+.stat-card {
+  display: flex; flex-direction: column; min-width: 0; padding: 18px 20px 20px;
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface);
+}
+.stat-label { font-size: 15px; line-height: 22px; color: var(--text-muted); }
+/* The pill rides beside the figure, which is short, rather than beside the label, where it used to
+   drop onto a line of its own on a narrow card and leave a hole top right. */
+.stat-figure { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; margin-top: 14px; }
+.stat-figure .tag { height: 26px; padding: 0 10px; margin: 0; font-size: 13px; border-radius: var(--radius-sm); white-space: nowrap; }
+.stat-value { margin-top: 14px; font-size: 32px; line-height: 38px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
+.stat-figure .stat-value { margin-top: 0; }
+.stat-note { margin-top: 4px; font-size: 14px; line-height: 20px; color: var(--text-muted); }
+/* Two lines kept for the note, so swapping it for a day's one-line readout doesn't make the card
+   (and its row) jump. */
+.stat-note.has-readout { min-height: 40px; }
+/* A card's trend line sits at its foot, so neighbouring cards' lines share one baseline. */
+.sparkline { margin-top: auto; padding-top: 14px; cursor: default; outline: none; }
+.sparkline:focus-visible .sparkline-plot { background: var(--surface-hover); border-radius: var(--radius-xs); }
+.sparkline-plot { position: relative; height: 36px; }
+.sparkline svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.sparkline-line { fill: none; stroke: var(--chart-second); stroke-width: 2px; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.sparkline-dot {
+  position: absolute; width: 8px; height: 8px; transform: translate(-50%, -50%); border-radius: var(--radius-full);
+  background: var(--chart-line); box-shadow: 0 0 0 2px var(--surface); pointer-events: none;
+}
+.sparkline-cross { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: var(--border); pointer-events: none; }
+
+/* Token volume: the figure on the left, two weeks of columns on the right. */
+.volume-card { flex-direction: row; align-items: stretch; gap: 24px; }
+.volume-figure { flex: none; min-width: 9rem; }
+.volume-chart { flex: 1; min-width: 0; max-width: 34rem; margin-inline-start: auto; display: flex; flex-direction: column; justify-content: flex-end; }
+.volume-bars { display: flex; align-items: flex-end; gap: 2px; height: 96px; border-bottom: 1px solid var(--border); }
+.volume-slot { flex: 1; height: 100%; display: flex; align-items: flex-end; justify-content: center; padding: 0; border-radius: var(--radius-xs) var(--radius-xs) 0 0; cursor: default; }
+.volume-slot:focus-visible { outline: none; background: var(--surface-hover); }
+.volume-bar { width: 100%; max-width: 24px; border-radius: 4px 4px 0 0; background: var(--chart-second); }
+.volume-slot.is-recent .volume-bar { background: var(--chart-line); }
+.volume-slot.is-active .volume-bar { opacity: 0.7; }
+.volume-axis { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; line-height: 16px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+@media (max-width: 559px) {
+  .volume-card { flex-direction: column; gap: 16px; }
+  .volume-chart { max-width: none; margin: 0; }
+}
+
+.overview-section { margin-top: 20px; }
+.overview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.text-link { font-size: 15px; line-height: 22px; color: var(--accent-ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 12px; }
+
+/* A model (an API key) as a card: a tinted band with its hand-drawn mark, then what it's set to. */
+.model-card, .shortcut-card {
+  position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface);
+  color: var(--text); text-decoration: none;
+}
+.model-card:hover, .shortcut-card:hover { background: var(--bg-subtle); }
+.model-art { display: grid; place-items: center; height: 112px; border-bottom: 1px solid var(--border); }
+.model-art-doodle { width: 6.5rem; height: auto; aspect-ratio: 96 / 72; stroke: var(--text); stroke-width: 2.2; }
+.model-art .wash { fill: color-mix(in oklab, var(--bg) 78%, transparent); }
+/* DeepSeek's avatar: a round sticker on its band, ringed in the card colour. */
+.model-art-avatar { width: 88px; height: 88px; border-radius: var(--radius-full); object-fit: cover; box-shadow: 0 0 0 3px var(--surface); }
+.usage-card .model-art-avatar { width: 64px; height: 64px; }
+.model-art.is-fable { background: color-mix(in oklab, var(--status-info) 34%, var(--bg)); }
+.model-art.is-opus { background: color-mix(in oklab, var(--clay-400) 72%, var(--bg)); }
+.model-art.is-sonnet { background: var(--surface-hover); }
+.model-art.is-haiku { background: color-mix(in oklab, var(--status-positive) 26%, var(--bg)); }
+.model-art.is-deepseek { background: color-mix(in oklab, var(--status-violet) 20%, var(--bg)); }
+.model-art.is-other { background: var(--accent-subtle); }
+.model-card-body { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 16px; }
+.model-card-title { font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+/* "Default" on the corner of the band: a quiet label in the card colour. */
+.model-card-badge {
+  position: absolute; top: 10px; left: 10px; padding: 2px 9px; border-radius: var(--radius-full);
+  background: var(--surface); color: var(--text); font-size: 12px; line-height: 18px; font-weight: 500;
+}
+.model-card-key { font-size: 13px; line-height: 18px; color: var(--text-muted); overflow-wrap: anywhere; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip-quiet { padding: 2px 8px; border-radius: var(--radius-xs); background: var(--surface-muted); font-size: 13px; line-height: 20px; color: var(--text); }
+.model-card.is-add {
+  align-items: center; justify-content: center; gap: 6px; min-height: 13rem; padding: 20px;
+  border-style: dashed; background: transparent; text-align: center; color: var(--text-muted);
+}
+.model-card.is-add .model-card-title { color: var(--text); }
+
+.shortcut-card { gap: 8px; padding: 18px 20px; }
+.shortcut-title { display: flex; align-items: center; gap: 10px; font-size: 16px; line-height: 22px; font-weight: 600; }
+.shortcut-count { align-self: flex-start; margin-top: auto; }
+
+/* Account › This month: a square-ended bar under each limit, amber once it's reached. */
+.allowance-meter { display: block; height: 4px; margin-top: 10px; background: var(--surface-muted); overflow: hidden; }
+.allowance-meter > span { display: block; height: 100%; background: var(--accent); transition: width var(--duration-base) var(--ease-standard); }
+.allowance-meter.is-full > span { background: var(--warning); }
+.shortcut-desc { font-size: 14px; line-height: 20px; color: var(--text-muted); }
+
+/* Usage page: the overview's cards, four totals, then a card per person and per key. */
+.usage-card:hover { background: var(--surface); }
+.usage-card .model-art { height: 84px; }
+.usage-card .model-art-doodle { width: 5rem; }
+.usage-card-name { font-size: 15px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
+.usage-card-cost { margin-top: 10px; font-size: 26px; line-height: 32px; font-weight: 600; letter-spacing: -0.02em; }
+/* Share of the period's spend: a thin bar, the track a lighter step of the same clay. */
+.share-meter { height: 6px; margin-top: 10px; border-radius: var(--radius-full); background: var(--accent-subtle); overflow: hidden; }
+.share-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--chart-line); }
+.usage-card-share { margin-top: 6px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+/* While another period loads, the old numbers stay put, dimmed. */
+.overview.is-refreshing > :not(.admin-toolbar) { opacity: 0.5; transition: opacity var(--duration-base) var(--ease-standard); }
+
+/* Usage charts. Series colours for the token split, the design system having no categorical set:
+   aqua and blue from the data-viz reference palette, clay for what the model wrote, stacked in
+   that order (checked for colour-blind separation between neighbours, in both themes). */
+.chart-grid {
+  --series-cached: #1baf7a; --series-sent: #2a78d6; --series-written: var(--clay-500);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr)); gap: 12px;
+}
+:root[data-theme="dark"] .chart-grid { --series-cached: #199e70; --series-sent: #3987e5; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .chart-grid { --series-cached: #199e70; --series-sent: #3987e5; }
+}
+.series-cost { background: var(--chart-line); }
+.series-cached { background: var(--series-cached); }
+.series-sent { background: var(--series-sent); }
+.series-written { background: var(--series-written); }
+.chart-card { gap: 0; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.chart-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend strong { font-weight: 600; color: var(--text); }
+.chart-key { width: 10px; height: 10px; border-radius: 3px; }
+
+.column-chart { margin-top: 16px; }
+/* Charts sit at the foot of their cards, so neighbouring charts share one baseline. */
+.chart-card .column-chart { margin-top: auto; padding-top: 16px; }
+.column-bars { display: flex; align-items: flex-end; gap: 2px; height: 120px; border-bottom: 1px solid var(--border); }
+.column-slot { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; padding: 0; border-radius: var(--radius-xs) var(--radius-xs) 0 0; cursor: default; }
+.column-slot:focus-visible { outline: none; background: var(--surface-hover); }
+.column-stack { display: flex; flex-direction: column-reverse; gap: 2px; width: 100%; max-width: 24px; }
+.column-part { flex-basis: 0; min-height: 1px; }
+/* A column too short to hold its parts and the gaps between them shows as one block. */
+.column-stack.is-short { gap: 0; }
+.column-part.is-top { border-radius: 4px 4px 0 0; }
+.column-slot.is-active .column-part { opacity: 0.7; }
+.column-axis { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; line-height: 16px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* The tab underline is a plain bar with square ends. */
+.oy-tabs-bar { border-radius: 0; }
+.admin-tabs::-webkit-scrollbar { display: none; }
+.admin-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.admin-filters { display: flex; gap: 12px; flex-wrap: wrap; }
+.admin-filters + .admin-filters { margin-top: 12px; }
+/* The number of declined messages waiting, beside "Declined" on the switch. */
+.seg-count { margin-inline-start: 6px; color: var(--accent-ink); }
+/* A group heading with an action at its end; the action's icon lines up with the rows' trailing edge. */
+.group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 2px; }
+.group-head .btn-ghost { margin-inline-end: -10px; }
+.group-empty { padding: 12px 0; font-size: 15px; line-height: 22px; color: var(--text-muted); }
+.filter-person { flex: 0 1 15rem; min-width: 12rem; }
+.search-field { position: relative; flex: 1 1 14rem; }
+.search-field .oy-icon { position: absolute; left: 14px; top: 13px; color: var(--text-muted); pointer-events: none; }
+.search-field .input-base { padding-left: 42px; }
+.table-scroll { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 15px; line-height: 22px; }
+.data-table th { padding: 8px 12px 8px 0; font-size: 13px; line-height: 18px; font-weight: 500; color: var(--text-muted); text-align: start; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.data-table td { padding: 12px 12px 12px 0; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.data-table .num { text-align: end; font-variant-numeric: tabular-nums; }
+.data-table th:last-child, .data-table td:last-child { padding-right: 0; }
+.truncate-cell { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+
+/* Form pages (keys, people): line fields, plain option lists, actions at the foot. */
+.form-page { display: flex; flex-direction: column; gap: 20px; }
+.form-page .oy-group + .oy-group { margin-top: 0; }
+.option-row { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+.option-row .title { font-weight: 400; }
+.option-row[aria-checked="true"] .title { font-weight: 500; }
+.check-empty { padding: 10px 0; font-size: 15px; line-height: 22px; }
+/* A settings row that leads to its own page, like a button row. */
+a.oy-row { margin: 0 -12px; width: calc(100% + 24px); padding-left: 12px; padding-right: 12px; border-radius: var(--radius-md); color: inherit; text-decoration: none; }
+a.oy-row:hover { background: var(--surface-hover); }
+.oy-section > .oy-row + a.oy-row::before { inset-inline-start: 44px; inset-inline-end: 12px; }
+.group-intro { margin: 0 0 12px; font-size: 14px; line-height: 20px; color: var(--text-muted); }
+.rewards-form .oy-section { margin-top: 2px; }
+
+/* Verifying an email for the reward. */
+.bonus-sent { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 22px; }
+.bonus-sent .oy-icon { flex: none; margin-top: 2px; color: var(--text-muted); }
+.bonus-sent strong { font-weight: 600; overflow-wrap: anywhere; }
+.bonus-change { margin-inline-start: auto; }
+.bonus-skip { align-self: flex-start; font-size: 14px; }
+.bonus-done { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.bonus-done-title { display: flex; align-items: center; gap: 10px; font-size: 20px; line-height: 28px; font-weight: 600; overflow-wrap: anywhere; }
+.bonus-done-title .oy-icon { flex: none; color: var(--status-positive); }
+.bonus-done .form-page-actions { margin-top: 12px; flex-wrap: wrap; }
+.option-row .desc { display: block; }
+.form-page-actions { display: flex; align-items: center; gap: 8px; }
+
+.danger-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; min-height: 48px; padding: 12px 0; border-top: 1px solid var(--border);
+  font-size: 15px; line-height: 22px; color: var(--danger); text-align: start;
+}
+.inline-confirm {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  min-height: 48px; padding: 8px 0; border-top: 1px solid var(--border);
+  font-size: 15px; line-height: 22px; animation: fade-in var(--duration-base) var(--ease-standard);
+}
+/* Under the page title the header already has its own edge, so the confirm line draws none. */
+.header-below .inline-confirm { border-top: 0; padding-top: 0; }
+.inline-confirm-actions { display: flex; gap: 8px; flex-shrink: 0; margin-inline-start: auto; }
+
+/* Password change, unfolded in place under its row. */
+.inline-panel .disclosure-inner > form { display: flex; flex-direction: column; gap: 22px; padding: 4px 0 20px; }
+.inline-panel .form-page-actions { margin-top: 4px; }
+.panel-note { margin-top: -6px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+
+/* A chat's own instructions unfold under its title; long ones scroll so the chat stays in view. */
+.instructions-panel { padding: 4px 0 16px; max-height: 60vh; overflow-y: auto; overscroll-behavior-y: none; }
+.instructions-form { display: flex; flex-direction: column; gap: 22px; }
+.header-note { padding: 0 0 12px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+/* A chat's settings page: the form, then sharing, then deleting. */
+.settings-group { margin-top: 36px; }
+/* Deleting sits apart at the foot; its "are you sure" line takes the row's place without moving. */
+.settings-danger { margin-top: 36px; }
+.share-panel { display: flex; flex-direction: column; gap: 16px; padding-top: 6px; }
+.share-text { font-size: 15px; line-height: 22px; color: var(--text-muted); }
+.share-panel .line-field input { color: var(--text-muted); }
+.share-panel .form-page-actions { flex-wrap: wrap; }
+/* Stopping sits apart from the pair, at the far end. */
+.share-stop { margin-inline-start: auto; color: var(--danger); }
+.btn-ghost.share-stop:hover:not(:disabled) { color: var(--danger); }
+/* The shared-chat page: no app frame, just the chat and a way in. */
+.share-page { min-height: 100dvh; }
+.share-foot {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
+  margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; line-height: 18px;
+}
+/* Marks the message from which a chat's instructions changed. */
+.msg-user .instr-note { margin: 0 0 6px; text-align: end; }
+/* The row after an unfolding panel keeps its divider, as if the panel weren't there. */
+.oy-section > .inline-panel + .oy-row::before {
+  content: ""; position: absolute; top: 0; height: 1px; background: var(--border);
+  inset-inline-start: 44px; inset-inline-end: 12px;
+}
+
+.switch-row { padding: 4px 0; min-height: 0; }
+.switch-row label.title { display: block; cursor: pointer; }
+.push-left { margin-inline-end: auto; }
+.mono-input { font-family: var(--font-mono); font-size: 14px; }
+.menu-desc { display: block; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.oy-select .truncate { flex: 1; }
+.form-actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 8px; }
+.form-actions .oy-field-hint { margin-top: 10px; }
+.audit-row { min-height: 0; padding: 10px 0; }
+.audit-row .title { font-weight: 400; }
+.audit-target { color: var(--text-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-send { transition: none; }
+}
+
+/* Opening a chat from the list: the chat slides in from the right over the list, which drifts a
+   little left; going back runs it in reverse. Only those navigations start a view transition
+   (src/lib/slide.ts), so nothing else moves. The sidebar is captured on its own and stays put. */
+.app-sidebar { view-transition-name: app-sidebar; }
+::view-transition-old(app-sidebar) { display: none; }
+::view-transition-new(app-sidebar) { animation: none; }
+html[data-slide]::view-transition-old(root),
+html[data-slide]::view-transition-new(root) {
+  animation-duration: 380ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  animation-fill-mode: both;
+  mix-blend-mode: normal;
+}
+html[data-slide="forward"]::view-transition-old(root) { animation-name: slide-out-left; }
+html[data-slide="forward"]::view-transition-new(root) { animation-name: slide-in-right; box-shadow: var(--shadow-lg); }
+html[data-slide="back"]::view-transition-old(root) { animation-name: slide-out-right; z-index: 1; box-shadow: var(--shadow-lg); }
+html[data-slide="back"]::view-transition-new(root) { animation-name: slide-in-left; }
+@keyframes slide-in-right { from { transform: translateX(100%); } }
+@keyframes slide-out-left { to { transform: translateX(-25%); } }
+@keyframes slide-out-right { to { transform: translateX(100%); } }
+@keyframes slide-in-left { from { transform: translateX(-25%); } }

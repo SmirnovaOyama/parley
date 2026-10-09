@@ -1,0 +1,53 @@
+import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { Hono } from "hono";
+import { secureHeaders } from "hono/secure-headers";
+import { Agent, setGlobalDispatcher } from "undici";
+import { sameOriginGuard, sessionMiddleware, type AppEnv } from "./auth.ts";
+import { env } from "./env.ts";
+import { adminRoutes } from "./routes/admin.ts";
+import { authRoutes } from "./routes/auth.ts";
+import { chatRoutes } from "./routes/chat.ts";
+import { sharedRoutes } from "./routes/shared.ts";
+
+// Node gives up opening a connection after 10 seconds. Behind a slow proxy (common when reaching
+// the AI providers from some regions) the TLS handshake alone can take longer, so wait a minute.
+setGlobalDispatcher(new Agent({ connect: { timeout: 60_000 } }));
+
+const app = new Hono<AppEnv>();
+
+const siteHeaders = secureHeaders({
+  contentSecurityPolicy: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'"],
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    imgSrc: ["'self'", "data:"],
+    connectSrc: ["'self'"],
+    frameAncestors: ["'none'"],
+  },
+});
+// Files a reply made are sent fully sandboxed: whatever is in them can't run as this site, even
+// when opened directly.
+const fileHeaders = secureHeaders({
+  contentSecurityPolicy: { sandbox: [], defaultSrc: ["'none'"], imgSrc: ["'self'"], styleSrc: ["'unsafe-inline'"] },
+});
+const FILE_PATH = /^\/api\/(files|shared\/[^/]+\/files)\//;
+app.use("*", (c, next) => (FILE_PATH.test(c.req.path) ? fileHeaders(c, next) : siteHeaders(c, next)));
+
+app.use("/api/*", sameOriginGuard, sessionMiddleware);
+app.route("/api/auth", authRoutes);
+app.route("/api/admin", adminRoutes);
+// Shared chat links, readable without an account when the site allows it (before the signed-in routes).
+app.route("/api/shared", sharedRoutes);
+app.route("/api", chatRoutes);
+app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
+
+// In production the API also serves the built app; any other path falls back to index.html.
+if (env.isProd) {
+  app.use("/*", serveStatic({ root: "./dist" }));
+  app.get("*", serveStatic({ path: "./dist/index.html" }));
+}
+
+serve({ fetch: app.fetch, port: env.port }, (info) => {
+  console.log(`API listening on http://localhost:${info.port}`);
+});

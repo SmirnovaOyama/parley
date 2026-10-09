@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { requireUser, type AppEnv } from "../auth.ts";
 import {
@@ -20,8 +21,8 @@ import {
 import { allowanceOf, overLimitMessage } from "../allowance.ts";
 import { decryptSecret } from "../crypto.ts";
 import { db, getSettings, nowIso } from "../db.ts";
-import { availableKeys, keyById, pickerChoices, startingKey, withChoice, type KeyRow } from "../keys.ts";
-import { estimateCost, modelLabel } from "../providers/catalog.ts";
+import { availableKeys, endpointOf, keyById, keyModel, keyModelLabel, opensOf, pickerChoices, startingKey, withChoice, type KeyRow } from "../keys.ts";
+import { estimateCost, hasTools, PROVIDERS } from "../providers/catalog.ts";
 import { describeProviderError, getProvider, shouldUseBackup } from "../providers/index.ts";
 import {
   cleanInstructions,
@@ -34,6 +35,17 @@ import {
 import { maybeRetitle } from "../titles.ts";
 import { shareOf, shareOut, shareUpTo, stopSharing } from "../shares.ts";
 import { fileHeaders, keepFiles, storedFile } from "../files.ts";
+import {
+  attachTo,
+  discardUpload,
+  forgetProviderFiles,
+  historyAttachments,
+  MAX_BYTES,
+  pickAttachments,
+  providerFileIds,
+  saveUpload,
+  unreadable,
+} from "../attachments.ts";
 import type { ChatResult } from "../providers/types.ts";
 
 export const chatRoutes = new Hono<AppEnv>();
@@ -41,19 +53,30 @@ chatRoutes.use("*", requireUser);
 
 const MAX_MESSAGE_CHARS = 50_000;
 const MESSAGES_PER_MINUTE = 20;
+const UPLOADS_PER_MINUTE = 40;
 
 /** Replies being written right now, so a person can stop one or come back to it. */
 const generating = new Map<string, { controller: AbortController; userId: number }>();
 const recentSends = new Map<number, number[]>();
+const recentUploads = new Map<number, number[]>();
 
-/** Some Claude key has web search on, so new chats declare the search tool. */
+/** The providers whose keys search the web and make files, as JSON for SQL's json_each. */
+const TOOL_PROVIDERS = JSON.stringify(PROVIDERS.filter((p) => p.tools).map((p) => p.id));
+
+/** Some Claude or OpenAI key has web search on, so new chats declare it. */
 function searchOnSite(): boolean {
-  return !!db.prepare("SELECT 1 FROM api_keys WHERE provider = 'anthropic' AND web_search = 1 LIMIT 1").get();
+  return !!db.prepare("SELECT 1 FROM api_keys WHERE provider IN (SELECT value FROM json_each(?)) AND web_search = 1 LIMIT 1").get(TOOL_PROVIDERS);
 }
 
-/** Some Claude key may make files, so new chats declare the code execution tool. */
+/** Some Claude or OpenAI key may make files, so new chats declare running code. */
 function codeOnSite(): boolean {
-  return !!db.prepare("SELECT 1 FROM api_keys WHERE provider = 'anthropic' AND code_execution = 1 LIMIT 1").get();
+  return !!db.prepare("SELECT 1 FROM api_keys WHERE provider IN (SELECT value FROM json_each(?)) AND code_execution = 1 LIMIT 1").get(TOOL_PROVIDERS);
+}
+
+/** The provider couldn't find a file id it was given: the file was deleted from that account. */
+function lostFile(err: unknown): boolean {
+  const { status, message } = err as { status?: number; message?: string };
+  return (status === 400 || status === 404) && /file/i.test(message ?? "") && /not found|does not exist|no such/i.test(message ?? "");
 }
 
 function ownConversation(id: string, userId: number) {
@@ -61,12 +84,12 @@ function ownConversation(id: string, userId: number) {
   return conv && conv.user_id === userId && !conv.deleted_at ? conv : undefined;
 }
 
-function rateLimited(userId: number): boolean {
+function rateLimited(userId: number, recent = recentSends, perMinute = MESSAGES_PER_MINUTE): boolean {
   const now = Date.now();
-  const times = (recentSends.get(userId) ?? []).filter((t) => now - t < 60_000);
+  const times = (recent.get(userId) ?? []).filter((t) => now - t < 60_000);
   times.push(now);
-  recentSends.set(userId, times);
-  return times.length > MESSAGES_PER_MINUTE;
+  recent.set(userId, times);
+  return times.length > perMinute;
 }
 
 /** The models this person can pick from, and which one new chats start with. */
@@ -146,7 +169,8 @@ chatRoutes.get("/conversations/:id/export", (c) => {
   const parts = [`# ${conv.title}`];
   for (const m of viewPath(conv)) {
     if (m.role === "user") {
-      parts.push(`**You**\n\n${m.text}`);
+      const files = m.attachments.length ? `_Attached ${m.attachments.map((a) => a.name).join(", ")}_` : "";
+      parts.push(`**You**\n\n${[files, m.text].filter(Boolean).join("\n\n")}`);
       continue;
     }
     let body = m.text.trim();
@@ -164,20 +188,49 @@ chatRoutes.get("/conversations/:id/export", (c) => {
   return c.body(`${parts.join("\n\n---\n\n")}\n`);
 });
 
-/** A file a reply made: for the chat's owner, and admins (who can read every chat). */
+/**
+ * A file a reply made or a person attached: for the chat's owner (or whoever uploaded it, before
+ * it's sent), and admins (who can read every chat).
+ */
 chatRoutes.get("/files/:id", (c) => {
   const file = storedFile(c.req.param("id"));
-  const owner = file
-    ? (db.prepare("SELECT cv.user_id FROM messages m JOIN conversations cv ON cv.id = m.conversation_id WHERE m.id = ?").get(file.message_id) as
-        | { user_id: number }
-        | undefined)
-    : undefined;
   const user = c.var.user!;
-  if (!file || !owner || (owner.user_id !== user.id && user.role !== "admin") || !existsSync(file.path)) {
+  if (!file || (file.owner_id !== user.id && user.role !== "admin") || !existsSync(file.path)) {
     return c.json({ error: "This file isn't here any more" }, 404);
   }
   for (const [name, value] of Object.entries(fileHeaders(file, c.req.query("inline") === "1"))) c.header(name, value);
   return c.body(readFileSync(file.path));
+});
+
+/**
+ * Adds a file to the message being written: the raw bytes as the body, the name in X-File-Name
+ * (URI-encoded). It waits, unsent, until a message takes it. A PUT with its own header can't be
+ * sent from another site without the browser asking first, which this API never allows.
+ */
+chatRoutes.put(
+  "/uploads",
+  bodyLimit({ maxSize: MAX_BYTES, onError: (c) => c.json({ error: `Files can be up to ${MAX_BYTES / (1024 * 1024)} MB` }, 413) }),
+  async (c) => {
+    const user = c.var.user!;
+    if (rateLimited(user.id, recentUploads, UPLOADS_PER_MINUTE)) {
+      return c.json({ error: "You're adding files quickly. Wait a moment and try again" }, 429);
+    }
+    let name = "file";
+    try {
+      name = decodeURIComponent(c.req.header("x-file-name") ?? "") || name;
+    } catch {
+      // Keep the plain name.
+    }
+    const saved = saveUpload(user.id, name, Buffer.from(await c.req.arrayBuffer()));
+    if ("error" in saved) return c.json(saved, 400);
+    return c.json({ attachment: saved });
+  },
+);
+
+/** Removes a file that was added but not sent. */
+chatRoutes.delete("/uploads/:id", (c) => {
+  discardUpload(c.var.user!.id, c.req.param("id"));
+  return c.json({ ok: true });
 });
 
 /** This chat's own instructions. A change applies from the next message, as a system note. */
@@ -237,6 +290,8 @@ chatRoutes.post("/conversations/:id/stop", (c) => {
  * - `text` + `parentId`: an edit, a new version of the message that followed `parentId`
  *   (null for the first message), so the old version and its replies stay as a branch;
  * - `regenerate`: a new version of the reply to that user message, with no new message.
+ * A new message or an edit can carry `attachments`: ids of files uploaded for it, or (editing)
+ * of files on a message in this chat, which the new version keeps.
  */
 chatRoutes.post("/chat", async (c) => {
   const user = c.var.user!;
@@ -244,12 +299,14 @@ chatRoutes.post("/chat", async (c) => {
   const regenerate = body.regenerate != null ? Number(body.regenerate) : null;
   const editing = regenerate == null && body.parentId !== undefined;
   const text = String(body.text ?? "").trim();
-  if (regenerate == null && !text) return c.json({ error: "Write a message first" }, 400);
   if (text.length > MAX_MESSAGE_CHARS) return c.json({ error: "That message is too long" }, 400);
 
   let conversationId = body.conversationId ? String(body.conversationId) : null;
   const existing = conversationId ? ownConversation(conversationId, user.id) : undefined;
   if (conversationId && !existing) return c.json({ error: "This chat doesn't exist" }, 404);
+  const files = regenerate == null ? pickAttachments(user.id, existing?.id ?? null, body.attachments) : [];
+  if (!Array.isArray(files)) return c.json(files, 400);
+  if (regenerate == null && !text && !files.length) return c.json({ error: "Write a message first" }, 400);
   if ((editing || regenerate != null) && !existing) return c.json({ error: "This chat doesn't exist" }, 404);
   if (conversationId && generating.has(conversationId)) {
     return c.json({ error: "A reply is still being written in this chat" }, 409);
@@ -283,6 +340,11 @@ chatRoutes.post("/chat", async (c) => {
     body.model != null ? String(body.model) : sameKey ? existing?.model : null,
     body.effort != null ? String(body.effort) : sameKey ? existing?.effort : null,
   );
+  const codeTool = existing ? !!existing.code_tool : codeOnSite();
+  // The files the model has to open for this reply: the new message's, or the regenerated one's.
+  const messageFiles = regenerate == null ? files : historyAttachments(regenerate);
+  const cantRead = unreadable(messageFiles, key, keyModelLabel(key, key.model), codeTool);
+  if (cantRead) return c.json({ error: cantRead }, 400);
   const overLimit = overLimitMessage(allowanceOf(user.id));
   if (overLimit) return c.json({ error: overLimit }, 429);
   if (rateLimited(user.id)) return c.json({ error: "You're sending messages quickly. Wait a moment and try again" }, 429);
@@ -297,15 +359,17 @@ chatRoutes.post("/chat", async (c) => {
 
   const now = nowIso();
   const created = !conversationId;
-  const title = created ? titleFrom(text) : existing!.title;
-  // Whether this chat declares Claude's web search tool is settled when it starts: yes while any
-  // Claude key has search on. It never changes after (see db.ts); each key's switch then decides.
+  const title = created ? titleFrom(text || files.map((f) => f.name).join(", ")) : existing!.title;
+  // Whether this chat declares web search is settled when it starts: yes while any Claude or OpenAI
+  // key has search on. It never changes after (see db.ts); each key's switch then decides. Claude
+  // needs this, because it ties its reasoning to the tools a chat declares. GPT's history goes
+  // back as plain text, so it could take the tool or leave it on any message, but it follows the
+  // same rule, so a chat that moves between the two searches, or doesn't, the same way throughout.
   const searchTool = existing ? !!existing.web_search_tool : searchOnSite();
   // A new message in such a chat whose key has search off says so to the model (see db.ts).
-  const searchOff = searchTool && key.provider === "anthropic" && !key.web_search;
+  const searchOff = searchTool && hasTools(key.provider) && !key.web_search;
   // Making files works the same way: declared from the start or never, then the key decides.
-  const codeTool = existing ? !!existing.code_tool : codeOnSite();
-  const codeOff = codeTool && key.provider === "anthropic" && !key.code_execution;
+  const codeOff = codeTool && hasTools(key.provider) && !key.code_execution;
   // A chat keeps the system prompt it started with, so editing the site's or the chat's
   // instructions never rewrites a chat in progress. Chats from before prompts were kept started
   // with the site's instructions alone, so that's what they keep.
@@ -343,6 +407,7 @@ chatRoutes.post("/chat", async (c) => {
         )
         .run(conversationId, parentId, text, changedInstructions, searchOff ? 1 : 0, codeOff ? 1 : 0, now).lastInsertRowid,
     );
+    attachTo(id, files);
     db.prepare("UPDATE conversations SET head_id = ? WHERE id = ?").run(id, conversationId);
     return id;
   });
@@ -373,7 +438,7 @@ chatRoutes.post("/chat", async (c) => {
       created,
       userMessageId,
       keyId: key.id,
-      model: modelLabel(key.provider, key.model),
+      model: keyModelLabel(key, key.model),
       modelId: key.model,
       effort: key.effort,
     });
@@ -399,9 +464,35 @@ chatRoutes.post("/chat", async (c) => {
         ? chatRow.container_id
         : null;
 
-    const attempt = (k: KeyRow) =>
+    // Claude reads attached files from its own account, and OpenAI's sandbox takes them from its
+    // account when the reply can run code: any not uploaded there yet go first. If the account lost
+    // one (deleted there), they're uploaded again and the reply tried once more.
+    const attempt = async (k: KeyRow): Promise<ChatResult> => {
+      const apiKey = decryptSecret(k.encrypted_key);
+      const withFiles =
+        history.some((t) => t.attachments?.length) &&
+        (k.provider === "anthropic" || (k.provider === "openai" && codeTool && codeAllowed));
+      const run = async () => {
+        const fileIds = withFiles
+          ? await providerFileIds(k.provider, apiKey, history, () => void send("status", { status: "uploading" }))
+          : undefined;
+        return ask(k, apiKey, fileIds);
+      };
+      try {
+        return await run();
+      } catch (err) {
+        if (!withFiles || partial || controller.signal.aborted || !lostFile(err)) throw err;
+        forgetProviderFiles(apiKey, history);
+        return await run();
+      }
+    };
+    const ask = (k: KeyRow, apiKey: string, fileIds: Map<string, string> | undefined) =>
       getProvider(k.provider).chat({
-        apiKey: decryptSecret(k.encrypted_key),
+        apiKey,
+        baseUrl: endpointOf(k)?.baseUrl,
+        reads: opensOf(k),
+        cacheKey: convId,
+        fileIds,
         model: k.model,
         effort: k.effort,
         system,
@@ -443,9 +534,11 @@ chatRoutes.post("/chat", async (c) => {
         // Before any text has arrived, a key or provider failure moves to the backup key once.
         const backup = keyById(key.fallback_key_id);
         if (controller.signal.aborted || partial || !backup || backup.id === key.id || !shouldUseBackup(err)) throw err;
+        // A backup that can't open this message's files would answer without them.
+        if (unreadable(messageFiles, backup, "", codeTool)) throw err;
         console.error(`[chat] ${key.provider}/${key.model} failed, trying backup "${backup.label}":`, err);
         used = backup;
-        const note = `Answered with ${modelLabel(backup.provider, backup.model)} because ${modelLabel(key.provider, key.model)} was unavailable`;
+        const note = `Answered with ${keyModelLabel(backup, backup.model)} because ${keyModelLabel(key, key.model)} was unavailable`;
         notes.push(note);
         void send("notice", { message: note });
         result = await attempt(backup);
@@ -485,7 +578,7 @@ chatRoutes.post("/chat", async (c) => {
     // can link to them straight away.
     if (result?.fileIds.length && saved.status !== "failed" && saved.status !== "declined") {
       void send("status", { status: "saving" });
-      const kept = await keepFiles(decryptSecret(used.encrypted_key), result.fileIds, saved.id, convId);
+      const kept = await keepFiles(used.provider, decryptSecret(used.encrypted_key), result.fileIds, saved.id, convId);
       saved.files = kept.files;
       if (kept.failed) {
         const note = [saved.note, `${kept.failed === 1 ? "A file" : `${kept.failed} files`} it made couldn't be saved`]
@@ -590,7 +683,7 @@ function saveOutcome({ convId, userId, userMessageId, key, partial, result, fail
     );
 
     if (result) {
-      const cost = estimateCost(key.provider, key.model, result.usage);
+      const cost = estimateCost(keyModel(key, key.model), result.usage, key.provider);
       db.prepare(
         `INSERT INTO usage_events (user_id, api_key_id, key_label, provider, model, input_tokens, output_tokens,
            cache_read_tokens, cache_write_tokens, web_searches, cost_usd, created_at)

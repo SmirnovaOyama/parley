@@ -14,7 +14,7 @@ type Props = {
   editor?: ReactNode;
   /** A line under the bar, e.g. an inline "are you sure". */
   below?: ReactNode;
-  /** At the far end of the bar, level with the back link (or the title when there's none). */
+  /** At the far end, level with the title (its first line, when it wraps). */
   trailing?: ReactNode;
 };
 
@@ -22,6 +22,9 @@ type Props = {
 export function PageHeader({ title, subtitle, actions, back, editor, below, trailing }: Props) {
   const [scrolled, setScrolled] = useState(false);
   const slideTo = useSlideNavigate();
+  // Under a back link the title sits lower than the bar's top, so the trailing button joins the
+  // title's own row to stay level with it.
+  const inTitleRow = !!back && !!trailing && !editor;
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 0);
     onScroll();
@@ -52,12 +55,20 @@ export function PageHeader({ title, subtitle, actions, back, editor, below, trai
               {back.label}
             </Link>
           )}
-          {editor ?? <h1>{title}</h1>}
+          {editor ??
+            (inTitleRow ? (
+              <div className="title-row">
+                <h1>{title}</h1>
+                <div className="bar-trailing">{trailing}</div>
+              </div>
+            ) : (
+              <h1>{title}</h1>
+            ))}
           {subtitle && !editor && <p className="subtitle">{subtitle}</p>}
           {/* Actions get their own line under the title, so a long title can use the full width. */}
           {actions && !editor && <div className="actions">{actions}</div>}
         </div>
-        {trailing && !editor && <div className="bar-trailing">{trailing}</div>}
+        {trailing && !editor && !inTitleRow && <div className="bar-trailing">{trailing}</div>}
       </div>
       {below && <div className="oy-page-column header-below">{below}</div>}
     </header>

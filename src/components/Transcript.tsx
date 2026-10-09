@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "../icons/Icon.tsx";
-import type { Message } from "../lib/api.ts";
+import type { Attachment, Message } from "../lib/api.ts";
 import { dateTime, fileSize } from "../lib/format.ts";
+import { EditFiles, MessageFiles } from "./Attachments.tsx";
 import { Advisory, BusyMark } from "./Feedback.tsx";
 // The renderer brings code highlighting and math typesetting, so it loads on first use; until then
 // a reply shows as plain text.
@@ -10,7 +11,7 @@ const Markdown = lazy(() => import("./Markdown.tsx").then((m) => ({ default: m.M
 export type UiMessage = Message & {
   /** The reply is still arriving. */
   streaming?: boolean;
-  phase?: "waiting" | "thinking" | "writing" | "searching" | "coding" | "saving";
+  phase?: "waiting" | "uploading" | "thinking" | "writing" | "searching" | "coding" | "saving";
   /** While searching: what for. */
   searchQuery?: string;
   notice?: string;
@@ -22,12 +23,13 @@ type Props = {
   readOnly?: boolean;
   /** A reply is being written, so editing, regenerating and switching wait. */
   busy?: boolean;
-  onEdit?: (message: UiMessage, text: string) => void;
+  /** Sends a new version of your message, with the files it keeps. */
+  onEdit?: (message: UiMessage, text: string, attachmentIds: string[]) => void;
   /** Writes a new version of this reply. */
   onRegenerate?: (message: UiMessage) => void;
   /** Shows another version of a message. */
   onSwitch?: (messageId: number) => void;
-  /** Where a reply's file downloads from; a shared page goes through its link. */
+  /** Where a file downloads from (made or attached); a shared page goes through its link. */
   fileUrl?: (fileId: string) => string;
 };
 
@@ -44,7 +46,8 @@ export function Transcript({ messages, readOnly, busy, onEdit, onRegenerate, onS
             message={m}
             readOnly={readOnly}
             switcher={switcher(m)}
-            onEdit={!readOnly && !busy && onEdit && m.id > 0 ? (text) => onEdit(m, text) : undefined}
+            fileUrl={fileUrl}
+            onEdit={!readOnly && !busy && onEdit && m.id > 0 ? (text, ids) => onEdit(m, text, ids) : undefined}
           />
         ) : (
           <AssistantMessage
@@ -92,20 +95,29 @@ function VersionSwitcher({ message, onSwitch, disabled }: { message: UiMessage; 
   );
 }
 
-type UserProps = { message: UiMessage; readOnly?: boolean; switcher: React.ReactNode; onEdit?: (text: string) => void };
+type UserProps = {
+  message: UiMessage;
+  readOnly?: boolean;
+  switcher: React.ReactNode;
+  fileUrl: (fileId: string) => string;
+  onEdit?: (text: string, attachmentIds: string[]) => void;
+};
 
-function UserMessage({ message, readOnly, switcher, onEdit }: UserProps) {
+function UserMessage({ message, readOnly, switcher, fileUrl, onEdit }: UserProps) {
   const [editing, setEditing] = useState(false);
+  const attachments = message.attachments ?? [];
 
   if (editing && onEdit) {
     return (
       <div className="msg msg-user">
         <EditBox
           initial={message.text}
+          files={attachments}
+          fileUrl={fileUrl}
           onCancel={() => setEditing(false)}
-          onSend={(text) => {
+          onSend={(text, ids) => {
             setEditing(false);
-            onEdit(text);
+            onEdit(text, ids);
           }}
         />
       </div>
@@ -115,7 +127,8 @@ function UserMessage({ message, readOnly, switcher, onEdit }: UserProps) {
   return (
     <div className="msg msg-user">
       {message.instructionsChanged && <p className="msg-note instr-note">Instructions changed from here</p>}
-      <div className="bubble">{message.text}</div>
+      {attachments.length > 0 && <MessageFiles files={attachments} url={fileUrl} />}
+      {message.text && <div className="bubble">{message.text}</div>}
       {(readOnly || switcher || onEdit) && (
         <div className={`msg-meta msg-meta-user${!switcher && !readOnly ? " is-floating" : ""}`}>
           {readOnly && <span>{dateTime(message.createdAt)}</span>}
@@ -131,9 +144,23 @@ function UserMessage({ message, readOnly, switcher, onEdit }: UserProps) {
   );
 }
 
-/** The message, editable in place. Sending makes a new version; the old one stays. */
-function EditBox({ initial, onCancel, onSend }: { initial: string; onCancel: () => void; onSend: (text: string) => void }) {
+type EditProps = {
+  initial: string;
+  files: Attachment[];
+  fileUrl: (fileId: string) => string;
+  onCancel: () => void;
+  onSend: (text: string, attachmentIds: string[]) => void;
+};
+
+/**
+ * The message, editable in place, with its files (the cross leaves one out). Sending makes a new
+ * version; the old one stays.
+ */
+function EditBox({ initial, files, fileUrl, onCancel, onSend }: EditProps) {
   const [value, setValue] = useState(initial);
+  const [kept, setKept] = useState(files);
+  const changed = value.trim() !== initial.trim() || kept.length !== files.length;
+  const sendable = (!!value.trim() || kept.length > 0) && changed;
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useLayoutEffect(() => {
@@ -150,8 +177,7 @@ function EditBox({ initial, onCancel, onSend }: { initial: string; onCancel: () 
   }, []);
 
   const send = () => {
-    const text = value.trim();
-    if (text) onSend(text);
+    if (sendable) onSend(value.trim(), kept.map((f) => f.id));
   };
 
   return (
@@ -162,6 +188,7 @@ function EditBox({ initial, onCancel, onSend }: { initial: string; onCancel: () 
         send();
       }}
     >
+      <EditFiles files={kept} url={fileUrl} onRemove={(id) => setKept((list) => list.filter((f) => f.id !== id))} />
       <textarea
         ref={ref}
         aria-label="Edit your message"
@@ -179,7 +206,7 @@ function EditBox({ initial, onCancel, onSend }: { initial: string; onCancel: () 
         <button type="button" className="btn-secondary btn-sm" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" className="btn-primary btn-sm" disabled={!value.trim() || value.trim() === initial.trim()}>
+        <button type="submit" className="btn-primary btn-sm" disabled={!sendable}>
           Send
         </button>
       </div>
@@ -332,6 +359,8 @@ function Thinking({ phase, detail }: { phase?: UiMessage["phase"]; detail?: stri
         "Running code"
       ) : phase === "saving" ? (
         "Saving the files it made"
+      ) : phase === "uploading" ? (
+        "Sending your files"
       ) : phase === "thinking" ? (
         "Thinking"
       ) : (

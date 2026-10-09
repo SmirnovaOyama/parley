@@ -18,16 +18,31 @@ export type ModelOption = {
 };
 
 export type ProviderInfo = {
-  id: "anthropic" | "deepseek";
+  id: string;
   label: string;
+  /** A short line under its name where admins pick a provider. */
+  detail?: string;
+  /** What its models can do: "Images", "PDFs", "Web search". */
+  features: string[];
+  /** Its models come from each key: an address and the model names the admin types. */
+  custom: boolean;
   models: ModelOption[];
   defaultModel: string;
 };
+
+/** A service that speaks OpenAI's chat format, offered as a starting point for its address. */
+export type Service = { id: string; label: string; baseUrl: string; example: string };
+
+/** Another service's key: where it is, the models it serves (dollars per million tokens), and whether they see pictures. */
+export type Endpoint = { baseUrl: string; models: { id: string; input: number | null; output: number | null }[]; images: boolean };
 
 export type ApiKey = {
   id: number;
   label: string;
   provider: ProviderInfo["id"];
+  /** The provider, or for another service the service: "OpenRouter", "llm.example.com". */
+  providerLabel: string;
+  endpoint: Endpoint | null;
   model: string;
   modelLabel: string;
   /** The models people may pick with this key. */
@@ -71,7 +86,7 @@ export function KeysPage() {
           </button>
         }
       >
-        Add a Claude or DeepSeek key so people can start chatting
+        Add a key for Claude, OpenAI, Gemini, Grok, DeepSeek or another service so people can start chatting
       </EmptyState>
     );
   }
@@ -96,7 +111,8 @@ export function KeysPage() {
                 {k.codeExecution && <span className="tag">Makes files</span>}
               </p>
               <div className="desc">
-                Offers {plural(k.models.length, "model", "models")} and starts new chats on {k.modelLabel} with thinking set to {k.effortLabel.toLowerCase()}. The key ends in {k.last4}
+                {k.endpoint ? `Offers ${plural(k.models.length, "model", "models")} on ${k.providerLabel} and starts new chats on ${k.modelLabel}` : `Offers ${plural(k.models.length, "model", "models")} and starts new chats on ${k.modelLabel} with thinking set to ${k.effortLabel.toLowerCase()}`}
+                {k.last4 ? `. The key ends in ${k.last4}` : ". It has no API key"}
               </div>
               <div className="desc">
                 {k.shared ? "Everyone can pick it" : `${plural(k.grantedUsers, "person", "people")} can pick it`}

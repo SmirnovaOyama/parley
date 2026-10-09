@@ -1,10 +1,11 @@
 // Names chats by what they're about. The first title is the opening message's first line; once a
 // reply is in, the chat's own model writes a short summary title, and again after the fourth
 // exchange so a chat that wandered gets a title that covers it. A chat someone renamed is left alone.
-import { getConversation, pathTo } from "./chat-store.ts";
+import { attachmentsOf } from "./attachments.ts";
+import { getConversation, pathTo, type MessageRow } from "./chat-store.ts";
 import { decryptSecret } from "./crypto.ts";
 import { db, nowIso } from "./db.ts";
-import type { KeyRow } from "./keys.ts";
+import { endpointOf, keyModel, type KeyRow } from "./keys.ts";
 import { estimateCost } from "./providers/catalog.ts";
 import { getProvider } from "./providers/index.ts";
 
@@ -22,6 +23,12 @@ const SYSTEM = [
 ].join(" ");
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
+
+/** A message's words, with the names of any files attached to it (a message can be files alone). */
+function withFileNames(m: MessageRow): string {
+  const names = m.role === "user" ? attachmentsOf(m.id).map((a) => a.name) : [];
+  return names.length ? `[Attached ${names.join(", ")}] ${m.text}`.trim() : m.text;
+}
 
 /**
  * Makes whatever came back fit the house rules: one line, no quotes or Markdown, no closing full
@@ -70,11 +77,12 @@ export async function maybeRetitle(convId: string, userId: number, key: KeyRow, 
 
     const transcript = answered
       .slice(0, MAX_MESSAGES)
-      .map((m) => `${m.role === "user" ? "Person" : "Assistant"}: ${clip(m.text, MAX_CHARS_PER_MESSAGE)}`)
+      .map((m) => `${m.role === "user" ? "Person" : "Assistant"}: ${clip(withFileNames(m), MAX_CHARS_PER_MESSAGE)}`)
       .join("\n\n");
 
     const result = await getProvider(key.provider).complete({
       apiKey: decryptSecret(key.encrypted_key),
+      baseUrl: endpointOf(key)?.baseUrl,
       model: key.model,
       system: SYSTEM,
       prompt: `<conversation>\n${transcript}\n</conversation>`,
@@ -97,7 +105,7 @@ export async function maybeRetitle(convId: string, userId: number, key: KeyRow, 
       result.usage.output,
       result.usage.cacheRead,
       result.usage.cacheWrite,
-      estimateCost(key.provider, key.model, result.usage),
+      estimateCost(keyModel(key, key.model), result.usage),
       nowIso(),
     );
 

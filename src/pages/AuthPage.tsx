@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
+import { BusyButton } from "../components/BusyButton.tsx";
 import { Callout, Spinner } from "../components/Feedback.tsx";
 import { LineField } from "../components/LineField.tsx";
+import { HAND_LETTERED, ParleyFlag, Wordmark } from "../icons/Brand.tsx";
 import { api } from "../lib/api.ts";
 import { APP_NAME } from "../lib/brand.ts";
 import { useSession } from "../lib/session.tsx";
@@ -97,9 +99,9 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
           error={error}
           required
         />
-        <button className="btn-primary btn-block" type="submit" disabled={busy || !email || !password}>
+        <BusyButton className="btn-primary btn-block" type="submit" busy={busy} disabled={!email || !password}>
           {busy ? "One moment" : signup ? "Create account" : "Sign in"}
-        </button>
+        </BusyButton>
       </form>
       {!state.needsSetup && (
         <p className="auth-switch text-muted">
@@ -118,10 +120,26 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   );
 }
 
+// The flag and name draw themselves once per visit; moving between sign in and sign up shows them drawn.
+let brandDrawn = false;
+
 function AuthFrame({ title, children }: { title: string; children: React.ReactNode }) {
+  const [draw] = useState(() => !brandDrawn);
+  useEffect(() => {
+    brandDrawn = true;
+  }, []);
   return (
     <div className="auth">
-      <p className="auth-wordmark">{APP_NAME}</p>
+      {HAND_LETTERED ? (
+        <div className="auth-brand">
+          <ParleyFlag draw={draw} />
+          <p className="auth-wordmark">
+            <Wordmark draw={draw} start={1150} />
+          </p>
+        </div>
+      ) : (
+        <p className="auth-wordmark">{APP_NAME}</p>
+      )}
       <h1 className="title-lg">{title}</h1>
       {children}
     </div>

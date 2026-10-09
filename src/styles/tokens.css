@@ -48,6 +48,9 @@
   --heatmap-4: var(--clay-700);
   --illustration-line: var(--brand);
   --illustration-wash: var(--clay-50);
+  /* The quieter watercolour wash behind ink-and-wash illustrations (the brand flag uses --brand). */
+  --lineart-wash: var(--clay-300);
+  --lineart-wash-edge: var(--clay-400);
   --clay-50: oklch(97.5% 0.012 45);
   --clay-100: oklch(94.5% 0.028 44);
   --clay-200: oklch(88.5% 0.055 42);
@@ -181,6 +184,8 @@
   --heatmap-3: var(--clay-500);
   --heatmap-4: var(--clay-300);
   --illustration-wash: var(--clay-950);
+  --lineart-wash: var(--clay-700);
+  --lineart-wash-edge: var(--clay-600);
   --pixel-blue: #7fb3ce;
   --pixel-pink: #d69faf;
   --pixel-white: #e4dbde;
@@ -246,6 +251,8 @@
     --heatmap-3: var(--clay-500);
     --heatmap-4: var(--clay-300);
     --illustration-wash: var(--clay-950);
+    --lineart-wash: var(--clay-700);
+    --lineart-wash-edge: var(--clay-600);
     --pixel-blue: #7fb3ce;
     --pixel-pink: #d69faf;
     --pixel-white: #e4dbde;

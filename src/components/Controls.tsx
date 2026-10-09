@@ -123,7 +123,8 @@ export function Tick({ on, size = 18 }: { on: boolean; size?: number }) {
 
 type OptionListProps<K extends string> = {
   label: string;
-  options: readonly { id: K; label: string; detail?: string }[];
+  /** `features`: what a choice can do, each shown with a small quiet tick under its name. */
+  options: readonly { id: K; label: string; detail?: string; features?: readonly string[] }[];
   value: K;
   onChange: (id: K) => void;
 };
@@ -146,6 +147,18 @@ export function OptionList<K extends string>({ label, options, value, onChange }
             <span className="text">
               <span className="title">{o.label}</span>
               {o.detail && <span className="desc">{o.detail}</span>}
+              {o.features?.length ? (
+                <span className="option-features">
+                  {o.features.map((f) => (
+                    <span key={f} className="option-feature">
+                      {f}
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5.3 12.7c1.5 1.3 2.9 2.8 4.2 4.4 2.9-3.7 6-7.2 9.3-10.5" />
+                      </svg>
+                    </span>
+                  ))}
+                </span>
+              ) : null}
             </span>
             <Tick on={o.id === value} />
           </button>

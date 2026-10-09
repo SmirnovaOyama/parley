@@ -57,10 +57,15 @@ export type Message = {
   sources?: { url: string; title: string }[];
   /** When it cited nothing: pages its searches returned. */
   found?: { url: string; title: string }[];
-  /** Files the reply made (Claude's code execution), downloaded from /api/files/:id. */
+  /** Files the reply made (Claude's or OpenAI's code), downloaded from /api/files/:id. */
   files?: { id: string; name: string; mime: string; size: number }[];
+  /** On your message: the files you attached, from /api/files/:id too. */
+  attachments?: Attachment[];
   createdAt: string;
 };
+
+/** A file attached to a message: what the model gets is its kind (other: only code can open it). */
+export type Attachment = { id: string; name: string; mime: string; size: number; kind: "image" | "pdf" | "text" | "other" };
 
 /** About you, and how the AI should answer: Account defaults, or one chat's own. */
 export type Instructions = { aboutMe: string; answerStyle: string };
@@ -73,6 +78,8 @@ export type ModelChoice = {
   /** Thinking levels this model takes, lowest first, and the one a chat starts on. */
   efforts: { id: string; label: string }[];
   defaultEffort: string;
+  /** The kinds of file it can open: some of images, PDFs and text, or anything (Claude or OpenAI running code). */
+  reads: Attachment["kind"][];
 };
 /** One chat's pick: which key runs it, the model, and how hard it thinks. */
 export type Choice = { keyId: number; model: string; effort: string };
@@ -92,6 +99,38 @@ export type SharingMode = "anyone" | "signed-in" | "off";
 export type Share = { token: string; leafId: number; sharedAt: string };
 export const shareUrl = (token: string) => `${window.location.origin}/share/${token}`;
 
+// ── Attaching files ─────────────────────────────────────────────────
+
+/**
+ * Uploads one file for the message being written, reporting how much of it has gone. Uses
+ * XMLHttpRequest because fetch can't report upload progress. abort() stops it.
+ */
+export function uploadFile(file: Blob, name: string, onProgress: (fraction: number) => void) {
+  const xhr = new XMLHttpRequest();
+  const promise = new Promise<Attachment>((resolve, reject) => {
+    xhr.open("PUT", "/api/uploads");
+    xhr.setRequestHeader("content-type", "application/octet-stream");
+    xhr.setRequestHeader("x-file-name", encodeURIComponent(name));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      let data: { attachment?: Attachment; error?: string } = {};
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        // Not JSON: a proxy's error page, say.
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && data.attachment) resolve(data.attachment);
+      else reject(new ApiError(xhr.status, data.error ?? "Couldn't add this file. Try again"));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Couldn't add this file. Check the connection and try again"));
+    xhr.onabort = () => reject(new ApiError(0, "Stopped"));
+    xhr.send(file);
+  });
+  return { promise, abort: () => xhr.abort() };
+}
+
 // ── Streaming a reply ───────────────────────────────────────────────
 
 export type StreamHandlers = {
@@ -109,7 +148,7 @@ export type StreamHandlers = {
   onDelta: (text: string) => void;
   onThinking: (text: string) => void;
   /** "searching" comes with the query. */
-  onStatus: (status: "thinking" | "writing" | "searching" | "coding" | "saving", detail?: string) => void;
+  onStatus: (status: "thinking" | "writing" | "searching" | "coding" | "saving" | "uploading", detail?: string) => void;
   onNotice: (message: string) => void;
   onDone: (message: Message) => void;
   onError: (message: Message) => void;
@@ -135,6 +174,8 @@ export async function streamChat(
     regenerate?: number;
     /** A new chat's own instructions (else it starts with the Account defaults). */
     instructions?: Instructions;
+    /** Files for the new message or the edited version (uploaded first, see uploadFile). */
+    attachments?: string[];
   },
   handlers: StreamHandlers,
   signal?: AbortSignal,

@@ -127,7 +127,8 @@ export function OverviewPage() {
                 <div className="chip-row">
                   <span className="chip-quiet">{plural(m.modelCount, "model", "models")}</span>
                   <span className="chip-quiet">
-                    Starts on {m.modelLabel.replace(/^Claude /, "")}, {m.effortLabel.toLowerCase()}
+                    Starts on {m.modelLabel.replace(/^Claude /, "")}
+                    {m.effortLabel !== "Default" && `, ${m.effortLabel.toLowerCase()}`}
                   </span>
                   {m.webSearch && <span className="chip-quiet">Web search</span>}
                   <span className="chip-quiet">{m.everyone ? "Everyone" : plural(m.granted, "person", "people")}</span>
@@ -140,7 +141,7 @@ export function OverviewPage() {
           <Link className="model-card is-add" to="/admin/keys/new">
             <Icon name="plus" size={20} />
             <span className="model-card-title">{data.models.length ? "Add a key" : "Add the first key"}</span>
-            <span className="model-card-key">Claude or DeepSeek, for everyone or chosen people</span>
+            <span className="model-card-key">Claude, OpenAI, Gemini, Grok or another service, for everyone or chosen people</span>
           </Link>
         </div>
       </section>

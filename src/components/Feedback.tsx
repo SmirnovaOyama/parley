@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Doodle } from "../icons/Doodle.tsx";
+import { Doodle, type DoodleName } from "../icons/Doodle.tsx";
 import { Icon } from "../icons/Icon.tsx";
 
 /** A warning as a plain coloured line, never boxed, with an optional next step. */
@@ -31,7 +31,7 @@ export function Callout({ icon, children }: { icon?: "eye" | "lock" | "alert" | 
   );
 }
 
-type EmptyProps = { doodle?: "chat" | "people"; title: string; children?: ReactNode; action?: ReactNode };
+type EmptyProps = { doodle?: DoodleName; title: string; children?: ReactNode; action?: ReactNode };
 
 /** Names what's missing and the one thing to do about it. */
 export function EmptyState({ doodle, title, children, action }: EmptyProps) {

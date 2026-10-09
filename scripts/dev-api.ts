@@ -6,8 +6,15 @@ import { watch } from "node:fs";
 let child: ChildProcess | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 
+// In development PORT belongs to the page server (Vite), which tools like the editor preview set;
+// the API keeps its own port, the one vite.config.ts forwards /api to.
+const API_PORT = process.env.API_PORT ?? "8787";
+
 function start() {
-  child = spawn(process.execPath, ["--env-file-if-exists=.env", "server/index.ts"], { stdio: "inherit" });
+  child = spawn(process.execPath, ["--env-file-if-exists=.env", "server/index.ts"], {
+    stdio: "inherit",
+    env: { ...process.env, PORT: API_PORT },
+  });
 }
 
 function restart(file: string) {

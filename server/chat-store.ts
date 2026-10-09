@@ -1,6 +1,7 @@
 // Conversation and message reads shared by the user and admin routes. A conversation is a tree:
 // editing a message or regenerating a reply adds a sibling instead of rewriting history, and the
 // screen shows one branch, from the first message down to the conversation's head.
+import { attachmentsOf, historyAttachments, type PublicAttachment } from "./attachments.ts";
 import { db } from "./db.ts";
 import { instructionsNote, parseInstructions } from "./instructions.ts";
 import { modelLabel } from "./providers/catalog.ts";
@@ -96,6 +97,8 @@ export type PublicMessage = {
   found: { url: string; title: string }[];
   /** Files the reply made (Claude's code execution). */
   files: PublicFile[];
+  /** On a user message: the files attached to it. */
+  attachments: PublicAttachment[];
   createdAt: string;
 };
 
@@ -151,6 +154,7 @@ export function toPublic(m: MessageRow, siblings: number[] = siblingIds(m)): Pub
     siblingIds: siblings,
     ...webOf(m.web),
     files: m.role === "assistant" ? filesOf(m.id) : [],
+    attachments: m.role === "user" ? attachmentsOf(m.id) : [],
     createdAt: m.created_at,
   };
 }
@@ -234,7 +238,14 @@ export function historyFor(leafId: number): HistoryTurn[] {
     const answered = path[i + 1]?.role === "assistant" && path[i + 1].in_context === 1;
     const keep = m.role === "assistant" ? m.in_context === 1 : i === path.length - 1 || answered;
     if (!keep) return;
-    turns.push({ role: m.role, text: m.text, content: m.content ? JSON.parse(m.content) : null, provider: m.provider });
+    const attachments = m.role === "user" ? historyAttachments(m.id) : [];
+    turns.push({
+      role: m.role,
+      text: m.text,
+      content: m.content ? JSON.parse(m.content) : null,
+      provider: m.provider,
+      ...(attachments.length ? { attachments } : {}),
+    });
     // Changed chat instructions follow the message they arrived with, as a system note: the
     // place the API allows one (after a user message, before the reply).
     if (m.role === "user" && m.instructions) {

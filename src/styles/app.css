@@ -4,11 +4,17 @@
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 /* No elastic bounce or pull-to-refresh: the page stops dead at its top and bottom (Safari 16+).
-   Sideways stays as it was, so swiping back through history still works. */
-html, body { overscroll-behavior-y: none; }
+   It never moves sideways either: a two-finger swipe left or right doesn't slide or bounce it
+   (in Chrome and Edge that also turns off swiping back through history). */
+html, body { overscroll-behavior: none; }
 body { margin: 0; min-height: 100dvh; }
 h1, h2, h3, p { margin: 0; }
-#root { min-height: 100dvh; }
+/* Nothing can make the page wider than the window. Clip, not hidden, so it isn't a scroll box and
+   the sticky header, sidebar and composer still stick. What's meant to scroll sideways (code,
+   tables, formulas, the admin tabs) does it in its own box, and a swipe that reaches that box's
+   end stops there instead of passing on to the page. */
+#root { min-height: 100dvh; overflow-x: clip; }
+.md-code pre, .md-table, .md .katex-display, .table-scroll, .admin-tabs { overscroll-behavior-x: contain; }
 
 /* House rule: no all-caps headings. Group headings are sentence case and read as headings:
    full body size, semibold, in the text colour. */
@@ -114,6 +120,25 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .busy-arc { stroke: var(--accent-ink); }
 @keyframes busy-turn { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .busy-mark { animation: none; } }
+/* A busy button (BusyButton): the same mark, in the label's colour, slides in before the label
+   while the button stays full colour. It's waiting, not disabled. The label's width eases from script. */
+.busy-btn { flex-shrink: 0; gap: 0; white-space: nowrap; overflow: clip; }
+.busy-btn[aria-busy="true"] { cursor: progress; }
+.busy-btn[aria-busy="true"]:active { transform: none; }
+.busy-btn-mark {
+  display: inline-flex; flex-shrink: 0; width: 0; overflow: hidden; opacity: 0;
+  transition: width var(--duration-base) var(--ease-out), opacity var(--duration-base) var(--ease-standard);
+}
+.busy-btn[aria-busy="true"] .busy-btn-mark { width: calc(1em + 6px); opacity: 1; }
+.busy-btn-mark .busy-mark { width: 1em; height: 1em; }
+.busy-btn:not([aria-busy="true"]) .busy-mark { animation-play-state: paused; }
+.busy-btn .busy-track { stroke: currentColor; opacity: 0.3; }
+.busy-btn .busy-arc { stroke: currentColor; }
+.busy-btn-label { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+@media (prefers-reduced-motion: reduce) {
+  .busy-btn-mark { transition: none; }
+  .busy-btn .busy-mark { animation: busy-turn 2.4s linear infinite; }
+}
 .sidebar-chat[aria-current="page"] { font-weight: 500; }
 .sidebar-empty { padding: 4px 12px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
 /* Admin and Account sit apart by space alone; a rule here crowded the selected pill. */
@@ -166,6 +191,35 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 /* ── auth ──────────────────────────────────────────────────────── */
 .auth { max-width: 24rem; margin: 0 auto; padding: max(12vh, 48px) 24px 48px; display: flex; flex-direction: column; gap: 20px; }
 .auth-wordmark { font-size: 17px; line-height: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--accent-ink); }
+/* Flag and name side by side, the lettering's baseline on the flag's ground line. The flag's
+   ground stroke starts a little in from its box, so the box hangs out past the column edge. */
+.auth-brand { display: flex; align-items: flex-end; gap: 4px; margin-bottom: 4px; }
+.auth-brand .brand-flag { flex: none; width: 68px; height: 68px; margin-left: -12px; }
+.auth-brand .auth-wordmark { margin-bottom: -4.5px; }
+.auth-brand .brand-word { height: 44px; }
+.oy-sidebar .wordmark .brand-word { height: 26px; margin: -2px 0 -4px -2px; }
+
+/* ── brand: Parley's flag and hand-lettered name (src/icons/Brand.tsx) ───── */
+.brand-ink { fill: none; stroke: var(--text); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.brand-ink .brand-paper { fill: var(--bg); }
+.brand-ink .brand-dot { fill: var(--text); stroke: none; }
+.brand-wash-fill { fill: var(--brand); }
+.brand-wash-edge { fill: none; stroke: var(--clay-600); stroke-width: 1.4; stroke-opacity: 0.55; stroke-linejoin: round; }
+.brand-word { display: block; width: auto; overflow: visible; }
+/* The lettering sits on a smaller grid than the flag, so its pen is wider in grid units to put
+   the same weight of ink on screen. */
+.brand-word .brand-ink { stroke-width: 4.4; }
+/* Drawing in: every stroke has pathLength 1, so one dash pattern runs any of them from the pen's
+   start to its end. Dots land once their line is there; the wash soaks in under the lines last. */
+.is-drawing .brand-stroke { stroke-dasharray: 1 2; stroke-dashoffset: 1.05; animation: brand-pen var(--len, 300ms) var(--ease-standard) var(--at, 0ms) forwards; }
+.is-drawing .brand-dot { opacity: 0; animation: brand-appear 160ms var(--ease-out) var(--at, 0ms) forwards; }
+.is-drawing .brand-wash { opacity: 0; transform: scale(0.96); transform-box: fill-box; transform-origin: 30% 70%; animation: brand-soak 900ms var(--ease-out) var(--at, 0ms) forwards; }
+@keyframes brand-pen { to { stroke-dashoffset: 0; } }
+@keyframes brand-appear { to { opacity: 1; } }
+@keyframes brand-soak { to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .is-drawing .brand-stroke, .is-drawing .brand-dot, .is-drawing .brand-wash { animation: none; stroke-dasharray: none; opacity: 1; transform: none; }
+}
 .auth-switch { font-size: 13px; line-height: 18px; }
 .auth-form { display: flex; flex-direction: column; gap: 22px; }
 .auth-form .btn-primary { margin-top: 10px; }
@@ -213,7 +267,10 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .advisory-line { margin: 8px 0; }
 .advisory-action { padding-inline-start: 18px; margin-top: 4px; }
 .empty-state { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 48px 16px; }
-.empty-state .oy-doodle { margin-bottom: 8px; }
+/* Ink-and-wash scenes (src/icons/Doodle.tsx), the brand flag's style at about its sign-in size. */
+.empty-state .lineart { width: 4.5rem; height: 4.5rem; margin-bottom: 8px; flex-shrink: 0; }
+.lineart-wash { fill: var(--lineart-wash); }
+.lineart-wash-edge { fill: none; stroke: var(--lineart-wash-edge); stroke-width: 1.4; stroke-opacity: 0.55; stroke-linejoin: round; }
 .empty-state .btn-primary { margin-top: 10px; }
 
 .loading-line { display: flex; justify-content: center; padding: 32px 0; color: var(--text-muted); }
@@ -232,15 +289,18 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .chat .oy-page-header .bar { padding-top: 14px; padding-bottom: 8px; }
 .chat .oy-page-header h1 { font-size: 20px; line-height: 26px; letter-spacing: -0.015em; }
 .chat .oy-page-header .actions { margin-top: 2px; }
-/* The gear at the far end of a chat's header: level with the back link on a phone, with the title
-   on a wider screen, its icon lined up with the column's edge. */
+/* The gear at the far end of a chat's header: in the title's row, centred on its first line, its
+   icon lined up with the column's edge. */
 .oy-page-header .bar-trailing { align-self: flex-start; flex-shrink: 0; margin-right: -6px; }
+.oy-page-header .title-row { display: flex; align-items: flex-start; gap: 12px; }
+.oy-page-header .title-row h1 { flex: 1; min-width: 0; }
+/* A 32px button on the chat title's 26px line. */
+.chat .oy-page-header .title-row .bar-trailing { margin-top: -3px; }
 /* A solid button there (New chat on the chat list) sits level with the title and subtitle, flush
    with the column's edge; the icon side gets a little less padding so it looks centred. */
 .oy-page-header .bar-trailing:has(> .btn-primary) { align-self: center; margin-right: 0; }
 .oy-page-header .bar-trailing > .btn-primary { padding-left: 14px; }
 .btn-ghost.icon-button { width: 32px; padding: 0; justify-content: center; }
-@media (min-width: 768px) { .chat .oy-page-header .bar-trailing { margin-top: -3px; } }
 .chat-body { flex: 1; padding-top: 8px; padding-bottom: 8px; }
 
 .transcript { display: flex; flex-direction: column; gap: 24px; padding: 8px 0 16px; }
@@ -283,7 +343,6 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
   white-space: pre-wrap;
 }
 .edit-box-actions { display: flex; justify-content: flex-end; gap: 8px; }
-@media (max-width: 767px) { .edit-box textarea { font-size: 16px; } }
 .msg-note { margin-top: 6px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
 /* "Waiting for a reply" (and searching, running code) is set exactly like the "Thinking" label that
    replaces it, so nothing changes size when one gives way to the other. */
@@ -366,14 +425,20 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .composer-head .model-picker { display: contents; }
 /* Both sit on one 28px line, whether the model is plain text or a button that unfolds. */
 .composer-head .model-line { height: 28px; margin-bottom: 0; }
+/* The box: a row of file tiles at its top when there are any, then add, the words and Send. */
 .composer {
-  display: flex; align-items: flex-end; gap: 8px;
-  padding: 8px 8px 8px 16px;
+  display: flex; flex-direction: column;
+  padding: 8px;
   background: var(--field); border: 1px solid var(--border-strong); border-radius: 22px;
   box-shadow: var(--shadow-sm);
   transition: border-color var(--duration-quick) var(--ease-standard), box-shadow var(--duration-quick) var(--ease-standard);
 }
 .composer:focus-within { border-color: var(--text); }
+/* Files dragged over the page: a dashed edge says the box takes them. */
+.composer.is-dropping { border-color: var(--text); border-style: dashed; background: var(--bg-subtle); }
+.composer-row { display: flex; align-items: flex-end; gap: 6px; }
+.composer-add { flex-shrink: 0; width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: var(--radius-full); color: var(--text-muted); }
+.composer-add:hover { color: var(--text); }
 .composer textarea:focus-visible { outline: none; }
 .composer textarea {
   flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent;
@@ -390,6 +455,53 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .composer-send:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
 .composer-send.is-stop { color: var(--text); background: var(--surface-pressed); }
 .composer-send.is-stop:hover { background: var(--border); }
+.composer-hint { margin: 6px 16px 0; font-size: 12px; line-height: 16px; color: var(--text-muted); overflow-wrap: anywhere; }
+
+/* Files on a message being written (or edited): tiles in a row. A picture is a small square; any
+   other file shows its mark, name and size. The cross sits on the corner; while a file uploads, a
+   thin line runs along the tile's foot. */
+.attach-tiles { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 6px 4px 10px; list-style: none; }
+.attach-tile {
+  position: relative; display: flex; align-items: center; gap: 8px; width: 13rem; max-width: 100%; height: 56px;
+  padding: 8px 10px 8px 8px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface);
+}
+.attach-tile.is-image { width: 56px; padding: 0; background: var(--surface-muted); }
+.attach-tile img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: calc(var(--radius-md) - 1px); transition: opacity var(--duration-base) var(--ease-standard); }
+.attach-tile.is-loading img { opacity: 0.55; }
+.attach-tile-icon { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: var(--radius-xs); background: var(--surface-muted); color: var(--text-muted); }
+.attach-tile-text { display: flex; flex-direction: column; min-width: 0; }
+.attach-tile-name { font-size: 13px; line-height: 18px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attach-tile-size { font-size: 12px; line-height: 16px; color: var(--text-muted); }
+.attach-tile.is-failed { border-style: dashed; }
+.attach-tile.is-failed .attach-tile-name { color: var(--text-muted); }
+.attach-tile-progress { position: absolute; left: 8px; right: 8px; bottom: 5px; height: 2px; border-radius: var(--radius-full); background: var(--surface-muted); overflow: hidden; }
+.attach-tile.is-image .attach-tile-progress { left: 6px; right: 6px; bottom: 6px; background: var(--surface); }
+.attach-tile-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--text-muted); transition: width 200ms var(--ease-standard); }
+.attach-tile-remove {
+  position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 20px; height: 20px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-full); background: var(--surface); color: var(--text-muted);
+  box-shadow: var(--shadow-sm);
+}
+.attach-tile-remove:hover { color: var(--text); }
+/* With a mouse on a wide screen the cross waits until you point at the tile; on phones it's always there. */
+@media (hover: hover) and (min-width: 768px) {
+  .attach-tile-remove { opacity: 0; transition: opacity var(--duration-quick) var(--ease-standard); }
+  .attach-tile:hover .attach-tile-remove, .attach-tile:focus-within .attach-tile-remove, .attach-tile.is-failed .attach-tile-remove { opacity: 1; }
+}
+.edit-box .attach-tiles { justify-content: flex-end; padding: 6px 0 0; }
+
+/* Files on a sent message, above its bubble and lined up with it: one picture large, several as a
+   row of squares, other files as cards. */
+.msg-files { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: 85%; margin-bottom: 6px; }
+.msg-images { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.msg-images a { display: block; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-muted); }
+.msg-images img { display: block; width: 112px; height: 112px; object-fit: cover; }
+/* A fixed cap, not a percentage: a percentage made the frame size itself to the full picture. */
+.msg-images.is-single img { width: auto; height: auto; max-width: 260px; max-height: 260px; }
+.msg-file-cards { justify-content: flex-end; margin: 0; }
+/* As wide as the tiles in the message box, so two sit side by side on a phone. */
+.msg-file-cards .file-card { width: 13rem; }
+.msg-user .msg-files:last-child { margin-bottom: 0; }
 /* Model for this chat: a quiet line above the message box that unfolds into a ticked list. */
 .model-line {
   display: inline-flex; align-items: center; gap: 4px; margin: 0 0 6px 12px;
@@ -444,9 +556,6 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 @media (prefers-reduced-motion: reduce) { .effort-fill, .effort-thumb, .effort-stop, .picker-pop { transition: none; } }
 
 .composer-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 8px; font-size: 12px; line-height: 16px; color: var(--text-muted); }
-@media (max-width: 767px) {
-  .composer textarea { font-size: 16px; } /* iOS doesn't zoom into 16px fields */
-}
 
 /* ── markdown ──────────────────────────────────────────────────── */
 .md { overflow-wrap: anywhere; }
@@ -599,6 +708,9 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .model-art.is-sonnet { background: var(--surface-hover); }
 .model-art.is-haiku { background: color-mix(in oklab, var(--status-positive) 26%, var(--bg)); }
 .model-art.is-deepseek { background: color-mix(in oklab, var(--status-violet) 20%, var(--bg)); }
+.model-art.is-gpt { background: color-mix(in oklab, var(--status-positive) 14%, var(--bg)); }
+.model-art.is-gemini { background: color-mix(in oklab, var(--status-info) 18%, var(--bg)); }
+.model-art.is-grok { background: color-mix(in oklab, var(--clay-700) 24%, var(--bg)); }
 .model-art.is-other { background: var(--accent-subtle); }
 .model-card-body { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 16px; }
 .model-card-title { font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
@@ -703,6 +815,11 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .option-row { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
 .option-row .title { font-weight: 400; }
 .option-row[aria-checked="true"] .title { font-weight: 500; }
+.option-row .desc { text-wrap: pretty; }
+/* What a choice can do: a quiet line of words, each with a small tick after it. */
+.option-features { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.option-feature { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.option-feature svg { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--status-positive); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .check-empty { padding: 10px 0; font-size: 15px; line-height: 22px; }
 /* A settings row that leads to its own page, like a button row. */
 a.oy-row { margin: 0 -12px; width: calc(100% + 24px); padding-left: 12px; padding-right: 12px; border-radius: var(--radius-md); color: inherit; text-decoration: none; }
@@ -743,6 +860,14 @@ a.oy-row:hover { background: var(--surface-hover); }
 .inline-panel .form-page-actions { margin-top: 4px; }
 .panel-note { margin-top: -6px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
 
+/* Another service's models on a key: a name and two prices per row, a way to take one off. */
+.endpoint-models { display: flex; flex-direction: column; gap: 14px; }
+.endpoint-model { display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px 32px; align-items: start; gap: 12px; }
+.endpoint-model .icon-button { margin-top: 20px; }
+.endpoint-model .icon-button:disabled { visibility: hidden; }
+.endpoint-add { align-self: flex-start; margin: 10px 0 0 -10px; }
+.endpoint-note { margin-top: 10px; }
+
 /* A chat's own instructions unfold under its title; long ones scroll so the chat stays in view. */
 .instructions-panel { padding: 4px 0 16px; max-height: 60vh; overflow-y: auto; overscroll-behavior-y: none; }
 .instructions-form { display: flex; flex-direction: column; gap: 22px; }
@@ -776,6 +901,12 @@ a.oy-row:hover { background: var(--surface-hover); }
 .switch-row label.title { display: block; cursor: pointer; }
 .push-left { margin-inline-end: auto; }
 .mono-input { font-family: var(--font-mono); font-size: 14px; }
+/* A phone zooms the page into any field set under 16px once it's tapped, so on a small or touch
+   screen no field is. Line fields are 17px already and keep it. */
+@media (max-width: 767px), (pointer: coarse) {
+  :where(input, textarea, select, [contenteditable]),
+  .input-base, .mono-input, .composer textarea, .edit-box textarea { font-size: 16px; }
+}
 .menu-desc { display: block; font-size: 13px; line-height: 18px; color: var(--text-muted); }
 .oy-select .truncate { flex: 1; }
 .form-actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 8px; }

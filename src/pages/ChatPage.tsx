@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { ComposerFiles } from "../components/Attachments.tsx";
 import { EmptyState, Spinner, Advisory } from "../components/Feedback.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { ModelPicker } from "../components/ModelPicker.tsx";
 import { Transcript, type UiMessage } from "../components/Transcript.tsx";
 import { Icon } from "../icons/Icon.tsx";
-import { api, streamChat, type Choice, type Instructions, type Message, type ModelChoice, type Share } from "../lib/api.ts";
+import { api, streamChat, type Attachment, type Choice, type Instructions, type Message, type ModelChoice, type Share } from "../lib/api.ts";
+import { kindsPhrase } from "../lib/format.ts";
 import { useSession } from "../lib/session.tsx";
 import { useSlideNavigate } from "../lib/slide.ts";
+import { useUploads, type PendingFile } from "../lib/uploads.ts";
 
 type Loaded = {
   conversation: {
@@ -57,21 +60,35 @@ export function ChatPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  // Files on the message being written, uploading as soon as they're added.
+  const uploads = useUploads();
+  /** Files are being dragged over the page: the message box says it takes them. */
+  const [dropping, setDropping] = useState(false);
   const [share, setShare] = useState<Share | null>(null);
   /** A short line under the title, e.g. after saving this chat's settings. */
   const [headerNote, setHeaderNote] = useState<string | null>(null);
   const [models, setModels] = useState<Models>({ choices: [], start: null });
-  // The model and thinking level for this chat: what it used last, or the person's start.
-  const [choice, setChoice] = useState<Choice | null>(null);
   const [chatPick, setChatPick] = useState<ChatPick | null>(null);
+  /** A model or thinking level picked for this chat and not sent yet. */
+  const [handPick, setHandPick] = useState<Choice | null>(null);
+  // The model and thinking level for this chat: one just picked, what it used last, or the start.
+  const choice = resolvePick(models, handPick ?? chatPick);
 
+  // An admin may change the models or where new chats start at any time, in another window too:
+  // read them again for each chat opened and whenever the page comes back into view.
+  const loadModels = useCallback(() => api.get<Models>("/models").then(setModels, () => {}), []);
   useEffect(() => {
-    api.get<Models>("/models").then(setModels, () => {});
-  }, []);
-
+    void loadModels();
+  }, [id, loadModels]);
   useEffect(() => {
-    setChoice(resolvePick(models, chatPick));
-  }, [chatPick, models]);
+    const onShow = () => document.visibilityState === "visible" && void loadModels();
+    window.addEventListener("focus", onShow);
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      window.removeEventListener("focus", onShow);
+      document.removeEventListener("visibilitychange", onShow);
+    };
+  }, [loadModels]);
 
   // Which conversation the screen shows; stream handlers only touch state while it matches.
   const shownIdRef = useRef<string | null>(id ?? null);
@@ -108,6 +125,7 @@ export function ChatPage() {
     shownIdRef.current = id ?? null;
     setSendError(null);
     setShare(null);
+    setHandPick(null);
     // Coming back from this chat's settings page, say what was saved.
     const note = (location.state as { note?: string } | null)?.note ?? null;
     setHeaderNote(note);
@@ -143,6 +161,47 @@ export function ChatPage() {
   // Stop listening (not generating) when the page goes away.
   useEffect(() => () => listenRef.current?.abort(), []);
 
+  // Files dropped anywhere on the chat go on the message being written. While they're dragged over
+  // it, the message box says so (enter and leave fire for every element passed over, so count them).
+  const addFiles = uploads.add;
+  useEffect(() => {
+    if (missing) return;
+    let depth = 0;
+    const carriesFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes("Files");
+    const enter = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      depth++;
+      setDropping(true);
+    };
+    const over = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = "copy";
+    };
+    const leave = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (!depth) setDropping(false);
+    };
+    const drop = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDropping(false);
+      addFiles([...e.dataTransfer!.files]);
+    };
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragover", over);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("drop", drop);
+    };
+  }, [missing, addFiles]);
+
   // Keep the newest text in view while it streams, unless the reader scrolled up. Any move up
   // lets go at once (a near-bottom threshold alone snapped the page back every frame while the
   // reader was still within reach of the end); reaching the end again picks it back up.
@@ -172,16 +231,23 @@ export function ChatPage() {
   // up straight away and is replaced by the saved branch once the reply is in.
   type Run =
     | { kind: "new"; text: string }
-    | { kind: "edit"; text: string; target: UiMessage }
+    | { kind: "edit"; text: string; attachments: Attachment[]; target: UiMessage }
     | { kind: "regenerate"; target: UiMessage };
 
   const run = async (request: Run) => {
     if (sending) return;
-    if (request.kind !== "regenerate" && !request.text.trim()) return;
+    if (request.kind === "new" && uploads.uploading) return;
+    // A new message takes the files in the box; an edit, the ones kept from the message.
+    const files = request.kind === "new" ? uploads.ready : request.kind === "edit" ? request.attachments : [];
+    if (request.kind !== "regenerate" && !request.text.trim() && !files.length) return;
     const text = request.kind === "regenerate" ? "" : request.text.trim();
     setSendError(null);
     setSending(true);
-    if (request.kind === "new") setDraft("");
+    let taken: PendingFile[] = [];
+    if (request.kind === "new") {
+      setDraft("");
+      taken = uploads.take();
+    }
     setHeaderNote(null);
     stickRef.current = request.kind === "new";
 
@@ -192,7 +258,7 @@ export function ChatPage() {
     const tempReplyId = tempUserId - 1;
     const now = new Date().toISOString();
     const blank = { model: "", status: "ok" as const, error: null, note: null, thinking: null, thinkingMs: null, instructionsChanged: false, siblingIds: [], createdAt: now };
-    const tempUser: UiMessage = { ...blank, id: tempUserId, parentId: null, role: "user", text };
+    const tempUser: UiMessage = { ...blank, id: tempUserId, parentId: null, role: "user", text, attachments: files };
     const tempReply: UiMessage = { ...blank, id: tempReplyId, parentId: null, role: "assistant", text: "", streaming: true, phase: "waiting" };
     // Everything after the edited message, or from the regenerated reply on, belongs to the old branch.
     const cut = request.kind === "new" ? before.length : before.findIndex((m) => m.id === request.target.id);
@@ -222,11 +288,12 @@ export function ChatPage() {
     };
 
     const picked = choice ? { keyId: choice.keyId, model: choice.model, effort: choice.effort } : {};
+    const attachments = files.length ? { attachments: files.map((f) => f.id) } : {};
     const body =
       request.kind === "new"
-        ? { conversationId: convId, text, ...picked, ...(convId || !newChatInstructions ? {} : { instructions: newChatInstructions }) }
+        ? { conversationId: convId, text, ...picked, ...attachments, ...(convId || !newChatInstructions ? {} : { instructions: newChatInstructions }) }
         : request.kind === "edit"
-          ? { conversationId: convId, text, ...picked, parentId: request.target.parentId }
+          ? { conversationId: convId, text, ...picked, ...attachments, parentId: request.target.parentId }
           : { conversationId: convId, ...picked, regenerate: request.target.parentId! };
 
     const listen = new AbortController();
@@ -237,6 +304,7 @@ export function ChatPage() {
     const settle = () => {
       if (settled) return;
       settled = true;
+      uploads.release(taken);
       if (streamingIdRef.current === convId) streamingIdRef.current = null;
       // The reply is saved: its spinner in the chat list stops.
       void refreshConversations();
@@ -268,6 +336,7 @@ export function ChatPage() {
             touchConversation({ id: convId, title: meta.title, updatedAt: new Date().toISOString(), generating: true });
             if (isShown()) {
               setChatPick({ keyId: meta.keyId, model: meta.modelId, effort: meta.effort });
+              setHandPick(null);
               setMessages((list) =>
                 list.map((m) =>
                   m.id === tempUserId ? { ...m, id: meta.userMessageId } : m.id === tempReplyId ? { ...m, model: meta.model } : m,
@@ -308,7 +377,10 @@ export function ChatPage() {
       if (!listen.signal.aborted && isShown()) {
         // Refused before anything was saved (no key, over the limit, too fast): put things back.
         setMessages(before);
-        if (request.kind === "new") setDraft(text);
+        if (request.kind === "new") {
+          setDraft(text);
+          uploads.restore(taken);
+        }
         setSendError((err as Error).message);
       }
     } finally {
@@ -338,6 +410,14 @@ export function ChatPage() {
     const convId = streamingIdRef.current ?? id;
     if (convId) void api.post(`/conversations/${convId}/stop`);
   };
+
+  // Each model opens some kinds of file (DeepSeek text only, say), so a file in the box that the
+  // picked model can't open waits for one that can.
+  const picked = models.choices.find((c) => choice && c.keyId === choice.keyId && c.model === choice.model);
+  const unread = picked ? uploads.ready.filter((a) => !picked.reads.includes(a.kind)) : [];
+  const fileHint = unread.length
+    ? `${picked!.label} reads ${kindsPhrase(picked!.reads)} only. Pick another model to send ${unread.length === 1 ? unread[0].name : "these files"}`
+    : uploads.problem;
 
   return (
     <div className="chat">
@@ -373,14 +453,16 @@ export function ChatPage() {
             It may have been deleted
           </EmptyState>
         ) : messages.length === 0 ? (
-          <EmptyState doodle="chat" title="Start a new chat">
+          <EmptyState doodle="flag" title="Start a new chat">
             Ask a question, draft something or think out loud
           </EmptyState>
         ) : (
           <Transcript
             messages={messages}
             busy={sending}
-            onEdit={(target, text) => void run({ kind: "edit", text, target })}
+            onEdit={(target, text, ids) =>
+              void run({ kind: "edit", text, target, attachments: (target.attachments ?? []).filter((a) => ids.includes(a.id)) })
+            }
             onRegenerate={(target) => void run({ kind: "regenerate", target })}
             onSwitch={(messageId) => void switchVersion(messageId)}
           />
@@ -393,9 +475,22 @@ export function ChatPage() {
             {sendError && <Advisory>{sendError}</Advisory>}
             {/* One line above the box: the model on the left, thinking on the right. */}
             <div className="composer-head">
-              <ModelPicker choices={models.choices} value={choice} onChange={setChoice} disabled={sending} />
+              <ModelPicker choices={models.choices} value={choice} onChange={setHandPick} disabled={sending} />
             </div>
-            <Composer value={draft} onChange={setDraft} onSend={() => void send(draft)} onStop={stop} sending={sending} />
+            <Composer
+              value={draft}
+              onChange={setDraft}
+              onSend={() => void send(draft)}
+              onStop={stop}
+              sending={sending}
+              files={uploads.files}
+              onAddFiles={uploads.add}
+              onRemoveFile={uploads.remove}
+              canSend={(!!draft.trim() || uploads.ready.length > 0) && !uploads.uploading && !unread.length}
+              waitingFor={uploads.uploading ? "files" : null}
+              dropping={dropping}
+              hint={fileHint}
+            />
             {/* Under the box, centred, so it never wraps onto a half-empty line of its own. */}
             <p className="composer-note">
               <Icon name="eye" size={14} />
@@ -409,10 +504,32 @@ export function ChatPage() {
   );
 }
 
-type ComposerProps = { value: string; onChange: (v: string) => void; onSend: () => void; onStop: () => void; sending: boolean };
+type ComposerProps = {
+  value: string;
+  onChange: (v: string) => void;
+  onSend: () => void;
+  onStop: () => void;
+  sending: boolean;
+  files: PendingFile[];
+  onAddFiles: (files: File[]) => void;
+  onRemoveFile: (key: string) => void;
+  /** There's something to send, nothing still uploading, and the model can open the files. */
+  canSend: boolean;
+  /** Sending waits for the files to finish uploading. */
+  waitingFor: "files" | null;
+  /** Files are being dragged over the page. */
+  dropping: boolean;
+  /** A quiet line under the box: a file that couldn't be added, or one the model can't open. */
+  hint: string | null;
+};
 
-function Composer({ value, onChange, onSend, onStop, sending }: ComposerProps) {
+/**
+ * The message box: the files on the message in a row of tiles at its top, then the add button,
+ * the words and Send. Files come from the button, a drop anywhere on the chat, or a paste.
+ */
+function Composer({ value, onChange, onSend, onStop, sending, files, onAddFiles, onRemoveFile, canSend, waitingFor, dropping, hint }: ComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const pickerRef = useRef<HTMLInputElement>(null);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -426,40 +543,79 @@ function Composer({ value, onChange, onSend, onStop, sending }: ComposerProps) {
   }, [sending]);
 
   return (
-    <form
-      className="composer"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!sending) onSend();
-      }}
-    >
-      <label htmlFor="composer-input" className="visually-hidden">
-        Message
-      </label>
-      <textarea
-        id="composer-input"
-        ref={ref}
-        rows={1}
-        value={value}
-        placeholder="Write a message"
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          // Enter sends, Shift+Enter adds a line; never while an input method is composing.
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            if (!sending) onSend();
-          }
+    <>
+      <form
+        className={`composer${dropping ? " is-dropping" : ""}`}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!sending && canSend) onSend();
         }}
-      />
-      {sending ? (
-        <button type="button" className="composer-send is-stop" onClick={onStop} aria-label="Stop the reply">
-          <Icon name="stop" size={16} />
-        </button>
-      ) : (
-        <button type="submit" className="composer-send" disabled={!value.trim()} aria-label="Send">
-          <Icon name="send" size={20} strokeWidth={2.1} />
-        </button>
-      )}
-    </form>
+      >
+        <ComposerFiles files={files} onRemove={onRemoveFile} />
+        <div className="composer-row">
+          <button
+            type="button"
+            className="btn-ghost composer-add"
+            onClick={() => pickerRef.current?.click()}
+            aria-label="Add files or images"
+            title="Add files or images"
+          >
+            <Icon name="plus" size={20} />
+          </button>
+          <input
+            ref={pickerRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              onAddFiles([...(e.target.files ?? [])]);
+              // The same file can be picked again after it's removed.
+              e.target.value = "";
+            }}
+          />
+          <label htmlFor="composer-input" className="visually-hidden">
+            Message
+          </label>
+          <textarea
+            id="composer-input"
+            ref={ref}
+            rows={1}
+            value={value}
+            placeholder={dropping ? "Drop files to add them" : "Write a message"}
+            onChange={(e) => onChange(e.target.value)}
+            onPaste={(e) => {
+              // A pasted picture (a screenshot, say) becomes a file; pasted words stay words.
+              const pasted = [...e.clipboardData.files];
+              if (pasted.length && !e.clipboardData.getData("text/plain")) {
+                e.preventDefault();
+                onAddFiles(pasted);
+              }
+            }}
+            onKeyDown={(e) => {
+              // Enter sends, Shift+Enter adds a line; never while an input method is composing.
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                if (!sending && canSend) onSend();
+              }
+            }}
+          />
+          {sending ? (
+            <button type="button" className="composer-send is-stop" onClick={onStop} aria-label="Stop the reply">
+              <Icon name="stop" size={16} />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="composer-send"
+              disabled={!canSend}
+              aria-label={waitingFor === "files" ? "Send, once the files are added" : "Send"}
+            >
+              <Icon name="send" size={20} strokeWidth={2.1} />
+            </button>
+          )}
+        </div>
+      </form>
+      {hint && <p className="composer-hint">{hint}</p>}
+    </>
   );
 }

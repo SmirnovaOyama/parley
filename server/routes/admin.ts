@@ -1,55 +1,91 @@
 import { Hono } from "hono";
+import { pathsOfConversation, removeUnused } from "../attachments.ts";
 import { requireAdmin, type AppEnv } from "../auth.ts";
 import { baseSpendLimit, MAX_DOLLARS, SPEND_LIMIT_MODES } from "../allowance.ts";
 import { DOMAIN_RE, rewardDomain } from "../bonus.ts";
 import { DECLINED_SQL, getConversation, tx, viewPath } from "../chat-store.ts";
 import { encryptSecret, decryptSecret, hashPassword } from "../crypto.ts";
 import { audit, db, getSettings, nowIso, saveSettings, SHARING_MODES, startOfMonthIso, type Settings } from "../db.ts";
-import { EFFORT_LABELS, OFF_BY_DEFAULT, PROVIDERS, findModel, findProvider, modelLabel } from "../providers/catalog.ts";
+import { EFFORT_LABELS, OFF_BY_DEFAULT, PROVIDERS, SERVICES, featuresOf, findModel, findProvider, modelLabel, serviceName } from "../providers/catalog.ts";
 import { mailMode } from "../mail.ts";
 import { getProvider } from "../providers/index.ts";
-import { allowedModels } from "../keys.ts";
+import {
+  allowedModels,
+  endpointOf,
+  keyModel,
+  keyModelLabel,
+  modelsOf,
+  providerLabelOf,
+  type Endpoint,
+  type EndpointModel,
+  type KeyRow,
+} from "../keys.ts";
 import { MIN_PASSWORD } from "./auth.ts";
 
 export const adminRoutes = new Hono<AppEnv>();
 adminRoutes.use("*", requireAdmin);
 
-type KeyRow = {
-  id: number;
-  label: string;
-  provider: string;
-  model: string;
-  effort: string;
-  encrypted_key: string;
-  last4: string;
-  is_default: number;
-  shared: number;
-  fallback_key_id: number | null;
-  web_search: number;
-  code_execution: number;
-  models: string | null;
-  created_at: string;
-};
-
 /**
- * The models a key may offer, from what the admin ticked: only the provider's own, and always the
+ * The models a key may offer, from what the admin ticked: only ones the key can run, and always the
  * one new chats start on. Undefined keeps the default (every model but the expensive ones).
  */
-function parseModels(value: unknown, provider: string, startModel: string): string | null | { error: string } {
+function parseModels(value: unknown, known: string[], startModel: string): string | null | { error: string } {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value)) return { error: "Pick which models people can use" };
-  const known = new Set(findProvider(provider)?.models.map((m) => m.id) ?? []);
-  const list = [...new Set([startModel, ...value.map(String).filter((id) => known.has(id))])];
+  const list = [...new Set([startModel, ...value.map(String).filter((id) => known.includes(id))])];
   return JSON.stringify(list);
+}
+
+/** At most this many models on another service's key. */
+const MAX_ENDPOINT_MODELS = 40;
+
+/** A price per million tokens from the form: empty is none. */
+function parsePrice(value: unknown): number | null | undefined {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 && n <= 10_000 ? n : undefined;
+}
+
+/** Another service's address and models from the form, or a sentence saying what's wrong. */
+function parseEndpoint(value: unknown): Endpoint | { error: string } {
+  const v = (value ?? {}) as { baseUrl?: unknown; models?: unknown; images?: unknown };
+  const baseUrl = String(v.baseUrl ?? "").trim().replace(/\/+$/, "");
+  let url: URL | null = null;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    // Not an address.
+  }
+  if (!url || (url.protocol !== "https:" && url.protocol !== "http:")) {
+    return { error: "Type the service's address, starting with https://" };
+  }
+  const models: EndpointModel[] = [];
+  for (const raw of Array.isArray(v.models) ? (v.models as Record<string, unknown>[]) : []) {
+    const id = String(raw?.id ?? "").trim().slice(0, 200);
+    if (!id || models.some((m) => m.id === id)) continue;
+    const input = parsePrice(raw.input);
+    const output = parsePrice(raw.output);
+    if (input === undefined || output === undefined) return { error: `Write ${id}'s prices in dollars per million tokens, like 0.5` };
+    models.push({ id, input, output });
+  }
+  if (!models.length) return { error: "Add the name of at least one model it serves" };
+  if (models.length > MAX_ENDPOINT_MODELS) return { error: `A key can list up to ${MAX_ENDPOINT_MODELS} models` };
+  return { baseUrl, models, images: v.images === true };
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function verifyMessage(err: unknown): string {
+function verifyMessage(err: unknown, baseUrl?: string): string {
   const status = (err as { status?: number })?.status;
+  const message = err instanceof Error ? err.message : "";
   if (status === 401 || status === 403) return "The provider rejected this key";
   if (status === 404) return "This key can't use the selected model";
-  if (err instanceof Error && err.message && !status) return err.message;
+  if (!status && /connection|timed? ?out|fetch failed|ENOTFOUND|ECONNREFUSED/i.test(message)) {
+    return baseUrl ? `Couldn't reach ${serviceName(baseUrl)}. Check the address and try again` : "Couldn't reach the provider. Try again";
+  }
+  // Some providers answer a bad key with a 400 that says so.
+  if ((status === 400 || status === 422) && message) return `The provider turned it down: ${message.replace(/^\d{3}\s+/, "")}`;
+  if (message && !status) return message;
   return "Couldn't check the key with the provider. Try again";
 }
 
@@ -70,6 +106,10 @@ adminRoutes.get("/catalog", (c) =>
     providers: PROVIDERS.map((p) => ({
       id: p.id,
       label: p.label,
+      detail: p.detail,
+      features: featuresOf(p),
+      custom: !!p.custom,
+      reads: p.reads,
       defaultModel: p.defaultModel,
       models: p.models.map((m) => ({
         id: m.id,
@@ -81,6 +121,8 @@ adminRoutes.get("/catalog", (c) =>
         price: { input: m.input, output: m.output },
       })),
     })),
+    // Starting points for another service's address.
+    services: SERVICES,
   }),
 );
 
@@ -108,11 +150,13 @@ adminRoutes.get("/keys", (c) => {
       id: k.id,
       label: k.label,
       provider: k.provider,
+      providerLabel: providerLabelOf(k),
       model: k.model,
-      modelLabel: modelLabel(k.provider, k.model),
+      modelLabel: keyModelLabel(k, k.model),
       effort: k.effort,
       effortLabel: EFFORT_LABELS[k.effort] ?? k.effort,
       last4: k.last4,
+      endpoint: endpointOf(k),
       isDefault: !!k.is_default,
       shared: !!k.shared || !!k.is_default,
       fallbackKeyId: k.fallback_key_id,
@@ -132,20 +176,30 @@ adminRoutes.post("/keys", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const label = String(body.label ?? "").trim().slice(0, 80);
   const provider = findProvider(String(body.provider ?? ""));
-  const model = String(body.model ?? "");
+  const model = String(body.model ?? "").trim();
   const effort = String(body.effort ?? "");
   const apiKey = String(body.apiKey ?? "").trim();
 
   if (!label) return c.json({ error: "Give the key a name" }, 400);
-  const modelInfo = provider && findModel(provider.id, model);
-  if (!provider || !modelInfo) return c.json({ error: "Pick a provider and model" }, 400);
+  if (!provider) return c.json({ error: "Pick a provider" }, 400);
+  // Another service brings its own address and models.
+  let endpoint: Endpoint | null = null;
+  if (provider.custom) {
+    const parsed = parseEndpoint(body.endpoint);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    endpoint = parsed;
+  }
+  const draft = { provider: provider.id, endpoint: endpoint && JSON.stringify(endpoint) };
+  const modelInfo = keyModel(draft, model);
+  if (!modelInfo) return c.json({ error: "Pick the model new chats start on" }, 400);
   if (!modelInfo.efforts.includes(effort)) return c.json({ error: "Pick a thinking level this model supports" }, 400);
-  if (apiKey.length < 12) return c.json({ error: "Paste the full API key" }, 400);
+  // A service on the server itself (Ollama, say) may need no key.
+  if (!provider.custom && apiKey.length < 12) return c.json({ error: "Paste the full API key" }, 400);
 
   try {
-    await getProvider(provider.id).verify(apiKey, model);
+    await getProvider(provider.id).verify(apiKey, model, endpoint?.baseUrl);
   } catch (err) {
-    return c.json({ error: verifyMessage(err) }, 400);
+    return c.json({ error: verifyMessage(err, endpoint?.baseUrl) }, 400);
   }
 
   const fallbackKeyId = parseFallback(body.fallbackKeyId);
@@ -156,20 +210,22 @@ adminRoutes.post("/keys", async (c) => {
   const makeDefault = first || !!body.isDefault;
   // The default key is everyone's, so it's always shared.
   const shared = makeDefault || body.shared !== false;
-  // Only Claude can search the web.
-  const webSearch = provider.id === "anthropic" && body.webSearch === true;
-  const codeExecution = provider.id === "anthropic" && body.codeExecution === true;
-  const models = parseModels(body.models, provider.id, model);
+  // Only Claude and OpenAI search the web and make files.
+  const webSearch = !!provider.tools && body.webSearch === true;
+  const codeExecution = !!provider.tools && body.codeExecution === true;
+  // Another service offers every model listed for it.
+  const known = modelsOf(draft).map((m) => m.id);
+  const models = parseModels(endpoint ? known : body.models, known, model);
   if (models && typeof models === "object") return c.json({ error: models.error }, 400);
   if (makeDefault) db.prepare("UPDATE api_keys SET is_default = 0").run();
   const result = db
     .prepare(
       `INSERT INTO api_keys (label, provider, model, effort, encrypted_key, last4, is_default, shared, fallback_key_id,
-         web_search, code_execution, models, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         web_search, code_execution, models, endpoint, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(label, provider.id, model, effort, encryptSecret(apiKey), apiKey.slice(-4), makeDefault ? 1 : 0, shared ? 1 : 0, fallbackKeyId,
-      webSearch ? 1 : 0, codeExecution ? 1 : 0, models, c.var.user!.id, nowIso());
+      webSearch ? 1 : 0, codeExecution ? 1 : 0, models, draft.endpoint, c.var.user!.id, nowIso());
   audit(c.var.user!.id, "add_key", label);
   return c.json({ id: Number(result.lastInsertRowid) });
 });
@@ -182,20 +238,28 @@ adminRoutes.patch("/keys/:id", async (c) => {
   const provider = findProvider(key.provider)!;
 
   const label = body.label !== undefined ? String(body.label).trim().slice(0, 80) : key.label;
-  const model = body.model !== undefined ? String(body.model) : key.model;
+  const model = body.model !== undefined ? String(body.model).trim() : key.model;
   const effort = body.effort !== undefined ? String(body.effort) : key.effort;
   const newKey = body.apiKey ? String(body.apiKey).trim() : null;
 
   if (!label) return c.json({ error: "Give the key a name" }, 400);
-  const modelInfo = findModel(provider.id, model);
-  if (!modelInfo) return c.json({ error: "Pick a model" }, 400);
+  let endpoint = endpointOf(key);
+  if (provider.custom && body.endpoint !== undefined) {
+    const parsed = parseEndpoint(body.endpoint);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    endpoint = parsed;
+  }
+  const draft = { provider: provider.id, endpoint: endpoint && JSON.stringify(endpoint) };
+  const modelInfo = keyModel(draft, model);
+  if (!modelInfo) return c.json({ error: "Pick the model new chats start on" }, 400);
   if (!modelInfo.efforts.includes(effort)) return c.json({ error: "Pick a thinking level this model supports" }, 400);
 
-  if (newKey || model !== key.model) {
+  const moved = endpoint?.baseUrl !== endpointOf(key)?.baseUrl;
+  if (newKey || model !== key.model || moved) {
     try {
-      await getProvider(provider.id).verify(newKey ?? decryptSecret(key.encrypted_key), model);
+      await getProvider(provider.id).verify(newKey ?? decryptSecret(key.encrypted_key), model, endpoint?.baseUrl);
     } catch (err) {
-      return c.json({ error: verifyMessage(err) }, 400);
+      return c.json({ error: verifyMessage(err, endpoint?.baseUrl) }, 400);
     }
   }
 
@@ -204,17 +268,19 @@ adminRoutes.patch("/keys/:id", async (c) => {
   if (fallbackError) return c.json({ error: fallbackError }, 400);
   const isDefault = body.isDefault === true || !!key.is_default;
   const shared = isDefault || (body.shared !== undefined ? body.shared !== false : !!key.shared);
-  const webSearch = provider.id === "anthropic" && (body.webSearch !== undefined ? body.webSearch === true : !!key.web_search);
-  const codeExecution =
-    provider.id === "anthropic" && (body.codeExecution !== undefined ? body.codeExecution === true : !!key.code_execution);
-  // A new starting model joins the list even when the list itself wasn't sent.
-  const models = parseModels(body.models !== undefined ? body.models : allowedModels({ ...key, model }), provider.id, model);
+  const webSearch = !!provider.tools && (body.webSearch !== undefined ? body.webSearch === true : !!key.web_search);
+  const codeExecution = !!provider.tools && (body.codeExecution !== undefined ? body.codeExecution === true : !!key.code_execution);
+  // A new starting model joins the list even when the list itself wasn't sent. Another service
+  // offers every model listed for it.
+  const known = modelsOf(draft).map((m) => m.id);
+  const ticked = endpoint ? known : body.models !== undefined ? body.models : allowedModels({ ...key, model });
+  const models = parseModels(ticked, known, model);
   if (models && typeof models === "object") return c.json({ error: models.error }, 400);
 
   if (body.isDefault === true) db.prepare("UPDATE api_keys SET is_default = 0").run();
   db.prepare(
     `UPDATE api_keys SET label = ?, model = ?, effort = ?, encrypted_key = ?, last4 = ?,
-       is_default = ?, shared = ?, fallback_key_id = ?, web_search = ?, code_execution = ?, models = ? WHERE id = ?`,
+       is_default = ?, shared = ?, fallback_key_id = ?, web_search = ?, code_execution = ?, models = ?, endpoint = ? WHERE id = ?`,
   ).run(
     label,
     model,
@@ -227,6 +293,7 @@ adminRoutes.patch("/keys/:id", async (c) => {
     webSearch ? 1 : 0,
     codeExecution ? 1 : 0,
     models,
+    draft.endpoint,
     id,
   );
   audit(c.var.user!.id, newKey ? "replace_key" : "edit_key", label);
@@ -500,7 +567,10 @@ adminRoutes.get("/conversations/:id", (c) => {
 adminRoutes.delete("/conversations/:id", (c) => {
   const conv = getConversation(c.req.param("id"));
   if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  // Its files go with it: the ones replies made and the ones people attached.
+  const paths = pathsOfConversation(conv.id);
   db.prepare("DELETE FROM conversations WHERE id = ?").run(conv.id);
+  removeUnused(paths);
   audit(c.var.user!.id, "delete_conversation", conv.title);
   return c.json({ ok: true });
 });
@@ -670,7 +740,7 @@ adminRoutes.get("/overview", (c) => {
 
   const keys = db
     .prepare(
-      `SELECT k.id, k.label, k.provider, k.model, k.effort, k.is_default, k.shared, k.web_search, k.models,
+      `SELECT k.id, k.label, k.provider, k.model, k.effort, k.is_default, k.shared, k.web_search, k.models, k.endpoint,
          (SELECT COUNT(*) FROM user_keys uk WHERE uk.api_key_id = k.id) AS granted,
          (SELECT COUNT(*) FROM usage_events e WHERE e.api_key_id = k.id AND e.created_at >= ?) AS replies
        FROM api_keys k ORDER BY k.is_default DESC, k.created_at`,
@@ -685,6 +755,7 @@ adminRoutes.get("/overview", (c) => {
     shared: number;
     web_search: number;
     models: string | null;
+    endpoint: string | null;
     granted: number;
     replies: number;
   }[];
@@ -704,8 +775,8 @@ adminRoutes.get("/overview", (c) => {
       label: k.label,
       provider: k.provider,
       model: k.model,
-      modelLabel: modelLabel(k.provider, k.model),
-      providerLabel: findProvider(k.provider)?.label ?? k.provider,
+      modelLabel: keyModelLabel(k, k.model),
+      providerLabel: providerLabelOf(k),
       modelCount: allowedModels(k).length,
       effortLabel: EFFORT_LABELS[k.effort] ?? k.effort,
       isDefault: !!k.is_default,

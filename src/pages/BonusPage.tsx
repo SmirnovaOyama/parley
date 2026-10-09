@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
+import { BusyButton } from "../components/BusyButton.tsx";
 import { Advisory, Callout, EmptyState, Spinner } from "../components/Feedback.tsx";
 import { LineField } from "../components/LineField.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
@@ -26,7 +27,8 @@ export function BonusPage() {
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  // Which request is out, so only its own button turns.
+  const [busy, setBusy] = useState<"send" | "verify" | null>(null);
 
   useEffect(() => {
     api.get<BonusStatus>("/auth/bonus").then(
@@ -51,7 +53,7 @@ export function BonusPage() {
   }, [stage, resendAt]);
 
   const send = async (to: string) => {
-    setBusy(true);
+    setBusy("send");
     setError(null);
     try {
       const r = await api.post<{ sentTo: string; resendIn: number }>("/auth/bonus/send", { email: to });
@@ -63,13 +65,13 @@ export function BonusPage() {
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
   const verify = async (e: FormEvent) => {
     e.preventDefault();
-    setBusy(true);
+    setBusy("verify");
     setError(null);
     try {
       await api.post("/auth/bonus/verify", { code });
@@ -78,7 +80,7 @@ export function BonusPage() {
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -156,9 +158,9 @@ export function BonusPage() {
                   error={error}
                 />
                 <div className="form-page-actions">
-                  <button type="submit" className="btn-primary" disabled={busy || !email.trim()}>
-                    {busy ? "Sending" : "Send code"}
-                  </button>
+                  <BusyButton type="submit" className="btn-primary" busy={busy === "send"} disabled={!email.trim()}>
+                    {busy === "send" ? "Sending" : "Send code"}
+                  </BusyButton>
                   <Link className="btn-secondary" to={leave.to}>
                     {leave.label}
                   </Link>
@@ -186,10 +188,10 @@ export function BonusPage() {
                   autoFocus
                 />
                 <div className="form-page-actions">
-                  <button type="submit" className="btn-primary" disabled={busy || code.length !== 6}>
-                    {busy ? "Checking" : "Verify"}
-                  </button>
-                  <button type="button" className="btn-secondary" disabled={busy || wait > 0} onClick={() => void send(sentTo)}>
+                  <BusyButton type="submit" className="btn-primary" busy={busy === "verify"} disabled={busy === "send" || code.length !== 6}>
+                    {busy === "verify" ? "Checking" : "Verify"}
+                  </BusyButton>
+                  <button type="button" className="btn-secondary" disabled={busy !== null || wait > 0} onClick={() => void send(sentTo)}>
                     {wait > 0 ? `Send again in ${wait}s` : "Send again"}
                   </button>
                   <button

@@ -2,7 +2,7 @@
 // pick any of its allowed models and that model's thinking levels, chat by chat.
 import { bonusOf } from "./bonus.ts";
 import { db } from "./db.ts";
-import { EFFORT_LABELS, findModel, findProvider, modelLabel, OFF_BY_DEFAULT } from "./providers/catalog.ts";
+import { EFFORT_LABELS, findProvider, hasTools, OFF_BY_DEFAULT, readsOf, serviceName, type FileKind, type ModelInfo } from "./providers/catalog.ts";
 
 export type KeyRow = {
   id: number;
@@ -15,18 +15,85 @@ export type KeyRow = {
   is_default: number;
   shared: number;
   fallback_key_id: number | null;
-  /** Claude: its chats may search the web. */
+  /** Claude, OpenAI: its chats may search the web. */
   web_search: number;
-  /** Claude: its chats may run code and make files. */
+  /** Claude, OpenAI: its chats may run code and make files. */
   code_execution: number;
   /** JSON list of the model ids people may pick; null means every model but the expensive ones. */
   models: string | null;
+  /** Another service's key: JSON Endpoint, where the service is and the models it serves. */
+  endpoint: string | null;
   created_at: string;
 };
 
+/** A model on another service, as the admin listed it. Prices are dollars per million tokens. */
+export type EndpointModel = { id: string; input: number | null; output: number | null };
+/** Another service: its address, its models, and whether they look at pictures. */
+export type Endpoint = { baseUrl: string; models: EndpointModel[]; images: boolean };
+
+export function endpointOf(k: Pick<KeyRow, "endpoint">): Endpoint | null {
+  if (!k.endpoint) return null;
+  try {
+    const e = JSON.parse(k.endpoint) as Endpoint;
+    return typeof e?.baseUrl === "string" && Array.isArray(e.models) ? e : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The models a key can run: its provider's from the catalog, or the ones the admin listed for
+ * another service. Those are named by their ids, think at the service's default, and are priced as
+ * the admin said (cache reads at the full input price, since services differ); no price is free.
+ */
+export function modelsOf(k: Pick<KeyRow, "provider" | "endpoint">): ModelInfo[] {
+  const provider = findProvider(k.provider);
+  if (!provider?.custom) return provider?.models ?? [];
+  const e = endpointOf(k);
+  return (e?.models ?? []).map((m) => ({
+    id: m.id,
+    label: m.id,
+    input: m.input ?? 0,
+    output: m.output ?? 0,
+    cacheRead: m.input ?? 0,
+    cacheWrite: m.input ?? 0,
+    efforts: ["default"],
+    defaultEffort: "default",
+    reads: e?.images ? ["image", "text"] : ["text"],
+  }));
+}
+
+export function keyModel(k: Pick<KeyRow, "provider" | "endpoint">, model: string): ModelInfo | undefined {
+  return modelsOf(k).find((m) => m.id === model);
+}
+
+export function keyModelLabel(k: Pick<KeyRow, "provider" | "endpoint">, model: string): string {
+  return keyModel(k, model)?.label ?? model;
+}
+
+/** The provider's name, or for another service the service's: "OpenRouter", "llm.example.com". */
+export function providerLabelOf(k: Pick<KeyRow, "provider" | "endpoint">): string {
+  const e = endpointOf(k);
+  return e ? serviceName(e.baseUrl) : (findProvider(k.provider)?.label ?? k.provider);
+}
+
+/** The kinds of file this key's model opens itself. */
+export function opensOf(k: Pick<KeyRow, "provider" | "model" | "endpoint">): FileKind[] {
+  return keyModel(k, k.model)?.reads ?? readsOf(k.provider, k.model);
+}
+
+/**
+ * What a person can attach for this key's model: what it opens, and for Claude and OpenAI anything
+ * else too in a chat that runs code (`codeTool`) while its key may.
+ */
+export function readsFor(k: Pick<KeyRow, "provider" | "model" | "endpoint" | "code_execution">, codeTool: boolean): (FileKind | "other")[] {
+  const reads: (FileKind | "other")[] = opensOf(k);
+  return hasTools(k.provider) && codeTool && k.code_execution ? [...reads, "other"] : reads;
+}
+
 /** The models a key offers, in catalog order. Its starting model is always among them. */
-export function allowedModels(k: Pick<KeyRow, "provider" | "model" | "models">): string[] {
-  const all = findProvider(k.provider)?.models.map((m) => m.id) ?? [];
+export function allowedModels(k: Pick<KeyRow, "provider" | "model" | "models" | "endpoint">): string[] {
+  const all = modelsOf(k).map((m) => m.id);
   let picked = all.filter((id) => !OFF_BY_DEFAULT.has(id));
   if (k.models) {
     try {
@@ -45,13 +112,14 @@ export function allowedModels(k: Pick<KeyRow, "provider" | "model" | "models">):
  */
 export function withChoice(key: KeyRow, model?: string | null, effort?: string | null): KeyRow {
   const m = model && allowedModels(key).includes(model) ? model : key.model;
-  const efforts = findModel(key.provider, m)?.efforts ?? [];
+  const info = keyModel(key, m);
+  const efforts = info?.efforts ?? [];
   const e =
     effort && efforts.includes(effort)
       ? effort
       : m === key.model && efforts.includes(key.effort)
         ? key.effort
-        : (findModel(key.provider, m)?.defaultEffort ?? key.effort);
+        : (info?.defaultEffort ?? key.effort);
   return { ...key, model: m, effort: e };
 }
 
@@ -92,12 +160,16 @@ export function pickerChoices(keys: KeyRow[]) {
   const twice = (model: string) => entries.filter((e) => e.model === model).length > 1;
   return entries.map(({ key, model }) => {
     const start = withChoice(key, model);
+    const label = keyModelLabel(key, model);
     return {
       keyId: key.id,
       model,
-      label: twice(model) ? `${modelLabel(key.provider, model)} on ${key.label}` : modelLabel(key.provider, model),
-      efforts: (findModel(key.provider, model)?.efforts ?? []).map((id) => ({ id, label: EFFORT_LABELS[id] ?? id })),
+      label: twice(model) ? `${label} on ${key.label}` : label,
+      efforts: (keyModel(key, model)?.efforts ?? []).map((id) => ({ id, label: EFFORT_LABELS[id] ?? id })),
       defaultEffort: start.effort,
+      // What it can open: images, PDFs and text, or less; Claude and OpenAI also anything else in
+      // chats where they can run code.
+      reads: readsFor(start, true),
     };
   });
 }

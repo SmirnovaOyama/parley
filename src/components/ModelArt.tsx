@@ -1,11 +1,13 @@
 // Headers for the model cards on the admin overview: a tinted band per model family with a
 // hand-drawn mark (one ink line and a pale wash set a little off it, like the empty-state doodles,
 // on a 96×72 canvas). DeepSeek wears the site owner's own picture instead, as a round avatar.
+// Other providers' families get a scene of their own, never their logo; a model on another
+// service is matched by its name ("openai/gpt-oss-120b" is a GPT).
 
-type ModelFamily = "fable" | "opus" | "sonnet" | "haiku" | "deepseek" | "other";
+type ModelFamily = "fable" | "opus" | "sonnet" | "haiku" | "deepseek" | "gpt" | "gemini" | "grok" | "other";
 
 function familyOf(model: string): ModelFamily {
-  for (const f of ["fable", "opus", "sonnet", "haiku", "deepseek"] as const) if (model.includes(f)) return f;
+  for (const f of ["fable", "opus", "sonnet", "haiku", "deepseek", "gpt", "gemini", "grok"] as const) if (model.includes(f)) return f;
   return "other";
 }
 
@@ -71,6 +73,39 @@ const SCENES: Record<Exclude<ModelFamily, "deepseek">, React.ReactNode> = {
       <path d="M51.6 36.4c4.2 3.4 8.4 6.8 13 10.2" />
       <path d="M61.8 27.4c-3.4-7.6-.4-15.6 6.8-19.4 3.2 7.4.2 15.6-6.8 19.4z" />
       <path d="M62.6 26.2c1.6-4.8 3.4-9.6 5.4-14.2" />
+    </>
+  ),
+  // A hot-air balloon over a cloud.
+  gpt: (
+    <>
+      <path className="wash" d="M50.6 10.2c-9.8.4-17.2 7.8-17 17.4.2 7.2 5.2 12.6 10.6 17.6h13.6c5.4-5 10.2-10.6 10.4-17.6.2-9.6-7.8-17.6-17.6-17.4z" />
+      <path d="M48 7.6c-10.4.2-18.6 8-18.4 18.2.2 7.6 5.6 13.4 11.2 18.6 4.8.1 9.8.1 14.6 0 5.8-5.4 11-11.2 11.1-18.8.1-10.2-8.2-18.2-18.5-18z" />
+      <path d="M48 8c-4.6 6-6.2 13-5.6 20.2.4 5.6 1.6 10.8 1.2 16" />
+      <path d="M48.2 7.8c4.4 6.2 5.8 13.2 5 20.4-.6 5.6-1.8 10.6-1.4 15.8" />
+      <path d="M41.4 44.6c.6 3.4 1.6 6.8 2.4 10.2M55 44.4c-.6 3.4-1.4 6.8-2.4 10.4" />
+      <path d="M43.2 54.6c3.2-.3 6.4-.3 9.6 0 .2 2.6.1 5.2-.2 7.8-3 .3-6.1.3-9.1 0-.3-2.6-.4-5.2-.3-7.8z" />
+      <path d="M12.8 36.4c1.4-2.8 5-3.6 7.4-1.6 1.6-2.2 5.2-2.2 6.6.2 2-.4 3.8.8 4 2.6" />
+      <path d="M64.4 58.2c1.2-2.2 4.2-2.8 6.2-1.2 1.4-1.8 4.4-1.8 5.6.2 1.6-.2 3 .7 3.2 2.1" />
+    </>
+  ),
+  // A constellation of the twins.
+  gemini: (
+    <>
+      <path className="wash" d="M28.4 25.6c9.6-6.2 24-8.6 37.6-5.8 10.2 2.2 16.4 10 14.2 19.2-2.2 10-12.4 15.8-25.2 16.6-13.8.8-26.6-3.2-30.8-11.2-3.4-6.8-1.8-14 4.2-18.8z" />
+      <path d="M18.2 50.4c3.8-6.8 7.6-13.4 11.8-20 5.4 3.4 10.8 6.6 16.2 9.8 4-6.6 7.8-13.2 12-19.8 5.4 4.6 10.8 9.2 16 14 2 6 4 12 5.8 18" />
+      <path d="M46.2 40.2c.2 5.4.6 10.8.4 16.2" />
+      <path d="M18.2 50.4h.1M30 30.4h.1M46.2 40.2h.1M58.2 20.4h.1M74.2 34.4h.1M80 52.4h.1M46.6 56.4h.1" style={{ strokeWidth: 5 }} />
+      <path d="M9.6 64.6c25.4-1.6 51.2-1.6 76.6.3" />
+    </>
+  ),
+  // A ringed planet and its moon.
+  grok: (
+    <>
+      <path className="wash" d="M50.2 22.6c-8.4.2-14.8 7-14.6 15.2.2 8.2 7 14.6 15.2 14.4 8.2-.2 14.6-7 14.4-15.2-.2-8-7-14.6-15-14.4z" />
+      <path d="M47.6 20.2c-8.9.2-15.8 7.4-15.6 16.2.2 8.8 7.4 15.6 16.2 15.4 8.8-.2 15.6-7.4 15.4-16.2-.2-8.6-7.4-15.6-16-15.4z" />
+      <path d="M33.2 41.4c-8.8 3.8-14 8-12.6 10.8 2 4 17.4 1.6 34.4-5.4s29.2-15.6 27.2-19.6c-1.4-2.8-8.2-2.2-17 .8" />
+      <path d="M34.6 31.2c8.8-2.4 18.4-3 27.6-1.8" />
+      <path d="M75.4 13.4h.1" style={{ strokeWidth: 5 }} />
     </>
   ),
   // Any other model: a chat bubble.

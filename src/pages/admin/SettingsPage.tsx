@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { BusyButton } from "../../components/BusyButton.tsx";
 import { OptionList, Switch, Tick } from "../../components/Controls.tsx";
 import { Advisory, Spinner } from "../../components/Feedback.tsx";
 import { LineArea, LineField } from "../../components/LineField.tsx";
@@ -29,6 +30,7 @@ export function SettingsPage() {
   const [prompt, setPrompt] = useState("");
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [saved, setSaved] = useState(false);
+  const [savingPrompt, setSavingPrompt] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadAudit = () => api.get<{ entries: AuditEntry[] }>("/admin/audit").then((r) => setAudit(r.entries), () => {});
@@ -109,7 +111,7 @@ export function SettingsPage() {
               <label className="title" htmlFor="show-thinking">
                 Show the AI's thinking
               </label>
-              <div className="desc">Folded above each reply: Claude's summary, DeepSeek's reasoning</div>
+              <div className="desc">Folded above each reply, for models that share it: a summary of their reasoning, or the reasoning itself</div>
             </div>
             <Switch id="show-thinking" checked={settings.showThinking} onChange={(v) => void update({ showThinking: v })} />
           </div>
@@ -129,14 +131,21 @@ export function SettingsPage() {
         />
         <div className="form-actions">
           <p className="oy-field-hint">Sent with every chat on every key. Changes apply to the next message</p>
-          <button
+          <BusyButton
             type="button"
             className="btn-primary"
+            busy={savingPrompt}
             disabled={prompt === settings.systemPrompt}
-            onClick={() => void update({ systemPrompt: prompt }).then((ok) => setSaved(ok))}
+            onClick={() => {
+              setSavingPrompt(true);
+              void update({ systemPrompt: prompt }).then((ok) => {
+                setSaved(ok);
+                setSavingPrompt(false);
+              });
+            }}
           >
             {saved && prompt === settings.systemPrompt ? "Saved" : "Save"}
-          </button>
+          </BusyButton>
         </div>
       </div>
 
@@ -212,9 +221,9 @@ function SpendingForm({ saved, onSave }: { saved: number | null; onSave: (limit:
             Estimated from each model's price and counted from the 1st. Someone who reaches it can't send messages until
             next month. Admins aren't held to it, and a person's page can set their own limit
           </p>
-          <button type="submit" className="btn-primary" disabled={busy || !dirty}>
+          <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
             {done && !dirty ? "Saved" : "Save"}
-          </button>
+          </BusyButton>
         </div>
       </form>
     </div>
@@ -358,9 +367,9 @@ function RewardsForm({
         {error && <Advisory>{error}</Advisory>}
         <div className="form-actions">
           <p className="oy-field-hint">{MAIL_NOTE[mail]}</p>
-          <button type="submit" className="btn-primary" disabled={busy || !dirty}>
+          <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
             {saved && !dirty ? "Saved" : "Save"}
-          </button>
+          </BusyButton>
         </div>
       </form>
     </div>

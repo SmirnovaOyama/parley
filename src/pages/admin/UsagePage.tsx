@@ -75,7 +75,7 @@ export function UsagePage() {
       {!data ? (
         <Spinner />
       ) : rows.length === 0 ? (
-        <EmptyState doodle="people" title="Nothing to count yet">
+        <EmptyState doodle="coins" title="Nothing to count yet">
           Usage shows up here after the first replies
         </EmptyState>
       ) : (
@@ -91,7 +91,7 @@ export function UsagePage() {
               Written by the models, thinking included
             </Stat>
             <Stat label="Web searches" tag={searches ? formatCost(searches * 0.01) : undefined} value={formatNumber(searches)}>
-              Claude only, $10 per 1,000
+              Claude and OpenAI, $10 per 1,000
             </Stat>
           </div>
 
@@ -103,8 +103,9 @@ export function UsagePage() {
           <UsageGroup title="By key" rows={data.byKey} total={cost} withArt />
 
           <p className="footnote">
-            Costs are estimates from list prices; DeepSeek is counted at its peak-hour rate. Tokens in include
-            history read from the cache. Replies stopped early aren't counted.
+            Costs are estimates from list prices; DeepSeek is counted at its peak-hour rate, and another service's
+            models at the prices given on their key. Tokens in include history read from the cache. Replies stopped
+            early aren't counted.
           </p>
         </>
       )}

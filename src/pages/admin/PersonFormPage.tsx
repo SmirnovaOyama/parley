@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { BusyButton } from "../../components/BusyButton.tsx";
 import { CheckList, OptionList, Switch } from "../../components/Controls.tsx";
 import { Advisory, Spinner } from "../../components/Feedback.tsx";
 import { LineField } from "../../components/LineField.tsx";
@@ -220,9 +221,9 @@ export function PersonFormPage() {
             {error && <Advisory>{error}</Advisory>}
 
             <div className="form-page-actions">
-              <button type="submit" className="btn-primary" disabled={busy || (adding && (!email || !password))}>
+              <BusyButton type="submit" className="btn-primary" busy={busy} disabled={adding && (!email || !password)}>
                 {adding ? "Add person" : "Save"}
-              </button>
+              </BusyButton>
               <Link to="/admin/people" className="btn-secondary">
                 Cancel
               </Link>

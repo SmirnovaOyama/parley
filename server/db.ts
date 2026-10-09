@@ -13,7 +13,7 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS api_keys (
   id            INTEGER PRIMARY KEY,
   label         TEXT NOT NULL,
-  provider      TEXT NOT NULL CHECK (provider IN ('anthropic', 'deepseek')),
+  provider      TEXT NOT NULL,
   model         TEXT NOT NULL,
   effort        TEXT NOT NULL,
   encrypted_key TEXT NOT NULL,
@@ -164,10 +164,11 @@ if (addColumn("messages", "declined_by", "TEXT")) {
 addColumn("messages", "reviewed_at", "TEXT");
 addColumn("messages", "reviewed_by", "INTEGER REFERENCES users(id) ON DELETE SET NULL");
 
-// Claude's web search. A key's switch lets its chats search; whether a chat declares the search
-// tool at all is fixed when the chat starts (conversations.web_search_tool), because the newest
-// models tie their reasoning to the exact tool list: adding or removing a tool mid-chat would
-// invalidate it. A key with search off in such a chat sends the tool with tool_choice "none".
+// Web search, by Claude (and OpenAI since). A key's switch lets its chats search; whether a chat
+// declares the search tool at all is fixed when the chat starts (conversations.web_search_tool),
+// because the newest Claude models tie their reasoning to the exact tool list: adding or removing a
+// tool mid-chat would invalidate it. A Claude key with search off in such a chat sends the tool with
+// tool_choice "none"; OpenAI's leaves it out. OpenAI keys follow the same rule (see routes/chat.ts).
 addColumn("api_keys", "web_search", "INTEGER NOT NULL DEFAULT 0");
 addColumn("conversations", "web_search_tool", "INTEGER NOT NULL DEFAULT 0");
 // On a reply: what it searched for and the sources it cited (JSON {searches, sources}).
@@ -211,10 +212,11 @@ if (addColumn("api_keys", "models", "TEXT")) {
 addColumn("conversations", "model", "TEXT");
 addColumn("conversations", "effort", "TEXT");
 
-// Claude making files with its code execution tool. Like web search: a key's switch lets its chats
-// use it, and whether a chat declares the tool is fixed when the chat starts. The sandbox a chat's
-// code ran in is reused for its next messages while it lasts (containers belong to one key's
-// account). A user message sent while the key had it off carries code_off, and a note says so.
+// Claude making files with its code execution tool (and OpenAI with its code interpreter since).
+// Like web search: a key's switch lets its chats use it, and whether a chat declares the tool is
+// fixed when the chat starts. The sandbox a chat's code ran in is reused for its next messages
+// while it lasts (containers belong to one key's account). A user message sent while the key had
+// it off carries code_off, and a note says so.
 addColumn("api_keys", "code_execution", "INTEGER NOT NULL DEFAULT 0");
 addColumn("conversations", "code_tool", "INTEGER NOT NULL DEFAULT 0");
 addColumn("conversations", "container_id", "TEXT");
@@ -254,6 +256,60 @@ CREATE TABLE IF NOT EXISTS shares (
   updated_at      TEXT NOT NULL
 );
 `);
+
+// Files people attach to their messages (server/attachments.ts). An upload waits with no message
+// until it's sent. An edited message keeps its files as copies of these rows pointing at the same
+// bytes. kind is what the model gets: image, pdf, text, or other (opened only by Claude's code).
+// provider_files remembers each file's id in a Claude account (by a hash of the key), so a chat
+// uploads a file once and refers to it after that.
+db.exec(`
+CREATE TABLE IF NOT EXISTS attachments (
+  id         TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  mime       TEXT NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('image', 'pdf', 'text', 'other')),
+  size       INTEGER NOT NULL,
+  sha256     TEXT NOT NULL,
+  path       TEXT NOT NULL,
+  position   INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS attachments_message ON attachments(message_id);
+CREATE INDEX IF NOT EXISTS attachments_pending ON attachments(user_id) WHERE message_id IS NULL;
+
+CREATE TABLE IF NOT EXISTS provider_files (
+  account    TEXT NOT NULL,
+  sha256     TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  file_id    TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (account, sha256, name)
+);
+`);
+
+// More providers. A key's provider is any the catalog knows (the admin routes check that), so the
+// first release's CHECK naming two of them goes. SQLite can't drop a constraint, so the table is
+// rebuilt as itself without it, with foreign keys off so nothing that points at a key is touched.
+// A key on another service keeps the service's address and models in endpoint (JSON, see keys.ts).
+addColumn("api_keys", "endpoint", "TEXT");
+const keysSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'api_keys'").get() as { sql: string }).sql;
+if (/CHECK \(provider IN/.test(keysSql)) {
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.exec("BEGIN");
+    db.exec(keysSql.replace(/\s*CHECK \(provider IN \([^)]*\)\)/, "").replace(/^CREATE TABLE "?api_keys"?/, "CREATE TABLE api_keys_new"));
+    db.exec("INSERT INTO api_keys_new SELECT * FROM api_keys; DROP TABLE api_keys; ALTER TABLE api_keys_new RENAME TO api_keys;");
+    if (db.prepare("PRAGMA foreign_key_check").all().length) throw new Error("Keys lost track of their references");
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+}
 
 export const nowIso = () => new Date().toISOString();
 

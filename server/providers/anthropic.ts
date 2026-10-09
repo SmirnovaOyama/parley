@@ -7,7 +7,7 @@ import type {
   BetaMessageStreamParams,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { findModel, modelLabel } from "./catalog.ts";
-import type { ChatProvider, ChatRequest, ChatResult, CompleteRequest, CompleteResult, HistoryTurn, Source } from "./types.ts";
+import { fileRef, imageCaption, type ChatProvider, type ChatRequest, type ChatResult, type CompleteRequest, type CompleteResult, type HistoryTurn, type Source } from "./types.ts";
 
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
@@ -16,9 +16,9 @@ const FALLBACK_BETA = "server-side-fallback-2026-07-01";
  * (thinking blocks included), because the newest models tie their reasoning to an unchanged
  * history. Replies from another provider, or cut short, go back as plain text.
  */
-function toMessages(history: HistoryTurn[]): BetaMessageParam[] {
+function toMessages(history: HistoryTurn[], fileIds: Map<string, string> | undefined, codeTool: boolean): BetaMessageParam[] {
   return history.map((turn) => {
-    if (turn.role === "user") return { role: "user", content: turn.text };
+    if (turn.role === "user") return { role: "user", content: userContent(turn, fileIds, codeTool) };
     // A mid-chat system note (changed instructions), placed after a user message as the API asks.
     if (turn.role === "system") return { role: "system", content: turn.text };
     if (turn.provider === "anthropic" && Array.isArray(turn.content) && turn.content.length > 0) {
@@ -26,6 +26,28 @@ function toMessages(history: HistoryTurn[]): BetaMessageParam[] {
     }
     return { role: "assistant", content: turn.text };
   });
+}
+
+/**
+ * A message with its files ahead of its words: images to look at (each after a line naming it),
+ * PDFs and text as documents named after the file. In a chat that can run code every file also goes into the sandbox, so code can
+ * open it (that's the only way in for files of other kinds). The blocks depend only on the stored
+ * message and the chat's fixed tool list, so the message replays the same way every time.
+ */
+function userContent(turn: HistoryTurn, fileIds: Map<string, string> | undefined, codeTool: boolean): string | BetaContentBlockParam[] {
+  const files = turn.attachments ?? [];
+  if (!files.length) return turn.text;
+  const blocks: BetaContentBlockParam[] = [];
+  for (const file of files) {
+    const fileId = fileIds?.get(fileRef(file));
+    if (!fileId) throw new Error(`${file.name} wasn't uploaded`);
+    if (file.kind === "image") blocks.push({ type: "text", text: imageCaption(file) }, { type: "image", source: { type: "file", file_id: fileId } });
+    else if (file.kind === "pdf" || file.kind === "text") blocks.push({ type: "document", source: { type: "file", file_id: fileId }, title: file.name });
+    if (codeTool) blocks.push({ type: "container_upload", file_id: fileId });
+    else if (file.kind === "other") blocks.push({ type: "text", text: `(${file.name} is attached, but it can't be opened in this chat.)` });
+  }
+  if (turn.text) blocks.push({ type: "text", text: turn.text });
+  return blocks;
 }
 
 /**
@@ -62,7 +84,7 @@ async function chat(req: ChatRequest): Promise<ChatResult> {
     system: thinkingOff
       ? `${req.system}\n\nDo not include internal or system XML tags in your response.`
       : req.system,
-    messages: toMessages(req.history),
+    messages: toMessages(req.history, req.fileIds, req.codeTool),
     ...(thinking ? { thinking } : {}),
     ...(thinkingOff ? {} : { output_config: { effort: req.effort as "low" | "medium" | "high" | "xhigh" | "max" } }),
     // Caches the conversation so far, so long chats re-read history at the cache-read price.

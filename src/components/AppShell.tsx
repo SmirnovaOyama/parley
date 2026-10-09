@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { Icon, type IconName } from "../icons/Icon.tsx";
-import { APP_NAME } from "../lib/brand.ts";
+import { Wordmark } from "../icons/Brand.tsx";
 import { useSession } from "../lib/session.tsx";
 import { BusyMark, Spinner } from "./Feedback.tsx";
 
@@ -42,7 +42,9 @@ function Sidebar() {
 
   return (
     <nav className="oy-sidebar app-sidebar" aria-label="Main">
-      <p className="wordmark">{APP_NAME}</p>
+      <p className="wordmark">
+        <Wordmark />
+      </p>
       <div className="items">
         <NavItem to="/chat" icon="compose" label="New chat" current={pathname === "/chat"} accent />
       </div>

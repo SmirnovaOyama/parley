@@ -1,11 +1,19 @@
 import { anthropicProvider } from "./anthropic.ts";
+import { customProvider } from "./custom.ts";
 import { deepseekProvider } from "./deepseek.ts";
+import { geminiProvider } from "./gemini.ts";
+import { openaiProvider } from "./openai.ts";
+import { xaiProvider } from "./xai.ts";
 import type { ProviderId } from "./catalog.ts";
 import type { ChatProvider } from "./types.ts";
 
 const providers: Record<ProviderId, ChatProvider> = {
   anthropic: anthropicProvider,
   deepseek: deepseekProvider,
+  openai: openaiProvider,
+  gemini: geminiProvider,
+  xai: xaiProvider,
+  custom: customProvider,
 };
 
 export function getProvider(id: string): ChatProvider {
@@ -14,7 +22,7 @@ export function getProvider(id: string): ChatProvider {
   return provider;
 }
 
-/** Turns an SDK error into a sentence a person can act on. Both SDKs expose `status`. */
+/** Turns an SDK error into a sentence a person can act on. Both SDKs (Anthropic, OpenAI) expose `status`. */
 export function describeProviderError(err: unknown): string {
   const status = (err as { status?: number })?.status;
   if (status === 401 || status === 403) return "The AI provider rejected the API key. Ask an admin to check it";

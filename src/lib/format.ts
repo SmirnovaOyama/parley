@@ -44,3 +44,9 @@ export const amountText = (usd: number | null) => (usd == null ? "" : String(usd
 export const amountInput = (text: string) => text.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
 
 export const plural = (n: number, one: string, many: string) => `${formatNumber(n)} ${n === 1 ? one : many}`;
+
+/** The kinds of file a model opens, for a sentence: "text files", "images, PDFs and text files". */
+export function kindsPhrase(kinds: readonly string[]): string {
+  const names = (["image", "pdf", "text"] as const).filter((k) => kinds.includes(k)).map((k) => ({ image: "images", pdf: "PDFs", text: "text files" })[k]);
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? "no files");
+}

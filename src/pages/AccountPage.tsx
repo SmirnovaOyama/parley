@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
+import { BusyButton } from "../components/BusyButton.tsx";
 import { Segmented } from "../components/Controls.tsx";
 import { Advisory } from "../components/Feedback.tsx";
 import { InstructionsForm } from "../components/InstructionsForm.tsx";
@@ -283,9 +284,9 @@ function PasswordPanel({ open, onDone, onCancel }: { open: boolean; onDone: () =
           <LineField id="pw-next" label="New password" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} hint="At least 8 characters" />
           {error && <Advisory>{error}</Advisory>}
           <div className="form-page-actions">
-            <button type="submit" className="btn-primary" disabled={busy || !current || !next}>
+            <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!current || !next}>
               Change password
-            </button>
+            </BusyButton>
             <button type="button" className="btn-secondary" onClick={onCancel}>
               Cancel
             </button>

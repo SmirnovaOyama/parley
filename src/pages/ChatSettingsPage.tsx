@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { BusyButton } from "../components/BusyButton.tsx";
 import { DangerRow } from "../components/DangerRow.tsx";
 import { Advisory, EmptyState, Spinner } from "../components/Feedback.tsx";
 import { charsLeft, MAX_INSTRUCTION_CHARS } from "../components/InstructionsForm.tsx";
@@ -154,9 +155,9 @@ export function ChatSettingsPage() {
               </p>
               {error && <Advisory>{error}</Advisory>}
               <div className="form-page-actions">
-                <button type="submit" className="btn-primary" disabled={busy || (!nameChanged && !instructionsChanged)}>
+                <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!nameChanged && !instructionsChanged}>
                   Save
-                </button>
+                </BusyButton>
                 <Link
                   to={back}
                   className="btn-secondary"

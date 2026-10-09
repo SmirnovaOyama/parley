@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { Instructions } from "../lib/api.ts";
+import { BusyButton } from "./BusyButton.tsx";
 import { Advisory } from "./Feedback.tsx";
 import { LineArea } from "./LineField.tsx";
 
@@ -73,9 +74,9 @@ export function InstructionsForm({ idPrefix, value, open, note, onSave, onCancel
       {error && <Advisory>{error}</Advisory>}
       <p className="panel-note">{note}</p>
       <div className="form-page-actions">
-        <button type="submit" className="btn-primary" disabled={busy || unchanged}>
+        <BusyButton type="submit" className="btn-primary" busy={busy} disabled={unchanged}>
           Save
-        </button>
+        </BusyButton>
         <button type="button" className="btn-secondary" onClick={onCancel}>
           Cancel
         </button>

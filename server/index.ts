@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 import { Agent, setGlobalDispatcher } from "undici";
 import { sameOriginGuard, sessionMiddleware, type AppEnv } from "./auth.ts";
+import { clearStaleUploads } from "./attachments.ts";
 import { env } from "./env.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes } from "./routes/auth.ts";
@@ -47,6 +48,10 @@ if (env.isProd) {
   app.use("/*", serveStatic({ root: "./dist" }));
   app.get("*", serveStatic({ path: "./dist/index.html" }));
 }
+
+// Files added to a message that was never sent are cleared after a day.
+clearStaleUploads();
+setInterval(clearStaleUploads, 60 * 60 * 1000).unref();
 
 serve({ fetch: app.fetch, port: env.port }, (info) => {
   console.log(`API listening on http://localhost:${info.port}`);

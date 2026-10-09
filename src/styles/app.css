@@ -555,8 +555,6 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .effort-track:focus-visible .effort-thumb { border-color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .effort-fill, .effort-thumb, .effort-stop, .picker-pop { transition: none; } }
 
-.composer-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 8px; font-size: 12px; line-height: 16px; color: var(--text-muted); }
-
 /* ── markdown ──────────────────────────────────────────────────── */
 .md { overflow-wrap: anywhere; }
 .md-plain { white-space: pre-wrap; }

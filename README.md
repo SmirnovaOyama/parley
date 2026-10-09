@@ -125,7 +125,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 
 - The first account becomes the admin. Sign up right after you deploy, then turn off sign-ups in Admin → Settings if you don't want strangers joining.
 - Admins can point an "Another service" key at any address, and the server will connect to it. Only make people admins you trust with that.
-- Admins can read every chat. Parley says so to everyone, under the message box.
+- Admins can read every chat. Parley tells everyone so on their account page.
 - To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## How it works

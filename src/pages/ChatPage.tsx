@@ -491,11 +491,6 @@ export function ChatPage() {
               dropping={dropping}
               hint={fileHint}
             />
-            {/* Under the box, centred, so it never wraps onto a half-empty line of its own. */}
-            <p className="composer-note">
-              <Icon name="eye" size={14} />
-              Admins can read chats
-            </p>
           </div>
         </div>
       )}

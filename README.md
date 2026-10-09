@@ -9,12 +9,12 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/chat-light.webp" width="76%" alt="A chat in Parley: a question about debouncing a React search box, answered with a TypeScript code block, and the model picker open on Claude, OpenAI, Gemini and OpenRouter models">
-  <img src="docs/screenshots/chat-phone.webp" width="22%" alt="Parley on a phone: a reply about sourdough starters with numbered web search citations">
+  <img src="docs/screenshots/chat-light.webp" width="76%" alt="A chat in Parley: a question about debouncing a React search box, answered with a JSX code block, and the model picker open on Claude, OpenAI, Gemini and OpenRouter models">
+  <img src="docs/screenshots/chat-phone.webp" width="22%" alt="Parley on a phone: a reply about the latest Node.js release, with numbered web search citations">
 </p>
 <p align="center">
   <img src="docs/screenshots/chat-files.webp" width="49%" alt="A reply that made files: a redrawn sign-ups chart and a CSV of the numbers, as cards to download">
-  <img src="docs/screenshots/chat-thinking.webp" width="49%" alt="A reply with the model's thinking unfolded above it">
+  <img src="docs/screenshots/chat-thinking.webp" width="49%" alt="A reply with the model's thinking unfolded above it, working out whether 2^100 or 3^63 is bigger">
 </p>
 <p align="center">
   <img src="docs/screenshots/chat-dark.webp" width="49%" alt="The React chat from the first screenshot, in dark mode">

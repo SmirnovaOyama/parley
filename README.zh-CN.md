@@ -9,12 +9,12 @@
 ## 截图
 
 <p align="center">
-  <img src="docs/screenshots/chat-light.webp" width="76%" alt="Parley 里的一个聊天：问怎样给 React 搜索框做防抖，回复里有一段 TypeScript 代码，模型选择器展开着，列出 Claude、OpenAI、Gemini 和 OpenRouter 的模型">
-  <img src="docs/screenshots/chat-phone.webp" width="22%" alt="手机上的 Parley：一条关于酸面团酵种的回复，带编号的联网搜索来源">
+  <img src="docs/screenshots/chat-light.webp" width="76%" alt="Parley 里的一个聊天：问怎样给 React 搜索框做防抖，回复里有一段 JSX 代码，模型选择器展开着，列出 Claude、OpenAI、Gemini 和 OpenRouter 的模型">
+  <img src="docs/screenshots/chat-phone.webp" width="22%" alt="手机上的 Parley：一条关于最新 Node.js 版本的回复，带编号的联网搜索来源">
 </p>
 <p align="center">
   <img src="docs/screenshots/chat-files.webp" width="49%" alt="生成了文件的回复：重画的注册量图表和一份 CSV 数据，以卡片形式供下载">
-  <img src="docs/screenshots/chat-thinking.webp" width="49%" alt="回复上方展开了模型的思考过程">
+  <img src="docs/screenshots/chat-thinking.webp" width="49%" alt="回复上方展开了模型的思考过程：不用计算器比较 2^100 和 3^63 哪个大">
 </p>
 <p align="center">
   <img src="docs/screenshots/chat-dark.webp" width="49%" alt="深色模式下的第一张截图里那个 React 聊天">

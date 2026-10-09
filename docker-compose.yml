@@ -1,0 +1,21 @@
+# docker compose up -d, then open http://localhost:8787. Settings come from .env next to this file
+# (see .env.example); KEY_ENCRYPTION_SECRET is required.
+services:
+  parley:
+    build:
+      context: .
+      args:
+        VITE_APP_NAME: ${VITE_APP_NAME:-Parley}
+    ports:
+      - "8787:8787"
+    environment:
+      KEY_ENCRYPTION_SECRET: ${KEY_ENCRYPTION_SECRET:?Set KEY_ENCRYPTION_SECRET in .env (see the README)}
+      VITE_APP_NAME: ${VITE_APP_NAME:-Parley}
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+    volumes:
+      - parley-data:/data
+    restart: unless-stopped
+
+volumes:
+  parley-data:

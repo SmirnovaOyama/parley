@@ -700,9 +700,6 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .model-art { display: grid; place-items: center; height: 112px; border-bottom: 1px solid var(--border); }
 .model-art-doodle { width: 6.5rem; height: auto; aspect-ratio: 96 / 72; stroke: var(--text); stroke-width: 2.2; }
 .model-art .wash { fill: color-mix(in oklab, var(--bg) 78%, transparent); }
-/* DeepSeek's avatar: a round sticker on its band, ringed in the card colour. */
-.model-art-avatar { width: 88px; height: 88px; border-radius: var(--radius-full); object-fit: cover; box-shadow: 0 0 0 3px var(--surface); }
-.usage-card .model-art-avatar { width: 64px; height: 64px; }
 .model-art.is-fable { background: color-mix(in oklab, var(--status-info) 34%, var(--bg)); }
 .model-art.is-opus { background: color-mix(in oklab, var(--clay-400) 72%, var(--bg)); }
 .model-art.is-sonnet { background: var(--surface-hover); }

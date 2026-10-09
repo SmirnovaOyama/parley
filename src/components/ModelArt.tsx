@@ -1,8 +1,7 @@
 // Headers for the model cards on the admin overview: a tinted band per model family with a
 // hand-drawn mark (one ink line and a pale wash set a little off it, like the empty-state doodles,
-// on a 96×72 canvas). DeepSeek wears the site owner's own picture instead, as a round avatar.
-// Other providers' families get a scene of their own, never their logo; a model on another
-// service is matched by its name ("openai/gpt-oss-120b" is a GPT).
+// on a 96×72 canvas). Other providers' families get a scene of their own, never their logo; a
+// model on another service is matched by its name ("openai/gpt-oss-120b" is a GPT).
 
 type ModelFamily = "fable" | "opus" | "sonnet" | "haiku" | "deepseek" | "gpt" | "gemini" | "grok" | "other";
 
@@ -16,18 +15,14 @@ export function ModelArt({ model }: { model: string }) {
   const family = familyOf(model);
   return (
     <div className={`model-art is-${family}`} aria-hidden="true">
-      {family === "deepseek" ? (
-        <img className="model-art-avatar" src="/models/deepseek-avatar.jpg" alt="" width={88} height={88} />
-      ) : (
-        <svg className="oy-doodle model-art-doodle" viewBox="0 0 96 72">
-          {SCENES[family]}
-        </svg>
-      )}
+      <svg className="oy-doodle model-art-doodle" viewBox="0 0 96 72">
+        {SCENES[family]}
+      </svg>
     </div>
   );
 }
 
-const SCENES: Record<Exclude<ModelFamily, "deepseek">, React.ReactNode> = {
+const SCENES: Record<ModelFamily, React.ReactNode> = {
   // An open book.
   fable: (
     <>
@@ -73,6 +68,17 @@ const SCENES: Record<Exclude<ModelFamily, "deepseek">, React.ReactNode> = {
       <path d="M51.6 36.4c4.2 3.4 8.4 6.8 13 10.2" />
       <path d="M61.8 27.4c-3.4-7.6-.4-15.6 6.8-19.4 3.2 7.4.2 15.6-6.8 19.4z" />
       <path d="M62.6 26.2c1.6-4.8 3.4-9.6 5.4-14.2" />
+    </>
+  ),
+  // A magnifying glass dipped into the waves, seeking something deep.
+  deepseek: (
+    <>
+      <path className="wash" d="M42.2 16.2c-6.2.2-11 5.2-10.8 11.4.2 6 5.2 10.8 11.2 10.6 6-.2 10.8-5.2 10.6-11.2-.2-6-5-10.9-11-10.8z" />
+      <path d="M39.6 13.8c-6.8.1-12.2 5.6-12 12.4.2 6.6 5.6 11.8 12.2 11.6 6.6-.2 11.8-5.6 11.6-12.2-.2-6.6-5.4-11.9-11.8-11.8z" />
+      <path d="M48.6 34.8c3.6 3.4 7.2 6.8 10.6 10.4" style={{ strokeWidth: 3.4 }} />
+      <path d="M10.2 50.4c4.6-3.2 9.2-3.2 13.8 0s9.2 3.2 13.8 0 9.2-3.2 13.8 0 9.2 3.2 13.8 0 9.2-3.2 13.8 0c3.4 2.2 6.8 2.6 10.2 1.2" />
+      <path d="M18.4 60.6c4.4-2.8 8.8-2.8 13.2 0s8.8 2.8 13.2 0 8.8-2.8 13.2 0 8.8 2.8 13.2 0" />
+      <path d="M67.4 22.4h.1M72 15.2h.1" style={{ strokeWidth: 4.2 }} />
     </>
   ),
   // A hot-air balloon over a cloud.

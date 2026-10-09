@@ -6,6 +6,25 @@ A self-hosted AI chat site for a team, a class or a family. Admins add API keys 
 
 Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node:sqlite`) for storage. One process, one data folder.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/chat-light.webp" width="76%" alt="A chat in Parley: a question about debouncing a React search box, answered with a TypeScript code block, and the model picker open on Claude, OpenAI, Gemini and OpenRouter models">
+  <img src="docs/screenshots/chat-phone.webp" width="22%" alt="Parley on a phone: a reply about sourdough starters with numbered web search citations">
+</p>
+<p align="center">
+  <img src="docs/screenshots/chat-files.webp" width="49%" alt="A reply that made files: a redrawn sign-ups chart and a CSV of the numbers, as cards to download">
+  <img src="docs/screenshots/chat-thinking.webp" width="49%" alt="A reply with the model's thinking unfolded above it">
+</p>
+<p align="center">
+  <img src="docs/screenshots/chat-dark.webp" width="49%" alt="The React chat from the first screenshot, in dark mode">
+  <img src="docs/screenshots/admin-overview.webp" width="49%" alt="The admin overview: this month's spend, active people, what prompt caching saved, token volume, and a card for each key's models">
+</p>
+<p align="center">
+  <img src="docs/screenshots/admin-key-form.webp" width="49%" alt="Adding an API key: the providers to pick from, each ticked with what it can do, like images, PDFs, text files, web search and making files">
+  <img src="docs/screenshots/admin-usage.webp" width="49%" alt="The usage page: cost and tokens over the last 30 days, charts by day, and spend by person">
+</p>
+
 ## What it does
 
 **For people**

@@ -6,6 +6,25 @@
 
 前端用 Vite + React，后端用 Node 上的 Hono，数据存在 SQLite（Node 自带的 `node:sqlite`）里。一个进程，一个数据文件夹。
 
+## 截图
+
+<p align="center">
+  <img src="docs/screenshots/chat-light.webp" width="76%" alt="Parley 里的一个聊天：问怎样给 React 搜索框做防抖，回复里有一段 TypeScript 代码，模型选择器展开着，列出 Claude、OpenAI、Gemini 和 OpenRouter 的模型">
+  <img src="docs/screenshots/chat-phone.webp" width="22%" alt="手机上的 Parley：一条关于酸面团酵种的回复，带编号的联网搜索来源">
+</p>
+<p align="center">
+  <img src="docs/screenshots/chat-files.webp" width="49%" alt="生成了文件的回复：重画的注册量图表和一份 CSV 数据，以卡片形式供下载">
+  <img src="docs/screenshots/chat-thinking.webp" width="49%" alt="回复上方展开了模型的思考过程">
+</p>
+<p align="center">
+  <img src="docs/screenshots/chat-dark.webp" width="49%" alt="深色模式下的第一张截图里那个 React 聊天">
+  <img src="docs/screenshots/admin-overview.webp" width="49%" alt="管理后台概览：本月花费、活跃人数、提示词缓存省下的费用、token 用量，以及每个 key 的模型卡片">
+</p>
+<p align="center">
+  <img src="docs/screenshots/admin-key-form.webp" width="49%" alt="添加 API key：可选的提供商列表，每个都勾出它能做什么，比如图片、PDF、文本文件、联网搜索和生成文件">
+  <img src="docs/screenshots/admin-usage.webp" width="49%" alt="用量页面：最近 30 天的费用和 token、按天的图表，以及每个人的花费">
+</p>
+
 ## 能做什么
 
 **聊天的人**

@@ -3,6 +3,7 @@
 // memory nor its time.
 import "./helpers/temp-env.ts";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { deflateRawSync } from "node:zlib";
 import { describe, test } from "node:test";
 import { htmlText } from "../server/knowledge.ts";
@@ -20,6 +21,22 @@ describe("zip", () => {
     const entry = readZip(zipOf("conversations.json", deflateRawSync(Buffer.alloc(1024)), 8, 0xffffffff))![0];
     assert.equal(entry.size, 0xffffffff);
     assert.throws(() => entry.read(1024 * 1024), /conversations.json is too big to open/);
+  });
+
+  test("won't unpack a file packed far tighter than real files are", () => {
+    // 8 MB of zeros packs into about 8 KB, a thousand to one, and the archive says so.
+    const zeros = Buffer.alloc(8 * 1024 * 1024);
+    const bomb = readZip(zipOf("word/document.xml", deflateRawSync(zeros), 8, zeros.length))![0];
+    assert.throws(() => bomb.read(64 * 1024 * 1024), /word\/document.xml is packed too tightly to open/);
+
+    // An export's JSON packs a few times smaller, and a small file opens whatever it packs to.
+    const json = Buffer.from(
+      JSON.stringify(Array.from({ length: 20_000 }, (_, i) => ({ id: randomUUID(), title: `Chat ${i}`, text: "Hello" }))),
+    );
+    assert.ok(json.length > 1024 * 1024);
+    assert.equal(readZip(zipOf("conversations.json", deflateRawSync(json), 8, json.length))![0].read(64 * 1024 * 1024).length, json.length);
+    const small = Buffer.alloc(512 * 1024);
+    assert.equal(readZip(zipOf("conversations.json", deflateRawSync(small), 8, small.length))![0].read(1024 * 1024).length, small.length);
   });
 
   test("stops at the size the archive states, when the file holds more", () => {

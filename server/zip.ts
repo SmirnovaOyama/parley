@@ -10,6 +10,14 @@ import { inflateRawSync } from "node:zlib";
  */
 export type ZipEntry = { name: string; size: number; read: (maxBytes: number) => Buffer };
 
+/**
+ * The most a packed file may unpack to for each byte it takes in the archive. Text and JSON pack
+ * five to twenty times smaller; a file packed much tighter was made to fill the server's memory.
+ * Files of up to UNPACK_FREELY bytes are opened whatever they pack to.
+ */
+const MAX_RATIO = 200;
+const UNPACK_FREELY = 1024 * 1024;
+
 /** The archive's entries, or null when the bytes aren't a zip this can read. */
 export function readZip(bytes: Buffer): ZipEntry[] | null {
   // The end-of-central-directory record sits in the last 22 bytes plus up to 64 KB of comment.
@@ -46,6 +54,7 @@ export function readZip(bytes: Buffer): ZipEntry[] | null {
         const data = bytes.subarray(start, start + compressed);
         if (method === 0) return Buffer.from(data);
         if (method === 8) {
+          if (size > Math.max(compressed * MAX_RATIO, UNPACK_FREELY)) throw new Error(`${name} is packed too tightly to open`);
           try {
             return inflateRawSync(data, { maxOutputLength: Math.max(size, 1) });
           } catch {

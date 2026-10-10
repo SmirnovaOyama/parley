@@ -247,6 +247,8 @@ export function compatProvider(dialect: Dialect): ChatProvider {
     let tools = req.functions.length
       ? req.functions.map((f) => ({ type: "function" as const, function: { name: f.name, description: f.description, parameters: f.parameters } }))
       : null;
+    // Only these run, whatever name the model sends back.
+    const own = new Set(req.functions.map((f) => f.name));
     const params = (lastRound: boolean) =>
       ({
         model: req.model,
@@ -341,7 +343,7 @@ export function compatProvider(dialect: Dialect): ChatProvider {
       }
       split?.end();
 
-      const asked = [...calls.values()].filter((c) => c.function.name);
+      const asked = [...calls.values()].filter((c) => own.has(c.function.name));
       if (!asked.length || refused || req.signal.aborted || round > MAX_TOOL_ROUNDS || !tools) break;
 
       // The model asked for tools: its turn goes back with the calls (Gemini's thought signatures

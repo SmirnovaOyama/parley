@@ -325,6 +325,40 @@ describe("compat: checking a key", () => {
   });
 });
 
+describe("compat: tools", () => {
+  const knowledge = { name: "search_knowledge", description: "Search the documents", parameters: { type: "object", properties: {} } };
+  const call = (index: number, id: string, name: string, args = "{}") =>
+    chunk({ tool_calls: [{ index, id, type: "function", function: { name, arguments: args } }] });
+
+  /** A service that asks for these calls first, then answers "Done"; and the calls the app ran. */
+  async function withCalls(t: TestContext, calls: unknown[]) {
+    const api = await service(t, () => completionStream(api.requests.length === 1 ? [...calls, chunk({}, "tool_calls")] : [chunk({ content: "Done" }), chunk({}, "stop")]));
+    const ran: string[] = [];
+    const { req } = chatRequest({
+      baseUrl: `${api.url}/v1`,
+      functions: [knowledge],
+      runTool: async (c) => (ran.push(c.name), { content: "Found it" }),
+    });
+    const result = await customProvider.chat(req);
+    return { api, ran, result };
+  }
+
+  test("runs the tools it offered and no others", async (t) => {
+    const { api, ran, result } = await withCalls(t, [call(0, "a", "read_page", '{"url":"http://10.0.0.5/"}'), call(1, "b", "search_knowledge", '{"query":"x"}')]);
+    assert.deepEqual(ran, ["search_knowledge"]);
+    assert.equal(result.text, "Done");
+    const sent = api.requests[1].body.messages;
+    assert.deepEqual(sent.at(-2).tool_calls.map((c: { function: { name: string } }) => c.function.name), ["search_knowledge"]);
+    assert.deepEqual(sent.at(-1), { role: "tool", tool_call_id: "b", content: "Found it" });
+  });
+
+  test("ends the reply when the model asks only for a tool it wasn't offered", async (t) => {
+    const { api, ran } = await withCalls(t, [call(0, "a", "web_search", '{"query":"x"}')]);
+    assert.deepEqual(ran, []);
+    assert.equal(api.requests.length, 1);
+  });
+});
+
 describe("compat: one-off answers", () => {
   const completion = (content: string, finish = "stop") =>
     json({

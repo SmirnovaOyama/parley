@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent, type Ref } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BusyButton } from "../../components/BusyButton.tsx";
 import { CheckList, OptionList, Switch } from "../../components/Controls.tsx";
@@ -9,6 +9,7 @@ import { PageHeader } from "../../components/PageHeader.tsx";
 import { SlideLink } from "../../components/SlideLink.tsx";
 import { Icon } from "../../icons/Icon.tsx";
 import { api } from "../../lib/api.ts";
+import { wordDiff, type Piece } from "../../lib/diff.ts";
 import { atOrOn, plural } from "../../lib/format.ts";
 import { useSlideNavigate } from "../../lib/slide.ts";
 import type { Group } from "./GroupsPage.tsx";
@@ -30,7 +31,15 @@ export type McpServer = {
   groupIds: number[];
   checkedAt: string | null;
   error: string | null;
+  /** Tools from the last listing that are new or read differently, which new chats don't get until an admin uses them. */
+  pending: { version: string; changes: ToolChange[] } | null;
 };
+
+/** A tool as an admin compares it. runs: it would run without asking, as things are set here. */
+type ToolText = { title: string | null; description: string; input: string; readOnly: boolean | null; destructive: boolean | null; openWorld: boolean | null; runs: boolean };
+type ToolPart = "title" | "description" | "input" | "hints";
+/** A tool that's new in a listing, reads differently (in `parts`), or is gone from it. */
+type ToolChange = { name: string; change: "new" | "changed" | "gone"; parts: ToolPart[]; before: ToolText | null; after: ToolText | null };
 
 type SearchService = { id: string; label: string; detail: string; needs: "key" | "url" };
 type SearchSettings = { provider: string | null; url: string; hasKey: boolean; services: SearchService[] };
@@ -79,6 +88,7 @@ export function ToolsPage() {
                       {s.name}
                       {!s.enabled && <span className="tag is-warning">Off</span>}
                       {s.error && <span className="tag is-warning">Not answering</span>}
+                      {s.pending && <span className="tag is-warning">Changed tools</span>}
                     </p>
                     <div className="desc">
                       {plural(on, "tool", "tools")} for {s.shared ? "everyone" : s.groupIds.length ? plural(s.groupIds.length, "group", "groups") : "nobody yet"}
@@ -192,10 +202,133 @@ function SearchForm() {
 }
 
 /** What the server says a tool does, beside the choice to let it run without asking. */
-function hintOf(t: McpServer["tools"][number]): string {
+function hintOf(t: { readOnly: boolean | null; openWorld: boolean | null; destructive?: boolean | null }): string {
   if (t.readOnly) return t.openWorld ? "Only reads, the server says, but from services beyond it, so it could pass on what it's sent" : "Only reads, the server says";
-  if (t.readOnly === false) return "Can make changes, the server says";
+  if (t.readOnly === false) {
+    if (t.destructive === false) return "Can add things but not change or delete them, the server says";
+    return t.destructive ? "Can change or delete things, the server says" : "Can make changes, the server says";
+  }
   return "The server doesn't say whether it makes changes";
+}
+
+const PART_LABELS: Record<ToolPart, string> = { title: "Title", description: "Description", input: "Input", hints: "What it does" };
+
+/** One part of a tool as words to compare. */
+function partText(t: ToolText, part: ToolPart): string {
+  if (part === "title") return t.title ?? "";
+  if (part === "description") return t.description;
+  if (part === "input") return t.input;
+  return `${hintOf(t)}\n${t.runs ? "Runs without asking" : "Asks the person first"}`;
+}
+
+/** Changed words, marked line by line: the space or indent around them would show as stray patches. */
+function Marked({ text, as: Mark }: { text: string; as: "del" | "ins" }) {
+  return text.split(/(\s*\n\s*)/).map((line, i) => {
+    const [, lead, words, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(line)!;
+    return (
+      <Fragment key={i}>
+        {lead}
+        {words && <Mark>{words}</Mark>}
+        {trail}
+      </Fragment>
+    );
+  });
+}
+
+/** A part's text, the words only this version has marked (as removed or added). */
+function PartText({ part, pieces, mark }: { part: ToolPart; pieces: Piece[]; mark?: "del" | "ins" }) {
+  const Tag = part === "input" ? "pre" : "p";
+  return (
+    <Tag className={`mcp-text${part === "input" ? " is-code" : ""}`}>
+      {pieces.every((p) => !p.text) ? (
+        <span className="mcp-none">None</span>
+      ) : (
+        pieces.map((p, i) => <Fragment key={i}>{p.changed && mark ? <Marked text={p.text} as={mark} /> : p.text}</Fragment>)
+      )}
+    </Tag>
+  );
+}
+
+/** One tool a listing adds, changes or drops: for a changed one, each part that differs, before and now. */
+function ToolChangeView({ change: c }: { change: ToolChange }) {
+  return (
+    <div className="mcp-change" role="group" aria-label={c.name}>
+      <p className="mcp-change-name">
+        {c.name}
+        {c.change === "new" ? <span className="tag is-accent">New</span> : c.change === "changed" ? <span className="tag is-warning">Changed</span> : <span className="tag">Gone</span>}
+      </p>
+      {c.change === "gone" && <p className="mcp-change-note">It isn't listed any more. Using the new ones takes it out of new chats</p>}
+      {c.change === "new" && (
+        <>
+          <p className="mcp-change-note">No chat gets it until you use the new ones</p>
+          {c.parts
+            .filter((part) => part !== "title" || c.after!.title)
+            .map((part) => (
+              <div key={part} className="mcp-part">
+                <p className="mcp-part-label">{PART_LABELS[part]}</p>
+                <PartText part={part} pieces={[{ text: partText(c.after!, part), changed: false }]} />
+              </div>
+            ))}
+        </>
+      )}
+      {c.change === "changed" &&
+        c.parts.map((part) => {
+          const diff = wordDiff(partText(c.before!, part), partText(c.after!, part));
+          return (
+            <div key={part} className="mcp-part">
+              <p className="mcp-part-label">{PART_LABELS[part]}</p>
+              {/* What it does is a sentence swapped whole, so its words aren't marked. */}
+              <div className="mcp-pair">
+                <span className="mcp-when">Before</span>
+                <PartText part={part} pieces={diff.before} mark={part === "hints" ? undefined : "del"} />
+                <span className="mcp-when">Now</span>
+                <PartText part={part} pieces={diff.after} mark={part === "hints" ? undefined : "ins"} />
+              </div>
+            </div>
+          );
+        })}
+    </div>
+  );
+}
+
+type ReviewProps = {
+  pending: NonNullable<McpServer["pending"]>;
+  busy: "use" | "keep" | null;
+  error: string | null;
+  onSettle: (use: boolean) => void;
+  sectionRef: Ref<HTMLElement>;
+};
+
+/**
+ * Tools a server listed that are new or read differently from the ones kept, each beside what it
+ * said before, to use or turn down here on the page. New chats keep the old ones meanwhile.
+ */
+function ListingReview({ pending, busy, error, onSettle, sectionRef }: ReviewProps) {
+  return (
+    <section ref={sectionRef} className="oy-group mcp-review" aria-labelledby="mcp-review-title">
+      <p className="oy-overline" id="mcp-review-title">
+        Tools to look over
+      </p>
+      <p className="group-intro">
+        The server listed tools that are new or read differently. New chats keep getting the old ones until you choose. A tool's words reach the
+        model in every chat that has it, so look for instructions that don't belong there
+      </p>
+      <div className="mcp-changes">
+        {pending.changes.map((c) => (
+          <ToolChangeView key={c.name} change={c} />
+        ))}
+      </div>
+      {error && <Advisory>{error}</Advisory>}
+      <div className="form-page-actions">
+        <BusyButton type="button" className="btn-secondary" busy={busy === "keep"} disabled={busy === "use"} onClick={() => onSettle(false)}>
+          Keep the old ones
+        </BusyButton>
+        <BusyButton type="button" className="btn-primary" busy={busy === "use"} disabled={busy === "keep"} onClick={() => onSettle(true)}>
+          Use the new ones
+        </BusyButton>
+      </div>
+    </section>
+  );
 }
 
 /** Add an MCP server (/admin/mcp/new) or change one (/admin/mcp/:id): where it is, who can use it, which tools are on. */
@@ -219,6 +352,19 @@ export function McpFormPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [settling, setSettling] = useState<"use" | "keep" | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const reviewRef = useRef<HTMLElement>(null);
+  /** Counts up when tools come to look over after something done here, to bring them into view. */
+  const [reveal, setReveal] = useState(0);
+
+  useEffect(() => {
+    const section = reviewRef.current;
+    if (!reveal || !section) return;
+    // Its title comes to rest below the page's sticky header, not under it.
+    section.style.scrollMarginTop = `${(document.querySelector(".oy-page-header")?.getBoundingClientRect().height ?? 0) + 16}px`;
+    section.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }, [reveal]);
 
   const fill = (s: McpServer) => {
     setServer(s);
@@ -257,8 +403,12 @@ export function McpFormPage() {
         fill(made);
       } else {
         const offTools = server!.tools.map((t) => t.name).filter((t) => !onTools.includes(t));
-        await api.patch(`/admin/mcp/${id}`, { ...body, keepHeaders: true, enabled, offTools, runTools });
-        slideTo("/admin/tools", "back");
+        const { server: next } = await api.patch<{ server: McpServer }>(`/admin/mcp/${id}`, { ...body, keepHeaders: true, enabled, offTools, runTools });
+        // A new address or token can bring tools that read differently: those stay here to look over.
+        if (next.pending && next.pending.version !== server?.pending?.version) {
+          setHeaders("");
+          takeServer(next);
+        } else slideTo("/admin/tools", "back");
       }
     } catch (err) {
       setError((err as Error).message);
@@ -267,27 +417,54 @@ export function McpFormPage() {
     }
   };
 
+  /** Shows the server as it is now, keeping what's been changed on the form and not saved yet. */
+  const takeServer = (next: McpServer) => {
+    const before = new Set(server?.tools.map((t) => t.name));
+    const ranBefore = new Set(server?.runTools);
+    setServer(next);
+    // New tools come on; ones turned off stay off.
+    setOnTools((list) => [...list.filter((t) => next.tools.some((x) => x.name === t)), ...next.tools.map((t) => t.name).filter((t) => !before.has(t))]);
+    // Whether each runs unasked follows what the server says now, except where it was changed here.
+    setRunTools((list) =>
+      next.tools
+        .map((t) => t.name)
+        .filter((t) => (before.has(t) && list.includes(t) !== ranBefore.has(t) ? list.includes(t) : next.runTools.includes(t))),
+    );
+    if (next.pending && next.pending.version !== server?.pending?.version) {
+      setReviewError(null);
+      setReveal((n) => n + 1);
+    }
+  };
+
   const check = async () => {
     setChecking(true);
     setError(null);
     try {
       const { server: next } = await api.post<{ server: McpServer }>(`/admin/mcp/${id}/refresh`);
-      const before = new Set(server?.tools.map((t) => t.name));
-      const ranBefore = new Set(server?.runTools);
-      setServer(next);
-      // New tools come on; ones turned off stay off.
-      setOnTools((list) => [...list.filter((t) => next.tools.some((x) => x.name === t)), ...next.tools.map((t) => t.name).filter((t) => !before.has(t))]);
-      // Whether each runs unasked follows what the server says now, except where it was changed here.
-      setRunTools((list) =>
-        next.tools
-          .map((t) => t.name)
-          .filter((t) => (before.has(t) && list.includes(t) !== ranBefore.has(t) ? list.includes(t) : next.runTools.includes(t))),
-      );
+      takeServer(next);
       if (next.error) setError(next.error);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setChecking(false);
+    }
+  };
+
+  /** Uses the tools waiting to be looked over, or keeps the old ones. */
+  const settle = async (use: boolean) => {
+    if (!server?.pending) return;
+    setSettling(use ? "use" : "keep");
+    setReviewError(null);
+    try {
+      const { server: next } = await api.post<{ server: McpServer }>(`/admin/mcp/${id}/pending`, { use, version: server.pending.version });
+      takeServer(next);
+    } catch (err) {
+      // Listed again meanwhile, or settled elsewhere: show what's waiting now, and why.
+      const fresh = await api.get<{ servers: McpServer[] }>("/admin/mcp").then((r) => r.servers.find((s) => String(s.id) === id), () => undefined);
+      if (fresh) takeServer(fresh);
+      setReviewError((err as Error).message);
+    } finally {
+      setSettling(null);
     }
   };
 
@@ -305,6 +482,7 @@ export function McpFormPage() {
           <Spinner />
         ) : (
           <>
+            {server?.pending && <ListingReview sectionRef={reviewRef} pending={server.pending} busy={settling} error={reviewError} onSettle={(use) => void settle(use)} />}
             <form className="form-page" onSubmit={save}>
               <LineField id="mcp-name" label="Name" value={name} maxLength={40} autoComplete="off" onChange={(e) => setName(e.target.value)} hint="Tools are named after it, like github__create_issue" />
               <LineField id="mcp-url" label="Address" value={url} autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} hint="Its Streamable HTTP or SSE endpoint, often ending in /mcp" />

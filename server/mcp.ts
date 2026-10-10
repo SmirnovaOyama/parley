@@ -3,6 +3,11 @@
 // gets a connection (and MCP session) of their own, so a server that keeps state between calls
 // keeps it per person; connections stay open while in use and close after a few idle minutes.
 // Everyone still calls with the headers the admin gave, so the server acts for all of them alike.
+//
+// What a server says of its tools (their descriptions and inputs) goes to the model in every new
+// chat that has them, so it's taken once, when an admin adds the server. Listed again later, tools
+// that are new or read differently wait for an admin to look them over (keptListing), and chats go
+// on getting the ones kept: a server that's been taken over can't slip words into them unseen.
 import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -25,6 +30,8 @@ export type McpServerRow = {
   tool_modes: string;
   /** 1: every request says who's asking, in an X-Parley-User header with the person's email. */
   send_user: number;
+  /** Tools as the server listed them last, waiting for an admin because they differ from `tools` (null: none waiting). */
+  pending_tools: string | null;
   checked_at: string | null;
   error: string | null;
   created_at: string;
@@ -58,6 +65,7 @@ export function headersOf(s: Pick<McpServerRow, "encrypted_headers">): Record<st
   }
 }
 
+/** The tools new chats get: those an admin took, never ones still waiting (pending_tools). */
 export const toolsOf = (s: Pick<McpServerRow, "tools">): McpTool[] => {
   try {
     return JSON.parse(s.tools) as McpTool[];
@@ -216,16 +224,87 @@ export async function listTools(url: string, headers: Record<string, string>): P
   }
 }
 
-/** Lists a saved server's tools again and keeps what it said (or why it couldn't). */
-export async function refreshServer(s: McpServerRow): Promise<McpServerRow> {
+/** The parts of a tool compared when a server lists it again: what a model reads of it, and what decides whether it asks. */
+export const TOOL_PARTS = ["title", "description", "input", "hints"] as const;
+export type ToolPart = (typeof TOOL_PARTS)[number];
+
+/** JSON with every object's keys in order, so two schemas that say the same thing read the same. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).filter(([, v]) => v !== undefined);
+    return `{${entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function partsOf(t: McpTool): Record<ToolPart, string> {
+  return { title: t.title ?? "", description: t.description ?? "", input: canonical(t.inputSchema ?? {}), hints: canonical(t.annotations ?? {}) };
+}
+
+/** A tool that's new in a listing, reads differently (and in which parts), or is gone from it. */
+export type ToolChange = { name: string; change: "new" | "changed" | "gone"; parts: ToolPart[]; before: McpTool | null; after: McpTool | null };
+
+/** How a server's listing differs from the tools kept: the new ones and changed ones in its order, then the ones gone. */
+export function listingChanges(kept: McpTool[], listed: McpTool[]): ToolChange[] {
+  const before = new Map(kept.map((t) => [t.name, t]));
+  const names = new Set(listed.map((t) => t.name));
+  const changes: ToolChange[] = [];
+  for (const t of listed) {
+    const old = before.get(t.name);
+    if (!old) {
+      changes.push({ name: t.name, change: "new", parts: [...TOOL_PARTS], before: null, after: t });
+      continue;
+    }
+    const [was, is] = [partsOf(old), partsOf(t)];
+    const parts = TOOL_PARTS.filter((p) => was[p] !== is[p]);
+    if (parts.length) changes.push({ name: t.name, change: "changed", parts, before: old, after: t });
+  }
+  for (const t of kept) if (!names.has(t.name)) changes.push({ name: t.name, change: "gone", parts: [], before: t, after: null });
+  return changes;
+}
+
+/**
+ * What a fresh listing leaves in a server's row. One that adds a tool or changes what one says
+ * waits for an admin (pending_tools) while new chats keep getting the old tools; one that's the
+ * same, or only has fewer tools, brings nothing new to a model and is kept straight away.
+ */
+export function keptListing(s: Pick<McpServerRow, "tools">, listed: McpTool[]): Pick<McpServerRow, "tools" | "pending_tools"> {
+  const review = listingChanges(toolsOf(s), listed).some((c) => c.change !== "gone");
+  return review ? { tools: s.tools, pending_tools: JSON.stringify(listed) } : { tools: JSON.stringify(listed), pending_tools: null };
+}
+
+/** Names the waiting listing an admin saw, so taking it can't take a different one listed since. */
+export const listingVersion = (pending: string) => createHash("sha256").update(pending).digest("hex").slice(0, 16);
+
+/**
+ * Takes the tools waiting on a server (use), or keeps the old ones and lets them go. Only when the
+ * waiting listing is still the one the admin looked over (version): "none" when nothing waits,
+ * "moved" when the server was listed again since.
+ */
+export function settleListing(id: number, version: string, use: boolean): "done" | "none" | "moved" {
+  const s = getServer(id);
+  if (!s?.pending_tools) return "none";
+  if (listingVersion(s.pending_tools) !== version) return "moved";
+  db.prepare(`UPDATE mcp_servers SET ${use ? "tools = pending_tools, " : ""}pending_tools = NULL WHERE id = ?`).run(id);
+  return "done";
+}
+
+/** Lists a saved server's tools again and keeps what it said (or why it couldn't), new or changed tools waiting for an admin. */
+export async function refreshServer(s: McpServerRow): Promise<McpServerRow | undefined> {
   try {
-    const tools = await listTools(s.url, headersOf(s));
-    db.prepare("UPDATE mcp_servers SET tools = ?, checked_at = ?, error = NULL WHERE id = ?").run(JSON.stringify(tools), nowIso(), s.id);
+    const listed = await listTools(s.url, headersOf(s));
+    // Compared with the row as it is now: an admin may have taken waiting tools meanwhile.
+    const now = getServer(s.id);
+    if (now) {
+      const kept = keptListing(now, listed);
+      db.prepare("UPDATE mcp_servers SET tools = ?, pending_tools = ?, checked_at = ?, error = NULL WHERE id = ?").run(kept.tools, kept.pending_tools, nowIso(), s.id);
+    }
   } catch (err) {
     db.prepare("UPDATE mcp_servers SET checked_at = ?, error = ? WHERE id = ?").run(nowIso(), mcpErrorMessage(err), s.id);
   }
   forget(s.id);
-  return getServer(s.id)!;
+  return getServer(s.id);
 }
 
 /** The servers whose tools this person's new chats get: on, and open to everyone or to a group they're in. */

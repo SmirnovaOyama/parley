@@ -8,10 +8,11 @@ What changed in each version of Parley. The format follows [Keep a Changelog](ht
 
 - Reading a page now asks the person first, on a line in the chat, when its address didn't come from their messages or a search. Text on a page or in a tool's result could otherwise have had the model read an address it made up, with what the chat holds in it.
 - Keeping a memory note asks the person first once the chat has taken in a page, a file, search results, knowledge passages or a tool's result, so someone else's words can't plant notes that steer later chats.
-- MCP tools that may change things ask the person first, showing what they'd send. Tools the server calls read-only run straight away, unless it says they reach services beyond it, and admins choose for each tool under Admin → Tools. Servers added before this release ask for every tool until an admin asks the server for its tools again (which brings in what it says about each one) or ticks them under "Run without asking".
+- MCP tools that may change things ask the person first, showing what they'd send. Tools the server calls read-only run straight away, unless it says they reach services beyond it, and admins choose for each tool under Admin → Tools. Servers added before this release ask for every tool until an admin asks the server for its tools again and uses what it says about each one (shown as changes to look over), or ticks them under "Run without asking".
 - Each person gets their own MCP connection and session, so a server that keeps state between calls no longer shares it between people.
 - What pages, searches, knowledge bases and MCP servers return reaches the model marked as coming from outside the chat, with a reminder not to follow instructions in it.
 - The page reader refuses addresses with a name or password in them.
+- When an MCP server's tools are listed again (by asking it for them, or by changing its address or headers), tools that are new or describe themselves differently no longer reach new chats straight away. A server that had been taken over could otherwise have slipped instructions into every chat that uses it. The server's page under Admin → Tools shows each change beside what the tool said before (its title, description, input and what it says it does), and an admin picks "Use the new ones" or "Keep the old ones". New tools stay off until then. Chats already started keep the tools they started with, and servers being added are taken as they are.
 
 ### Added
 

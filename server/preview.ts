@@ -125,9 +125,11 @@ export const PREVIEW_SHELL = `<!doctype html>
       "['warn','error'].forEach(function(k){var o=console[k];console[k]=function(){line('e',arguments);o.apply(console,arguments)}})})();<\\/script>" +
       "<script>" + code.replace(/<\\/script/gi, "<\\\\/script") + "\\n<\\/script>", dark);
   }
+  // Any site can open this page, so it takes code only from this site's own pages. The page's own
+  // origin is opaque, but location.origin is still its address's: the chat's.
   window.addEventListener("message", function (e) {
     var d = e.data;
-    if (!d || d.type !== "preview-code" || e.source !== parent && e.source !== opener) return;
+    if (!d || d.type !== "preview-code" || e.origin !== location.origin || e.source !== parent && e.source !== opener) return;
     var code = String(d.code || "");
     var html;
     if (d.kind === "html") html = htmlPage(code);

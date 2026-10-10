@@ -6,6 +6,7 @@ import { bonusOf, BonusError, pendingCode, rewardDomain, sendCode, verifyCode } 
 import { db, getSettings, nowIso } from "../db.ts";
 import { getInstructions } from "../instructions.ts";
 import { mailMode } from "../mail.ts";
+import { clientAddress, DEAD_LINK, findReset, linkOrigin, RESEND_AFTER_S, sendResetLink, takeReset, tooSoon } from "../password-reset.ts";
 import { modelLabel } from "../providers/catalog.ts";
 
 export const authRoutes = new Hono<AppEnv>();
@@ -40,7 +41,7 @@ function userCount(): number {
 }
 
 authRoutes.get("/state", (c) => {
-  return c.json({ needsSetup: userCount() === 0, allowSignup: getSettings().allowSignup });
+  return c.json({ needsSetup: userCount() === 0, allowSignup: getSettings().allowSignup, passwordReset: !!linkOrigin(c) });
 });
 
 authRoutes.post("/signup", async (c) => {
@@ -111,9 +112,54 @@ authRoutes.post("/password", requireUser, async (c) => {
     return c.json({ error: "The current password isn't right" }, 400);
   }
   db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(await hashPassword(next), userId);
-  // Sign out every other device, then keep this one signed in with a fresh session.
+  // Sign out every other device, then keep this one signed in with a fresh session. A reset link
+  // asked for before the change stops working too.
   db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+  db.prepare("DELETE FROM password_resets WHERE user_id = ?").run(userId);
   startSession(c, userId);
+  return c.json({ ok: true });
+});
+
+// ── Forgotten passwords: a link by email to set a new one (server/password-reset.ts) ──
+
+authRoutes.post("/forgot", async (c) => {
+  const origin = linkOrigin(c);
+  if (!origin) return c.json({ error: "Email isn't set up on this site. Ask an admin" }, 503);
+  const body = await c.req.json().catch(() => ({}));
+  const email = String(body.email ?? "").trim().toLowerCase();
+  if (email.length > MAX_EMAIL || !EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
+  const wait = tooSoon(email, clientAddress(c));
+  if (wait) return c.json({ error: wait }, 429);
+  sendResetLink(email, origin);
+  // The same answer whether or not an account uses the address.
+  return c.json({ ok: true, resendIn: RESEND_AFTER_S, mail: mailMode });
+});
+
+const OFF = "This account is turned off. Ask an admin";
+
+// The reset page asks first, so it can say a link is dead before anyone types a new password.
+authRoutes.post("/reset/check", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const reset = findReset(String(body.token ?? ""));
+  if (!reset) return c.json({ error: DEAD_LINK }, 400);
+  if (reset.disabled) return c.json({ error: OFF }, 403);
+  return c.json({ email: reset.email });
+});
+
+authRoutes.post("/reset", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const password = String(body.password ?? "");
+  // Checked before the link is used up, so a short password doesn't cost it.
+  if (password.length < MIN_PASSWORD) return c.json({ error: `Use at least ${MIN_PASSWORD} characters for the password` }, 400);
+  const reset = takeReset(String(body.token ?? ""));
+  if (!reset) return c.json({ error: DEAD_LINK }, 400);
+  if (reset.disabled) return c.json({ error: OFF }, 403);
+
+  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(await hashPassword(password), reset.userId);
+  // Whoever had the old password is signed out everywhere; the person who set the new one is in.
+  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(reset.userId);
+  failures.delete(reset.email);
+  startSession(c, reset.userId);
   return c.json({ ok: true });
 });
 

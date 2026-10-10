@@ -9,8 +9,28 @@ if (secret.length < 32) {
   process.exit(1);
 }
 
+/** PUBLIC_URL as an origin (https://chat.example.com), or null when it's unset or isn't one. */
+function publicUrl(): string | null {
+  const raw = process.env.PUBLIC_URL?.trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol === "https:" || url.protocol === "http:") return url.origin;
+  } catch {
+    // Reported below.
+  }
+  console.error(`PUBLIC_URL isn't a web address (${raw}), so it's ignored`);
+  return null;
+}
+
 export const env = {
   port: Number(process.env.PORT ?? 8787),
+  /**
+   * The address people reach the site at, which links in emails start with. Password reset links
+   * are sent only when it's set: a request's own address can't be trusted for them, since anyone
+   * can send one naming another host, and the link would lead there.
+   */
+  publicUrl: publicUrl(),
   isProd: process.env.NODE_ENV === "production",
   databasePath: process.env.DATABASE_PATH ?? "data/chat.db",
   keyEncryptionSecret: secret,

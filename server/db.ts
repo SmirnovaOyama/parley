@@ -202,6 +202,17 @@ CREATE TABLE IF NOT EXISTS email_codes (
 );
 `);
 
+// Forgotten passwords: the link last emailed to each person (a newer one replaces it), kept as
+// the hash of its token. It's deleted when it's used or the password changes.
+db.exec(`
+CREATE TABLE IF NOT EXISTS password_resets (
+  user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+`);
+
 // A key unlocks its provider's models: api_keys.models is the JSON list people may pick from (its
 // model and effort are what new chats start on). Each chat remembers its own pick.
 if (addColumn("api_keys", "models", "TEXT")) {

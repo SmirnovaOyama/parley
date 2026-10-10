@@ -10,13 +10,30 @@ import { modelLabel } from "../providers/catalog.ts";
 
 export const authRoutes = new Hono<AppEnv>();
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Each part of the domain is matched on its own (no dots inside), so a long string fails fast.
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+/** The longest address there can be. */
+const MAX_EMAIL = 254;
 export const MIN_PASSWORD = 8;
 
-// Failed sign-ins per email, to slow down password guessing.
+// Failed sign-ins per email, to slow down password guessing. Entries past their time are cleared
+// when the list gets long, and it never holds more than MAX_TRACKED (the oldest go first).
 const failures = new Map<string, { count: number; until: number }>();
 const MAX_FAILURES = 8;
 const LOCK_MS = 15 * 60 * 1000;
+const MAX_TRACKED = 50_000;
+
+function noteFailure(email: string, lock: { count: number; until: number } | undefined) {
+  const now = Date.now();
+  const prev = lock && lock.until > now ? lock.count : 0;
+  failures.set(email, { count: prev + 1, until: now + LOCK_MS });
+  if (failures.size <= MAX_TRACKED) return;
+  for (const [key, f] of failures) if (f.until <= now) failures.delete(key);
+  for (const key of failures.keys()) {
+    if (failures.size <= MAX_TRACKED) break;
+    failures.delete(key);
+  }
+}
 
 function userCount(): number {
   return (db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n;
@@ -30,7 +47,7 @@ authRoutes.post("/signup", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "");
-  if (!EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
+  if (email.length > MAX_EMAIL || !EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
   if (password.length < MIN_PASSWORD) return c.json({ error: `Use at least ${MIN_PASSWORD} characters for the password` }, 400);
 
   // The very first account sets the site up and becomes its admin.
@@ -52,6 +69,8 @@ authRoutes.post("/login", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "");
+  // No account has an address this long; it isn't worth remembering as a failure either.
+  if (email.length > MAX_EMAIL) return c.json({ error: "That email and password don't match" }, 401);
 
   const lock = failures.get(email);
   if (lock && lock.count >= MAX_FAILURES && lock.until > Date.now()) {
@@ -63,8 +82,7 @@ authRoutes.post("/login", async (c) => {
     | undefined;
   const ok = user ? await verifyPassword(password, user.password_hash) : false;
   if (!user || !ok) {
-    const prev = lock && lock.until > Date.now() ? lock.count : 0;
-    failures.set(email, { count: prev + 1, until: Date.now() + LOCK_MS });
+    noteFailure(email, lock);
     return c.json({ error: "That email and password don't match" }, 401);
   }
   if (user.disabled) return c.json({ error: "This account is turned off. Ask an admin" }, 403);

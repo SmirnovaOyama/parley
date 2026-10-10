@@ -173,6 +173,17 @@ function checkUrl(raw: string): URL {
   return url;
 }
 
+/** The words of a page's <title>, found by scanning forward only (see htmlText). */
+function titleOf(html: string): string {
+  const open = /<title[^<>]*>/i.exec(html);
+  if (!open) return "";
+  const start = open.index + open[0].length;
+  const close = /<\/title\s*>/gi;
+  close.lastIndex = start;
+  const end = close.exec(html);
+  return end ? htmlText(html.slice(start, Math.min(end.index, start + 2000))).slice(0, 200) : "";
+}
+
 /** A page's text, read by this server: HTML without its markup, text as it is, PDFs' text. */
 export async function readPage(raw: string): Promise<{ url: string; title: string; text: string }> {
   let url = checkUrl(raw);
@@ -221,7 +232,7 @@ export async function readPage(raw: string): Promise<{ url: string; title: strin
         raw = new TextDecoder("utf-8").decode(bytes);
       }
       if (/html|xml/i.test(type) || /^\s*<(!doctype|html)/i.test(raw)) {
-        title = htmlText(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(raw)?.[1] ?? "").slice(0, 200);
+        title = titleOf(raw);
         text = htmlText(raw);
       } else if (/^(text\/|application\/(json|xml|javascript))/i.test(type) || !type) {
         text = raw;

@@ -73,7 +73,7 @@ function parseEndpoint(value: unknown): Endpoint | { error: string } {
   return { baseUrl, models, images: v.images === true };
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 function verifyMessage(err: unknown, baseUrl?: string): string {
   const status = (err as { status?: number })?.status;

@@ -97,33 +97,67 @@ export function deleteDoc(doc: KnowledgeDocRow) {
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 const decodeEntities = (s: string) =>
-  s.replace(/&(#x[\da-f]+|#\d+|\w+);/gi, (m, e: string) =>
-    e[0] === "#" ? String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e.toLowerCase()] ?? m),
-  );
+  s.replace(/&(#x[\da-f]+|#\d+|\w+);/gi, (m, e: string) => {
+    if (e[0] !== "#") return ENTITIES[e.toLowerCase()] ?? m;
+    const code = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1));
+    // A number past the last character there is stays as it's written.
+    return code <= 0x10ffff ? String.fromCodePoint(code) : m;
+  });
+
+// The markup is taken apart with patterns that can't look past the next "<" (and scans that only
+// go forward), so the time they take grows with the text and nothing else. Patterns like
+// <[^>]+> or a lazy <!--[\s\S]*?--> try again from every "<" when nothing closes it: a few
+// megabytes of "<a<a<a" kept the server busy for most of an hour.
+
+/** The largest word/document.xml opened: thousands of pages, and far past what a knowledge base keeps. */
+const MAX_DOCX_XML_BYTES = 64 * 1024 * 1024;
 
 /** A Word document's words, a paragraph to a line. */
 function docxText(bytes: Buffer): string | null {
   const entry = readZip(bytes)?.find((e) => e.name === "word/document.xml");
   if (!entry) return null;
-  const xml = entry.read().toString("utf8");
+  const xml = entry.read(MAX_DOCX_XML_BYTES).toString("utf8");
   return decodeEntities(
     xml
       .replace(/<w:tab\/>/g, "\t")
-      .replace(/<w:br[^>]*\/>/g, "\n")
+      .replace(/<w:br[^<>]*\/>/g, "\n")
       .replace(/<\/w:p>/g, "\n")
-      .replace(/<[^>]+>/g, ""),
+      .replace(/<[^<>]+>/g, ""),
   );
+}
+
+/**
+ * Takes out every script, style, noscript, svg and template element and every comment. One that
+ * never closes stays (its tags go with the rest) and isn't looked for again.
+ */
+function withoutHidden(html: string): string {
+  const open = /<(script|style|noscript|svg|template)\b|<!--/gi;
+  const unclosed = new Set<string>();
+  const kept: string[] = [];
+  let from = 0;
+  for (let m = open.exec(html); m; m = open.exec(html)) {
+    const kind = m[1]?.toLowerCase() ?? "comment";
+    if (unclosed.has(kind)) continue;
+    const close = kind === "comment" ? /-->/g : new RegExp(`</${kind}\\s*>`, "gi");
+    close.lastIndex = open.lastIndex;
+    if (!close.exec(html)) {
+      unclosed.add(kind);
+      continue;
+    }
+    kept.push(html.slice(from, m.index), " ");
+    from = open.lastIndex = close.lastIndex;
+  }
+  kept.push(html.slice(from));
+  return kept.join("");
 }
 
 /** A web page's words, without its markup, scripts or styles. */
 export function htmlText(html: string): string {
   return decodeEntities(
-    html
-      .replace(/<(script|style|noscript|svg|template)[\s\S]*?<\/\1>/gi, " ")
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/section|\/article|\/header|\/footer|\/blockquote|\/pre)[^>]*>/gi, "\n")
-      .replace(/<li[^>]*>/gi, "\n• ")
-      .replace(/<[^>]+>/g, " "),
+    withoutHidden(html)
+      .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/section|\/article|\/header|\/footer|\/blockquote|\/pre)[^<>]*>/gi, "\n")
+      .replace(/<li[^<>]*>/gi, "\n• ")
+      .replace(/<[^<>]+>/g, " "),
   )
     .replace(/[ \t ]+/g, " ")
     .replace(/ *\n */g, "\n")

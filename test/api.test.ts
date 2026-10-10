@@ -5,12 +5,15 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { deflateRawSync } from "node:zlib";
 import { chunk, completionStream, json, mockServer, modelList, usageChunk, type MockServer } from "./helpers/mock-server.ts";
+import { zipOf } from "./helpers/zip.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), "parley-api-"));
@@ -288,5 +291,37 @@ describe("api", () => {
     const sent = await admin.json("POST", "/api/chat", { text: "Summarise this", attachments: [file.id] });
     assert.deepEqual(sent, { status: 400, body: { error: "mock-model reads text files only. Pick another model to send report.pdf" } });
     assert.equal(service.requests.length, before, "nothing reached the service");
+  });
+
+  test("a JSON body over 1 MB is turned away before anyone signs in", async () => {
+    const big = { email: `${"a".repeat(2 * 1024 * 1024)}@example.com`, password: "x" };
+    assert.deepEqual(await new Visitor().json("POST", "/api/auth/login", big), { status: 413, body: { error: "That request is too big" } });
+    // Sent in pieces, with no length up front, on a connection of its own: the server drops it
+    // once it has answered, with the rest of the body unread.
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const req = httpRequest(`${server.url}/api/auth/login`, { method: "POST", agent: false, headers: { "content-type": "application/json" } });
+      req.on("response", (res) => resolve(res.statusCode));
+      req.on("error", reject);
+      const bytes = Buffer.from(JSON.stringify(big));
+      for (let at = 0; at < bytes.length; at += 64 * 1024) req.write(bytes.subarray(at, at + 64 * 1024));
+      req.end();
+    });
+    assert.equal(status, 413);
+  });
+
+  test("an address too long for any account is turned down quickly", async () => {
+    const started = Date.now();
+    // Many dots and no proper end: the address pattern used to take minutes over one like this.
+    const email = `a@${"a.".repeat(200_000)}@`;
+    assert.equal((await new Visitor().json("POST", "/api/auth/signup", { email, password: "long enough" })).status, 400);
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "long enough" })).status, 401);
+    assert.ok(Date.now() - started < 5000, `took ${Date.now() - started} ms`);
+  });
+
+  test("an export that unpacks into too much is turned away unread", async () => {
+    // About 1 KB that claims to unpack into 4 GB.
+    const bomb = zipOf("conversations.json", deflateRawSync(Buffer.alloc(1024 * 1024)), 8, 0xffffffff);
+    const res = await admin.request("PUT", "/api/import", bomb);
+    assert.deepEqual({ status: res.status, body: await res.json() }, { status: 400, body: { error: "That export is over 200 MB unpacked" } });
   });
 });

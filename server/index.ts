@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { Agent, setGlobalDispatcher } from "undici";
 import { sameOriginGuard, sessionMiddleware, type AppEnv } from "./auth.ts";
@@ -59,6 +60,13 @@ app.get("/api/health", (c) => {
   }
 });
 
+// A request's body is read whole, so a JSON one is held to 1 MB (the longest message is a few
+// hundred KB of it), before anyone has signed in. Files go up as raw bytes to their own routes,
+// which set their own limits once they know who's sending.
+const MAX_JSON_BYTES = 1024 * 1024;
+const RAW_UPLOAD = /^\/api\/(uploads|import|knowledge\/[^/]+\/docs)$/;
+const jsonLimit = bodyLimit({ maxSize: MAX_JSON_BYTES, onError: (c) => c.json({ error: "That request is too big" }, 413) });
+app.use("/api/*", (c, next) => (c.req.method === "PUT" && RAW_UPLOAD.test(c.req.path) ? next() : jsonLimit(c, next)));
 app.use("/api/*", sameOriginGuard, sessionMiddleware);
 app.route("/api/auth", authRoutes);
 app.route("/api/admin", adminRoutes);

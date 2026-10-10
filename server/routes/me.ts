@@ -5,12 +5,10 @@ import { bodyLimit } from "hono/body-limit";
 import { requireUser, type AppEnv } from "../auth.ts";
 import { db, getSettings, nowIso } from "../db.ts";
 import { cleanMemory, deleteMemory, memoriesOf, memoryOn, saveMemory } from "../memory.ts";
-import { exportFor, importFor } from "../transfer.ts";
+import { exportFor, importFor, MAX_IMPORT_BYTES } from "../transfer.ts";
 
 export const meRoutes = new Hono<AppEnv>();
 meRoutes.use("*", requireUser);
-
-const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
 
 function memoryState(userId: number) {
   const titles = db.prepare("SELECT title FROM conversations WHERE id = ? AND deleted_at IS NULL");

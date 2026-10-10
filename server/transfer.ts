@@ -15,6 +15,8 @@ import { isZip, readZip } from "./zip.ts";
 export const EXPORT_FORMAT = "parley-export";
 const MAX_CHATS = 5000;
 const MAX_TEXT = 500_000;
+/** The most an export's JSON may be, sent as it is or inside a zip. */
+export const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
 
 type ExportedMessage = {
   id: number;
@@ -251,7 +253,12 @@ function readUpload(bytes: Buffer): unknown {
     const entries = readZip(bytes);
     const entry = entries?.find((e) => /(^|\/)conversations\.json$/i.test(e.name)) ?? entries?.find((e) => /\.json$/i.test(e.name));
     if (!entry) throw new Error("There's no conversations.json in that archive");
-    json = entry.read();
+    if (entry.size > MAX_IMPORT_BYTES) throw new Error(`That export is over ${MAX_IMPORT_BYTES / (1024 * 1024)} MB unpacked`);
+    try {
+      json = entry.read(MAX_IMPORT_BYTES);
+    } catch {
+      throw new Error("That archive is damaged. Download the export again");
+    }
   }
   try {
     return JSON.parse(json.toString("utf8").replace(/^﻿/, ""));

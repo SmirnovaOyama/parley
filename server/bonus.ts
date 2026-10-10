@@ -12,7 +12,7 @@ const RESEND_AFTER_MS = 60 * 1000;
 const SENDS_PER_DAY = 5;
 const MAX_ATTEMPTS = 5;
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 /** A lower-case host name: labels of letters, digits and hyphens, and a top-level part. */
 export const DOMAIN_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/;
 

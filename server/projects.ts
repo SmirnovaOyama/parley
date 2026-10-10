@@ -4,6 +4,7 @@ import { db } from "./db.ts";
 import type { PersonalInstructions } from "./instructions.ts";
 import type { ConversationRow } from "./chat-store.ts";
 
+export const MAX_PROJECTS = 200;
 export const MAX_PROJECT_INSTRUCTIONS = 8000;
 
 export type ProjectRow = { id: string; user_id: number; name: string; instructions: string; created_at: string; updated_at: string };

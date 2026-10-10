@@ -6,9 +6,11 @@ import { randomUUID } from "node:crypto";
 import { toPublic, tx, type ConversationRow, type MessageRow } from "./chat-store.ts";
 import { db, nowIso } from "./db.ts";
 import { env } from "./env.ts";
-import { getInstructions, instructionsJson, parseInstructions, personalOnly, personasOf, systemPromptFor, type PersonalInstructions } from "./instructions.ts";
-import { memoriesOf, memoryOn, memoryPrompt, saveMemory, cleanMemory } from "./memory.ts";
-import { chatSetting, ownProject, type ProjectRow } from "./projects.ts";
+import {
+  getInstructions, instructionsJson, MAX_INSTRUCTION_CHARS, parseInstructions, personalOnly, personasOf, systemPromptFor, type PersonalInstructions,
+} from "./instructions.ts";
+import { MAX_MEMORIES_VERIFIED, memoriesOf, memoryLimit, memoryOn, memoryPrompt, saveMemory, cleanMemory } from "./memory.ts";
+import { chatSetting, MAX_PROJECT_INSTRUCTIONS, MAX_PROJECTS, ownProject, type ProjectRow } from "./projects.ts";
 import { codeOnSite, searchOnSite, toolsForNewChat } from "./tools.ts";
 import { isZip, readZip } from "./zip.ts";
 
@@ -121,6 +123,12 @@ type IncomingChat = {
 };
 
 const clip = (s: string) => (s.length > MAX_TEXT ? `${s.slice(0, MAX_TEXT)}\n\n(Cut short when it was imported.)` : s);
+/** A chat's own instructions from the file, held to the same length as when they're edited. */
+function fromFile(instructions: PersonalInstructions): PersonalInstructions {
+  const { aboutMe, answerStyle } = personalOnly(parseInstructions(JSON.stringify(instructions)));
+  return { aboutMe: aboutMe.trim().slice(0, MAX_INSTRUCTION_CHARS), answerStyle: answerStyle.trim().slice(0, MAX_INSTRUCTION_CHARS) };
+}
+
 /** A time from the file (seconds, milliseconds or text), as ISO; now if it's unreadable or still to come. */
 const iso = (v: unknown, now: string): string => {
   const ms = typeof v === "number" ? (v < 1e12 ? v * 1000 : v) : typeof v === "string" ? Date.parse(v) : NaN;
@@ -307,31 +315,42 @@ export function importFor(userId: number, bytes: Buffer): ImportResult {
   );
 
   return tx(() => {
-    // Projects come in as new ones, unless one of the same name is here already.
+    // Projects come in as new ones, unless one of the same name is here already, while there's room
+    // (an export holds no more than one account can have). Chats in a project left out come in loose.
     const projectIds = new Map<string, string>();
     let newProjects = 0;
-    for (const p of projects) {
-      const name = String(p.name ?? "").trim().slice(0, 80);
+    let projectCount = (db.prepare("SELECT COUNT(*) AS n FROM projects WHERE user_id = ?").get(userId) as { n: number }).n;
+    for (const p of projects.slice(0, MAX_PROJECTS)) {
+      const name = String(p.name ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
       if (!name) continue;
       const same = db.prepare("SELECT id FROM projects WHERE user_id = ? AND name = ?").get(userId, name) as { id: string } | undefined;
       if (same) {
         projectIds.set(p.id, same.id);
         continue;
       }
+      if (projectCount >= MAX_PROJECTS) continue;
       const id = randomUUID();
       db.prepare("INSERT INTO projects (id, user_id, name, instructions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(
-        id, userId, name, String(p.instructions ?? "").slice(0, 8000), iso(p.createdAt, now), now,
+        id, userId, name, String(p.instructions ?? "").trim().slice(0, MAX_PROJECT_INSTRUCTIONS), iso(p.createdAt, now), now,
       );
       projectIds.set(p.id, id);
       newProjects++;
+      projectCount++;
     }
+    // Notes come in until memory is full; the ones kept already are found, not added again.
     let newMemories = 0;
-    for (const m of memories) {
+    const limit = memoryLimit(userId);
+    const kept = new Set(memoriesOf(userId).map((m) => m.id));
+    for (const m of memories.slice(0, MAX_MEMORIES_VERIFIED)) {
+      if (kept.size >= limit) break;
       const text = cleanMemory(m.text);
       if (!text) continue;
-      const before = memoriesOf(userId).length;
       const saved = saveMemory(userId, text, null);
-      if (!("error" in saved) && memoriesOf(userId).length > before) newMemories++;
+      if ("error" in saved) break;
+      if (!kept.has(saved.id)) {
+        kept.add(saved.id);
+        newMemories++;
+      }
     }
 
     let added = 0;
@@ -348,7 +367,7 @@ export function importFor(userId: number, bytes: Buffer): ImportResult {
       known.add(chat.key);
       const id = randomUUID();
       const projectId = chat.projectId ? (projectIds.get(chat.projectId) ?? (ownProject(chat.projectId, userId)?.id ?? null)) : null;
-      const own = chat.instructions ? personalOnly(parseInstructions(JSON.stringify(chat.instructions))) : personal;
+      const own = chat.instructions ? fromFile(chat.instructions) : personal;
       db.prepare(
         `INSERT INTO conversations (id, user_id, title, system_prompt, chat_instructions, sealed_instructions, web_search_tool, code_tool,
            project_id, pinned_at, tool_defs, title_auto, import_key, imported_at, created_at, updated_at)

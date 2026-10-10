@@ -5,6 +5,9 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { describe, test } from "node:test";
 import { db, nowIso, saveSettings } from "../server/db.ts";
+import { MAX_INSTRUCTION_CHARS } from "../server/instructions.ts";
+import { MAX_MEMORIES } from "../server/memory.ts";
+import { MAX_PROJECTS } from "../server/projects.ts";
 import { enforceRetention } from "../server/retention.ts";
 import { EXPORT_FORMAT, importFor } from "../server/transfer.ts";
 
@@ -60,6 +63,53 @@ describe("import dates", () => {
     }
     assert.equal(updatedAt(id, "Brought in"), old);
     assert.equal(updatedAt(id, "Left alone"), undefined);
+  });
+});
+
+describe("import limits", () => {
+  const count = (table: string, userId: number) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?`).get(userId) as { n: number }).n;
+
+  test("bring in projects only while there's room, and chats in the rest without one", () => {
+    const id = person("projects@example.com");
+    const add = db.prepare("INSERT INTO projects (id, user_id, name, instructions, created_at, updated_at) VALUES (?, ?, ?, '', ?, ?)");
+    for (let i = 0; i < MAX_PROJECTS - 1; i++) add.run(randomUUID(), id, `Project ${i}`, nowIso(), nowIso());
+    const result = importFor(id, exportOf({
+      projects: [
+        { id: "p0", name: "Project 0", instructions: "", createdAt: nowIso() },
+        { id: "p1", name: "Fits", instructions: "", createdAt: nowIso() },
+        { id: "p2", name: "No room", instructions: "", createdAt: nowIso() },
+      ],
+      chats: [{ ...chat("In the old one", nowIso()), projectId: "p0" }, { ...chat("In one left out", nowIso()), projectId: "p2" }],
+    }));
+    assert.equal(result.projects, 1);
+    assert.equal(count("projects", id), MAX_PROJECTS);
+    const projectOf = (title: string) => (db.prepare("SELECT p.name FROM conversations c LEFT JOIN projects p ON p.id = c.project_id WHERE c.user_id = ? AND c.title = ?").get(id, title) as { name: string | null }).name;
+    assert.equal(projectOf("In the old one"), "Project 0");
+    assert.equal(projectOf("In one left out"), null);
+  });
+
+  test("hold a chat's own instructions to the length the settings page allows", () => {
+    const id = person("instructions@example.com");
+    importFor(id, exportOf({ chats: [{ ...chat("Long", nowIso()), instructions: { aboutMe: "a".repeat(100_000), answerStyle: ` ${"b".repeat(2000)} ` } }] }));
+    const row = db.prepare("SELECT chat_instructions, system_prompt FROM conversations WHERE user_id = ?").get(id) as { chat_instructions: string; system_prompt: string };
+    const kept = JSON.parse(row.chat_instructions);
+    assert.equal(kept.aboutMe, "a".repeat(MAX_INSTRUCTION_CHARS));
+    assert.equal(kept.answerStyle, "b".repeat(MAX_INSTRUCTION_CHARS));
+    assert.ok(!row.system_prompt.includes("a".repeat(MAX_INSTRUCTION_CHARS + 1)));
+  });
+
+  test("bring in notes until memory is full, without counting ones kept already", () => {
+    const id = person("notes@example.com");
+    const add = db.prepare("INSERT INTO memories (user_id, text, created_at, updated_at) VALUES (?, ?, ?, ?)");
+    for (let i = 0; i < MAX_MEMORIES - 2; i++) add.run(id, `Note ${i}`, nowIso(), nowIso());
+    const notes = ["Note 0", "Likes tea", "Lives in Leeds", "One too many", ...Array.from({ length: 50_000 }, (_, i) => `Extra ${i}`)];
+    const started = Date.now();
+    const result = importFor(id, exportOf({ memories: notes.map((text) => ({ text, createdAt: nowIso() })) }));
+    // It stops once memory is full, rather than looking up each of the 50,000 notes left (seconds).
+    assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+    assert.equal(result.memories, 2);
+    assert.equal(count("memories", id), MAX_MEMORIES);
+    assert.equal(db.prepare("SELECT 1 FROM memories WHERE user_id = ? AND text = 'One too many'").get(id), undefined);
   });
 });
 

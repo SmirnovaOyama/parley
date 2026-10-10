@@ -5,12 +5,10 @@ import { requireUser, type AppEnv } from "../auth.ts";
 import { tx } from "../chat-store.ts";
 import { db, nowIso } from "../db.ts";
 import { canUse, getBase } from "../knowledge.ts";
-import { MAX_PROJECT_INSTRUCTIONS, ownProject, type ProjectRow } from "../projects.ts";
+import { MAX_PROJECT_INSTRUCTIONS, MAX_PROJECTS, ownProject, type ProjectRow } from "../projects.ts";
 
 export const projectRoutes = new Hono<AppEnv>();
 projectRoutes.use("*", requireUser);
-
-const MAX_PROJECTS = 200;
 
 function projectOut(p: ProjectRow) {
   const counts = db

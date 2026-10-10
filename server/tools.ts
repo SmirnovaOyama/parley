@@ -105,9 +105,19 @@ export function chatToolkit(opts: ToolkitOptions) {
   const searches: string[] = [];
   const found: Source[] = [];
   const declared: ToolSpec[] = opts.declared.map(({ mcp: _mcp, ...spec }) => spec);
-  /** What a model is offered: the chat's tools, and web search and page reading where it has no search of its own. */
-  const functionsWith = (webTools: boolean): ToolSpec[] => [...declared, ...(webTools ? WEB_TOOLS : [])];
   const byName = new Map(opts.declared.map((t) => [t.name, t]));
+  const noTool = (name: string): ToolOutcome => ({ content: `There's no tool called ${name} in this chat`, isError: true });
+
+  /**
+   * What a model is offered (the chat's tools, and web search and page reading where it has no
+   * search of its own) and a runner for those alone, as a request's functions and runTool. A name
+   * the model wasn't offered is refused, so naming web_search can't get round a key that has it off.
+   */
+  function offer(webTools: boolean): { functions: ToolSpec[]; runTool: (call: ToolCall) => Promise<ToolOutcome> } {
+    const functions = [...declared, ...(webTools ? WEB_TOOLS : [])];
+    const names = new Set(functions.map((f) => f.name));
+    return { functions, runTool: async (call) => (names.has(call.name) ? run(call) : noTool(call.name)) };
+  }
 
   async function runOne(call: ToolCall): Promise<ToolOutcome> {
     const input = call.input;
@@ -187,7 +197,7 @@ export function chatToolkit(opts: ToolkitOptions) {
         return { content: `${page.title ? `${page.title}\n` : ""}${page.url}\n\n${page.text}` };
       }
     }
-    return { content: `There's no tool called ${call.name} in this chat`, isError: true };
+    return noTool(call.name);
   }
 
   async function run(call: ToolCall): Promise<ToolOutcome> {
@@ -202,5 +212,5 @@ export function chatToolkit(opts: ToolkitOptions) {
     }
   }
 
-  return { functionsWith, run, uses, searches, found };
+  return { offer, uses, searches, found };
 }

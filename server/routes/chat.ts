@@ -572,8 +572,7 @@ chatRoutes.post("/chat", async (c) => {
         codeTool,
         codeAllowed,
         container: containerFor(k),
-        functions: kit.functionsWith(webToolsFor(k)),
-        runTool: kit.run,
+        ...kit.offer(webToolsFor(k)),
         onText: (delta) => {
           if (thinkingStarted && thinkingMs == null) thinkingMs = Date.now() - thinkingStarted;
           partial += delta;

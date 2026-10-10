@@ -31,18 +31,28 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - Chat with any model their admins allow, and pick the model and how hard it thinks, chat by chat.
 - Attach images, PDFs and text files. Each model opens what it can, and the composer says when one can't.
 - See the model's reasoning, folded above the reply, for models that share it.
-- Let Claude and OpenAI models search the web with cited sources, or run code to make files to download (when an admin turns it on).
+- Let Claude and OpenAI models search the web with cited sources, or run code to make files to download (when an admin turns it on). Other models search and read pages through a search service the admin picks.
 - Edit a message or regenerate a reply without losing the earlier version.
 - Set instructions for every chat (about you, how to answer) or for one chat.
+- Keep chats in projects: folders with their own instructions and knowledge that every chat in them shares.
+- Add PDFs, Word documents and text files to knowledge bases, connect them to a chat or a project, and every model looks things up in them.
+- Memory: the AI keeps short notes about you between chats, which you can read, edit, add to or turn off.
+- See how full the model's context is above the message box, with a nudge to start afresh when it's nearly full.
+- Preview HTML pages, SVG, React components, Mermaid diagrams and JavaScript from a reply, run in a sandbox.
+- Pin chats, and find the rest grouped by when they were last active.
+- Export everything as one file, and import chats from Parley, ChatGPT or Claude exports.
 - Share a read-only link to a chat.
 
 **For admins**
 - API keys: stored encrypted, checked with the provider before they're saved, with a backup key for when one fails.
 - People: who can use which keys, monthly token and spending limits, accounts on or off.
+- Groups, like a class or a team, that open keys and MCP servers to their members and can give them a spending limit of their own.
+- MCP servers (Streamable HTTP or SSE): their tools work with every model, for everyone or for chosen groups, each tool on or off.
+- Knowledge bases shared with everyone, and the search service for models without their own web search (Tavily, Brave, Bocha, Jina or your own SearXNG).
 - Every chat, read-only and searchable. People are told admins can read chats, and every look is logged.
 - Replies the AI declined, gathered for review.
 - Usage and estimated cost by person, key and day.
-- Site settings: the system prompt, sign-ups, sharing, and optional email rewards (extra allowance for verified addresses on domains you choose, like a school's).
+- Site settings: the system prompt, sign-ups, sharing, memory, how long chats are kept (including chats people deleted), and optional email rewards (extra allowance for verified addresses on domains you choose, like a school's).
 
 ## AI providers
 
@@ -52,7 +62,7 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 | OpenAI | GPT-6.1 Sol, GPT-6 Luna, GPT-6 Astra | Images, PDFs, text | Web search, making files, reasoning summaries |
 | DeepSeek | Flash, V4 Pro | Text | |
 | Gemini | 3.8 Flash, 3.1 Pro, 3.5 Flash-Lite | Images, text | |
-| Grok | 4.7, 4.3 | Images (JPEG, PNG), text | Reasoning summaries on 4.7 |
+| Grok | 4.7, 4.6, 4.3 | Images (JPEG, PNG), text | Reasoning summaries on 4.7 |
 | Another service | Any model names you type | Text, and images if you say so | Presets for OpenRouter, Groq, Mistral, Qwen, Kimi, GLM and Ollama |
 
 Prices for the cost estimates live in [`server/providers/catalog.ts`](server/providers/catalog.ts). For another service you can enter its prices on the key; models without prices count as free.
@@ -126,6 +136,8 @@ Set in `.env` (see [`.env.example`](.env.example)):
 - The first account becomes the admin. Sign up right after you deploy, then turn off sign-ups in Admin → Settings if you don't want strangers joining.
 - Admins can point an "Another service" key at any address, and the server will connect to it. Only make people admins you trust with that.
 - Admins can read every chat. Parley tells everyone so on their account page.
+- MCP servers are reached from the server, with whatever headers the admin gives them; only connect ones you trust. The page reader behind web search for other models refuses addresses inside the server's own network.
+- Code previews run on a page of their own (`/api/preview`) that the browser sandboxes by its Content-Security-Policy, so the code can't act as the site. It may load scripts from a few public CDNs (jsDelivr, unpkg, esm.sh, cdnjs).
 - To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## How it works
@@ -134,6 +146,8 @@ Set in `.env` (see [`.env.example`](.env.example)):
 - **Claude.** `@anthropic-ai/sdk`, with prompt caching and server-side refusal fallbacks. Earlier replies go back exactly as they came, as the newest models require.
 - **OpenAI and Grok.** The Responses API through the `openai` package, with nothing stored at the provider. Reasoning summaries show where the model gives them.
 - **Gemini, DeepSeek and other services.** OpenAI's chat-completions format ([`server/providers/compat.ts`](server/providers/compat.ts)), one dialect per service. Reasoning shows whether it comes as its own field or in `<think>` tags.
+- **Tools.** Memory, knowledge search, MCP servers' tools and (for models without their own) web search are functions every provider can call ([`server/tools.ts`](server/tools.ts)); each provider runs the loop its own way. A chat's tool list is settled when it starts, because Claude ties its reasoning to it.
+- **Knowledge.** Documents are cut into overlapping parts in an SQLite FTS5 index with the trigram tokenizer, so Chinese and Japanese match without word breaks. No embeddings, no extra service.
 - **Attachments.** Each file uploads as it's added and is kept next to the database. Claude gets files through its Files API, uploaded once per account; other models get images and PDFs inline, and text files go in as text. Photos are scaled down in the browser; files can be up to 30 MB (images 5 MB).
 - **Keys.** Encrypted with AES-256-GCM under `KEY_ENCRYPTION_SECRET`.
 
@@ -141,7 +155,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 
 ```
 server/            Hono API
-  routes/          auth, chat, admin, shared links
+  routes/          auth, chat, admin, shared links, projects, knowledge, your data (memory, export, import)
   providers/       Claude, the Responses API (OpenAI, Grok), the chat-completions dialects, model catalog and prices
 src/               React app
   components/      the pieces (no pop-ups: forms are pages, confirms are inline)

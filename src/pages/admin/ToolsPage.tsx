@@ -20,8 +20,13 @@ export type McpServer = {
   headerNames: string[];
   enabled: boolean;
   shared: boolean;
-  tools: { name: string; title: string | null; description: string }[];
+  /** readOnly, openWorld: what the server says of the tool (null when it doesn't say). */
+  tools: { name: string; title: string | null; description: string; readOnly: boolean | null; openWorld: boolean | null }[];
   offTools: string[];
+  /** The tools that run as soon as the model calls them; the rest ask the person first. */
+  runTools: string[];
+  /** Requests carry the person's email, so the server can tell people apart. */
+  sendUser: boolean;
   groupIds: number[];
   checkedAt: string | null;
   error: string | null;
@@ -186,6 +191,13 @@ function SearchForm() {
   );
 }
 
+/** What the server says a tool does, beside the choice to let it run without asking. */
+function hintOf(t: McpServer["tools"][number]): string {
+  if (t.readOnly) return t.openWorld ? "Only reads, the server says, but from services beyond it, so it could pass on what it's sent" : "Only reads, the server says";
+  if (t.readOnly === false) return "Can make changes, the server says";
+  return "The server doesn't say whether it makes changes";
+}
+
 /** Add an MCP server (/admin/mcp/new) or change one (/admin/mcp/:id): where it is, who can use it, which tools are on. */
 export function McpFormPage() {
   const { id } = useParams();
@@ -201,6 +213,8 @@ export function McpFormPage() {
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [enabled, setEnabled] = useState(true);
   const [onTools, setOnTools] = useState<string[]>([]);
+  const [runTools, setRunTools] = useState<string[]>([]);
+  const [sendUser, setSendUser] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -214,6 +228,8 @@ export function McpFormPage() {
     setGroupIds(s.groupIds.map(String));
     setEnabled(s.enabled);
     setOnTools(s.tools.map((t) => t.name).filter((t) => !s.offTools.includes(t)));
+    setRunTools(s.runTools);
+    setSendUser(s.sendUser);
   };
 
   useEffect(() => {
@@ -234,14 +250,14 @@ export function McpFormPage() {
     setBusy(true);
     setError(null);
     try {
-      const body = { name, url, headers, shared: who === "everyone", groupIds: groupIds.map(Number) };
+      const body = { name, url, headers, shared: who === "everyone", groupIds: groupIds.map(Number), sendUser };
       if (adding) {
         const { server: made } = await api.post<{ server: McpServer }>("/admin/mcp", body);
         navigate(`/admin/mcp/${made.id}`, { replace: true });
         fill(made);
       } else {
         const offTools = server!.tools.map((t) => t.name).filter((t) => !onTools.includes(t));
-        await api.patch(`/admin/mcp/${id}`, { ...body, keepHeaders: true, enabled, offTools });
+        await api.patch(`/admin/mcp/${id}`, { ...body, keepHeaders: true, enabled, offTools, runTools });
         slideTo("/admin/tools", "back");
       }
     } catch (err) {
@@ -257,9 +273,16 @@ export function McpFormPage() {
     try {
       const { server: next } = await api.post<{ server: McpServer }>(`/admin/mcp/${id}/refresh`);
       const before = new Set(server?.tools.map((t) => t.name));
+      const ranBefore = new Set(server?.runTools);
       setServer(next);
       // New tools come on; ones turned off stay off.
       setOnTools((list) => [...list.filter((t) => next.tools.some((x) => x.name === t)), ...next.tools.map((t) => t.name).filter((t) => !before.has(t))]);
+      // Whether each runs unasked follows what the server says now, except where it was changed here.
+      setRunTools((list) =>
+        next.tools
+          .map((t) => t.name)
+          .filter((t) => (before.has(t) && list.includes(t) !== ranBefore.has(t) ? list.includes(t) : next.runTools.includes(t))),
+      );
       if (next.error) setError(next.error);
     } catch (err) {
       setError((err as Error).message);
@@ -291,7 +314,7 @@ export function McpFormPage() {
                 value={headers}
                 spellCheck={false}
                 onChange={(e) => setHeaders(e.target.value)}
-                hint="One per line, like Authorization: Bearer abc123, or just a token. Kept encrypted and never shown again"
+                hint="One per line, like Authorization: Bearer abc123, or just a token. Everyone who can use the server acts with these. Kept encrypted and never shown again"
               />
               <OptionList
                 label="Who can use it"
@@ -311,19 +334,30 @@ export function McpFormPage() {
                   empty="There are no groups yet. Make them under Groups"
                 />
               )}
+              <div className="oy-section is-plain">
+                {!adding && server && (
+                  <div className="oy-row">
+                    <div className="text">
+                      <label className="title" htmlFor="mcp-enabled">
+                        On
+                      </label>
+                      <div className="desc">Off, its tools stop working in every chat until it's back on</div>
+                    </div>
+                    <Switch id="mcp-enabled" checked={enabled} onChange={setEnabled} />
+                  </div>
+                )}
+                <div className="oy-row">
+                  <div className="text">
+                    <label className="title" htmlFor="mcp-send-user">
+                      Tell it who's asking
+                    </label>
+                    <div className="desc">Each request carries the person's email in an X-Parley-User header, so the server can tell people apart</div>
+                  </div>
+                  <Switch id="mcp-send-user" checked={sendUser} onChange={setSendUser} />
+                </div>
+              </div>
               {!adding && server && (
                 <>
-                  <div className="oy-section is-plain">
-                    <div className="oy-row">
-                      <div className="text">
-                        <label className="title" htmlFor="mcp-enabled">
-                          On
-                        </label>
-                        <div className="desc">Off, its tools stop working in every chat until it's back on</div>
-                      </div>
-                      <Switch id="mcp-enabled" checked={enabled} onChange={setEnabled} />
-                    </div>
-                  </div>
                   <CheckList
                     label="Tools people can use"
                     values={onTools}
@@ -331,6 +365,14 @@ export function McpFormPage() {
                     options={server.tools.map((t) => ({ id: t.name, label: t.title || t.name, detail: t.description.split("\n")[0].slice(0, 160) || undefined }))}
                     empty="It lists no tools"
                   />
+                  <CheckList
+                    label="Run without asking"
+                    values={runTools}
+                    onChange={setRunTools}
+                    options={server.tools.filter((t) => onTools.includes(t.name)).map((t) => ({ id: t.name, label: t.title || t.name, detail: hintOf(t) }))}
+                    empty="No tools are on"
+                  />
+                  <p className="panel-note">The rest ask the person on a line in the chat each time, showing what they'd send</p>
                   <BusyButton type="button" className="btn-ghost is-accent push-left mcp-check" busy={checking} onClick={() => void check()}>
                     <Icon name="retry" size={16} />
                     Ask it for its tools again

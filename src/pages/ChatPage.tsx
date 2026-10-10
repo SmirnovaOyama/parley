@@ -7,7 +7,7 @@ import { SlideLink } from "../components/SlideLink.tsx";
 import { CONTEXT_NEARLY_FULL, ModelPicker } from "../components/ModelPicker.tsx";
 import { Transcript, type UiMessage } from "../components/Transcript.tsx";
 import { Icon } from "../icons/Icon.tsx";
-import { api, streamChat, type Attachment, type Choice, type Instructions, type Message, type ModelChoice, type Share } from "../lib/api.ts";
+import { api, streamChat, type Ask, type Attachment, type Choice, type Instructions, type Message, type ModelChoice, type Share } from "../lib/api.ts";
 import { kindsPhrase } from "../lib/format.ts";
 import { useSession } from "../lib/session.tsx";
 import { useUploads, type PendingFile } from "../lib/uploads.ts";
@@ -24,6 +24,8 @@ type Loaded = {
   };
   messages: Message[];
   generating: boolean;
+  /** While a reply is being written: the questions it's waiting on. */
+  asks?: Ask[];
   share: Share | null;
 };
 type Models = { choices: ModelChoice[]; start: Choice | null };
@@ -122,7 +124,7 @@ export function ChatPage() {
       setChatProject(data.conversation.project);
       setMessages(
         data.generating
-          ? [...data.messages, { id: -1, parentId: null, role: "assistant", text: "", model: "", status: "ok", error: null, note: null, thinking: null, thinkingMs: null, instructionsChanged: false, siblingIds: [], createdAt: "", streaming: true, phase: "writing" }]
+          ? [...data.messages, { id: -1, parentId: null, role: "assistant", text: "", model: "", status: "ok", error: null, note: null, thinking: null, thinkingMs: null, instructionsChanged: false, siblingIds: [], createdAt: "", streaming: true, phase: "writing", asks: data.asks ?? [] }]
           : data.messages,
       );
       setSending(data.generating);
@@ -388,6 +390,7 @@ export function ChatPage() {
           },
           onStatus: (status, detail) => patchReply((m) => ({ ...m, phase: status, searchQuery: status === "searching" ? detail : undefined })),
           onNotice: (notice) => patchReply((m) => ({ ...m, notice })),
+          onAsks: (asks) => patchReply((m) => ({ ...m, asks })),
           onDone: (message) => {
             cancelAnimationFrame(frame);
             patchReply((m) => ({ ...message, notice: m.notice }));
@@ -442,6 +445,19 @@ export function ChatPage() {
   const stop = () => {
     const convId = streamingIdRef.current ?? id;
     if (convId) void api.post(`/conversations/${convId}/stop`);
+  };
+
+  // An answer to a question the reply is waiting on. Its line goes straight away; the stream (or,
+  // for someone who came back to the chat, the next look at it) says what's still waiting.
+  const answer = async (ask: Ask, allow: boolean) => {
+    const convId = streamingIdRef.current ?? id;
+    if (!convId) return;
+    setMessages((list) => list.map((m) => (m.asks?.some((a) => a.id === ask.id) ? { ...m, asks: m.asks.filter((a) => a.id !== ask.id) } : m)));
+    try {
+      await api.post(`/conversations/${convId}/asks/${ask.id}`, { allow });
+    } catch (err) {
+      setSendError((err as Error).message);
+    }
   };
 
   // Each model opens some kinds of file (DeepSeek text only, say), so a file in the box that the
@@ -505,6 +521,7 @@ export function ChatPage() {
             }
             onRegenerate={(target) => void run({ kind: "regenerate", target })}
             onSwitch={(messageId) => void switchVersion(messageId)}
+            onAnswer={(ask, allow) => void answer(ask, allow)}
           />
         )}
       </div>

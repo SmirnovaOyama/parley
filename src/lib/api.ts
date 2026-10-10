@@ -70,6 +70,12 @@ export type Message = {
 
 export type ToolUse = { kind: "memory" | "knowledge" | "page" | "mcp"; text: string; error?: boolean };
 
+/**
+ * A question a reply is waiting on before one of its tools runs (reading a page nobody linked,
+ * keeping a note, an MCP tool that may change things), answered on a line in the reply.
+ */
+export type Ask = { id: string; kind: "page" | "memory" | "mcp"; question: string; detail: string; reason: string };
+
 /** A file attached to a message: what the model gets is its kind (other: only code can open it). */
 export type Attachment = { id: string; name: string; mime: string; size: number; kind: "image" | "pdf" | "text" | "other" };
 
@@ -216,6 +222,8 @@ export type StreamHandlers = {
   /** "searching" comes with the query; "tool" with a few words on what it's doing ("Updating memory"). */
   onStatus: (status: "thinking" | "writing" | "searching" | "coding" | "saving" | "uploading" | "tool", detail?: string) => void;
   onNotice: (message: string) => void;
+  /** The questions the reply is waiting on now (none once they're answered). */
+  onAsks?: (asks: Ask[]) => void;
   onDone: (message: Message) => void;
   onError: (message: Message) => void;
   /** The chat got a new title, written after the reply. */
@@ -283,6 +291,7 @@ export async function streamChat(
       else if (event === "thinking") handlers.onThinking(payload.text);
       else if (event === "status") handlers.onStatus(payload.status, payload.detail);
       else if (event === "notice") handlers.onNotice(payload.message);
+      else if (event === "asks") handlers.onAsks?.(payload.asks);
       else if (event === "done") handlers.onDone(payload.message);
       else if (event === "error") handlers.onError(payload.message);
       else if (event === "title") handlers.onTitle?.(payload.title);

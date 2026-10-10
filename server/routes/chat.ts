@@ -11,6 +11,7 @@ import {
   historyFor,
   instructionsBefore,
   newestLeaf,
+  pathTo,
   titleFrom,
   toPublic,
   tx,
@@ -51,7 +52,8 @@ import type { ChatResult } from "../providers/types.ts";
 import { canUse, getBase } from "../knowledge.ts";
 import { memoryOn, memoryPrompt } from "../memory.ts";
 import { chatSetting, ownProject, settingOf } from "../projects.ts";
-import { chatToolkit, codeOnSite, declaredOf, searchOnSite, toolsForNewChat, type ToolUse } from "../tools.ts";
+import { answerAsk, askPerson, asksOf } from "../asks.ts";
+import { chatContext, chatToolkit, codeOnSite, declaredOf, searchOnSite, toolsForNewChat, type ToolUse } from "../tools.ts";
 import { searchServiceReady } from "../web-tools.ts";
 import { purgeConversations } from "../retention.ts";
 
@@ -138,6 +140,8 @@ chatRoutes.get("/conversations/:id", (c) => {
     },
     messages: viewPath(conv),
     generating: generating.has(conv.id),
+    // Questions the reply being written is waiting on, for someone who comes back to it.
+    asks: generating.has(conv.id) ? asksOf(conv.id) : [],
     share: shareInfo(conv),
     sharing: getSettings().sharing,
   });
@@ -325,6 +329,16 @@ chatRoutes.delete("/conversations/:id", (c) => {
 chatRoutes.post("/conversations/:id/stop", (c) => {
   const job = generating.get(c.req.param("id"));
   if (job && job.userId === c.var.user!.id) job.controller.abort();
+  return c.json({ ok: true });
+});
+
+/** The person's answer to a question the reply is waiting on (asks.ts): allow: true lets the tool run. */
+chatRoutes.post("/conversations/:id/asks/:askId", async (c) => {
+  const conv = ownConversation(c.req.param("id"), c.var.user!.id);
+  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  if (typeof body.allow !== "boolean") return c.json({ error: "Say whether to allow it" }, 400);
+  if (!answerAsk(conv.id, c.req.param("askId"), body.allow)) return c.json({ error: "That isn't waiting for an answer any more" }, 409);
   return c.json({ ok: true });
 });
 
@@ -522,11 +536,14 @@ chatRoutes.post("/chat", async (c) => {
         ? chatRow.container_id
         : null;
 
-    // The app's own tools: the chat's, and web search where the model has none of its own.
+    // The app's own tools: the chat's, and web search where the model has none of its own. Some
+    // calls wait for the person's OK, asked on a line in the reply (asks.ts).
     const kit = chatToolkit({
       userId: user.id,
       conversationId: convId,
       declared: toolDefs,
+      context: chatContext(pathTo(userMessageId)),
+      ask: (question) => askPerson(convId, question, controller.signal, (asks) => void send("asks", { asks })),
       signal: controller.signal,
       onStatus: (status, detail) => void send("status", { status, detail }),
     });
@@ -585,6 +602,8 @@ chatRoutes.post("/chat", async (c) => {
         },
         onStatus: (status, detail) => {
           if (status === "thinking" && !thinkingStarted) thinkingStarted = Date.now();
+          // The model's own web search brings in pages too.
+          if (status === "searching") kit.tookIn();
           void send("status", { status, ...(detail ? { detail } : {}) });
         },
         onNotice: (message) => {
@@ -648,6 +667,7 @@ chatRoutes.post("/chat", async (c) => {
       thinking: thought.trim() || null,
       thinkingMs: thought.trim() ? thinkingMs : null,
       tools: kit.uses,
+      pageUrls: kit.pageUrls,
     });
     // Files the reply's code made are copied here before the reply counts as done, so its cards
     // can link to them straight away.
@@ -691,19 +711,21 @@ type Outcome = {
   thinkingMs: number | null;
   /** What the reply did with the app's tools. */
   tools: ToolUse[];
+  /** Addresses its searches returned and pages the person let it read, which later replies may read unasked. */
+  pageUrls: string[];
 };
 
 /**
  * Stores the reply. Declined, failed and empty stopped replies stay readable for admins but
  * leave the context, together with the message that prompted them.
  */
-function saveOutcome({ convId, userId, userMessageId, key, partial, result, failure, note, thinking, thinkingMs, tools }: Outcome) {
+function saveOutcome({ convId, userId, userMessageId, key, partial, result, failure, note, thinking, thinkingMs, tools, pageUrls }: Outcome) {
   const now = nowIso();
   return tx(() => {
     let row: Omit<
       MessageRow,
       | "id" | "conversation_id" | "parent_id" | "role" | "created_at" | "note" | "thinking" | "thinking_ms" | "instructions" | "declined_by"
-      | "reviewed_at" | "reviewed_by" | "web" | "search_off" | "code_off" | "tools" | "context_tokens"
+      | "reviewed_at" | "reviewed_by" | "web" | "search_off" | "code_off" | "tools" | "context_tokens" | "page_urls"
     >;
     // A reply with no words (nothing, or thinking only) is a failure, shown with "Try again"; it
     // stays out of what's sent back, like any failed reply.
@@ -749,16 +771,17 @@ function saveOutcome({ convId, userId, userMessageId, key, partial, result, fail
       : null;
 
     const toolsJson = tools.length ? JSON.stringify(tools) : null;
+    const pageUrlsJson = pageUrls.length ? JSON.stringify(pageUrls) : null;
     const contextTokens = result?.contextTokens || null;
     const id = Number(
       db
         .prepare(
           `INSERT INTO messages (conversation_id, parent_id, role, text, content, provider, model, stop_reason, error, note,
-             thinking, thinking_ms, in_context, declined_by, web, tools, context_tokens, created_at)
-           VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             thinking, thinking_ms, in_context, declined_by, web, tools, context_tokens, page_urls, created_at)
+           VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(convId, userMessageId, row.text, row.content, row.provider, row.model, row.stop_reason, row.error, note,
-          thinking, thinkingMs, row.in_context, declined, web, toolsJson, contextTokens, now)
+          thinking, thinkingMs, row.in_context, declined, web, toolsJson, contextTokens, pageUrlsJson, now)
         .lastInsertRowid,
     );
 
@@ -803,6 +826,7 @@ function saveOutcome({ convId, userId, userMessageId, key, partial, result, fail
       code_off: 0,
       tools: toolsJson,
       context_tokens: contextTokens,
+      page_urls: pageUrlsJson,
       ...row,
     });
   });

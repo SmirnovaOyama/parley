@@ -1,6 +1,8 @@
 // MCP servers an admin connects (Streamable HTTP, or the older HTTP+SSE). Their tools join new chats
-// of the people allowed to use them, under names made from the server's and the tool's. Connections
-// are kept open while they're in use and closed after a few idle minutes.
+// of the people allowed to use them, under names made from the server's and the tool's. Each person
+// gets a connection (and MCP session) of their own, so a server that keeps state between calls
+// keeps it per person; connections stay open while in use and close after a few idle minutes.
+// Everyone still calls with the headers the admin gave, so the server acts for all of them alike.
 import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -19,15 +21,26 @@ export type McpServerRow = {
   shared: number;
   tools: string;
   off_tools: string;
+  /** JSON { tool: "run" | "ask" } where an admin chose differently from what the server says of it (see runsUnasked). */
+  tool_modes: string;
+  /** 1: every request says who's asking, in an X-Parley-User header with the person's email. */
+  send_user: number;
   checked_at: string | null;
   error: string | null;
   created_at: string;
 };
 
+/** What a server says a tool does (MCP's annotations). Hints only: they're the server's word. */
+export type ToolHints = { readOnlyHint?: boolean; destructiveHint?: boolean; openWorldHint?: boolean };
+
 /** A tool as the server described it. */
-export type McpTool = { name: string; title?: string; description?: string; inputSchema: Record<string, unknown> };
+export type McpTool = { name: string; title?: string; description?: string; inputSchema: Record<string, unknown>; annotations?: ToolHints };
 
 const IDLE_MS = 5 * 60_000;
+/** Open connections at most, across servers and people; the one idle longest closes first. */
+const MAX_OPEN = 200;
+/** The header that names the person, on servers set to say who's asking. */
+export const USER_HEADER = "X-Parley-User";
 const CALL_TIMEOUT_MS = 90_000;
 /** What a tool returns is cut here, so one call can't flood the chat. */
 const MAX_RESULT_CHARS = 60_000;
@@ -59,18 +72,48 @@ export const offToolsOf = (s: Pick<McpServerRow, "off_tools">): string[] => {
     return [];
   }
 };
+export const toolModesOf = (s: Pick<McpServerRow, "tool_modes">): Record<string, "run" | "ask"> => {
+  try {
+    const modes = JSON.parse(s.tool_modes);
+    return modes && typeof modes === "object" && !Array.isArray(modes) ? modes : {};
+  } catch {
+    return {};
+  }
+};
 
+/**
+ * Whether a tool runs as soon as the model calls it, unless an admin chose: when the server says
+ * it only reads, and doesn't say it reaches services beyond the server. One that does (fetching
+ * any address, say) could still carry what the chat holds somewhere else, so it asks.
+ */
+export const runsByDefault = (t: Pick<McpTool, "annotations"> | undefined) => t?.annotations?.readOnlyHint === true && t.annotations.openWorldHint !== true;
+
+/**
+ * Whether a tool runs without asking the person first: as an admin set it, else as runsByDefault
+ * says. Everything else (and every tool of a server that says nothing) asks.
+ */
+export function runsUnasked(s: Pick<McpServerRow, "tools" | "tool_modes">, tool: string): boolean {
+  const mode = toolModesOf(s)[tool];
+  return mode ? mode === "run" : runsByDefault(toolsOf(s).find((t) => t.name === tool));
+}
+
+/** Connections by server and person ("3:12"). */
 type Open = { client: Client; fingerprint: string; lastUsed: number };
-const open = new Map<number, Open>();
+const open = new Map<string, Open>();
+const openKey = (serverId: number, userId: number) => `${serverId}:${userId}`;
+
+function close(key: string) {
+  const known = open.get(key);
+  open.delete(key);
+  if (known) void known.client.close().catch(() => {});
+}
 
 setInterval(() => {
-  for (const [id, o] of open) {
-    if (Date.now() - o.lastUsed > IDLE_MS) {
-      open.delete(id);
-      void o.client.close().catch(() => {});
-    }
-  }
+  for (const [key, o] of open) if (Date.now() - o.lastUsed > IDLE_MS) close(key);
 }, 60_000).unref();
+
+/** How many connections are open now (for tests). */
+export const openConnections = () => open.size;
 
 /** Connects to a server: Streamable HTTP first, then the older SSE transport. */
 async function connect(url: string, headers: Record<string, string>): Promise<Client> {
@@ -92,25 +135,39 @@ async function connect(url: string, headers: Record<string, string>): Promise<Cl
   }
 }
 
-async function clientFor(s: McpServerRow): Promise<Client> {
-  const headers = headersOf(s);
+/** The header naming the person, for a server set to say who's asking. An address that isn't plain ASCII goes percent-encoded. */
+function whoIsAsking(s: Pick<McpServerRow, "send_user">, userId: number): Record<string, string> {
+  if (!s.send_user) return {};
+  const row = db.prepare("SELECT email FROM users WHERE id = ?").get(userId) as { email: string } | undefined;
+  if (!row) return {};
+  return { [USER_HEADER]: /^[\x21-\x7e]+$/.test(row.email) ? row.email : encodeURIComponent(row.email) };
+}
+
+/** This person's connection to the server, opened when there's none (or the server's details changed). */
+async function clientFor(s: McpServerRow, userId: number): Promise<Client> {
+  const headers = { ...headersOf(s), ...whoIsAsking(s, userId) };
   const fingerprint = createHash("sha256").update(`${s.url}\n${JSON.stringify(headers)}`).digest("hex");
-  const known = open.get(s.id);
+  const key = openKey(s.id, userId);
+  const known = open.get(key);
   if (known && known.fingerprint === fingerprint) {
     known.lastUsed = Date.now();
     return known.client;
   }
-  if (known) void known.client.close().catch(() => {});
+  if (known) close(key);
   const client = await connect(s.url, headers);
-  open.set(s.id, { client, fingerprint, lastUsed: Date.now() });
+  // Room for it: the connection idle longest goes.
+  while (open.size >= MAX_OPEN) {
+    let oldest: string | null = null;
+    for (const [k, o] of open) if (!oldest || o.lastUsed < open.get(oldest)!.lastUsed) oldest = k;
+    close(oldest!);
+  }
+  open.set(key, { client, fingerprint, lastUsed: Date.now() });
   return client;
 }
 
-/** Drops a server's open connection (after it's changed or deleted). */
+/** Drops a server's open connections, everyone's (after it's changed or deleted). */
 export function forget(id: number) {
-  const known = open.get(id);
-  open.delete(id);
-  if (known) void known.client.close().catch(() => {});
+  for (const key of [...open.keys()]) if (key.startsWith(`${id}:`)) close(key);
 }
 
 /** A sentence for a server that couldn't be reached or listed. */
@@ -123,6 +180,17 @@ export function mcpErrorMessage(err: unknown): string {
   return `The server answered with an error: ${message.slice(0, 200)}`;
 }
 
+/** The hints a server gave about a tool, the yes-or-no ones only. */
+function hintsOf(annotations: unknown): { annotations?: ToolHints } {
+  if (!annotations || typeof annotations !== "object") return {};
+  const hints: ToolHints = {};
+  for (const name of ["readOnlyHint", "destructiveHint", "openWorldHint"] as const) {
+    const value = (annotations as Record<string, unknown>)[name];
+    if (typeof value === "boolean") hints[name] = value;
+  }
+  return Object.keys(hints).length ? { annotations: hints } : {};
+}
+
 /** Lists a server's tools, every page of them. */
 export async function listTools(url: string, headers: Record<string, string>): Promise<McpTool[]> {
   const client = await connect(url, headers);
@@ -132,7 +200,13 @@ export async function listTools(url: string, headers: Record<string, string>): P
     do {
       const page = await client.listTools(cursor ? { cursor } : undefined, { timeout: 30_000 });
       for (const t of page.tools) {
-        tools.push({ name: t.name, title: t.title, description: t.description, inputSchema: (t.inputSchema ?? { type: "object" }) as Record<string, unknown> });
+        tools.push({
+          name: t.name,
+          title: t.title,
+          description: t.description,
+          inputSchema: (t.inputSchema ?? { type: "object" }) as Record<string, unknown>,
+          ...hintsOf(t.annotations),
+        });
       }
       cursor = page.nextCursor;
     } while (cursor && tools.length < 500);
@@ -221,12 +295,13 @@ function resultText(result: { content?: unknown; structuredContent?: unknown }):
   return text.length > MAX_RESULT_CHARS ? `${text.slice(0, MAX_RESULT_CHARS)}\n\n(The result goes on; this is its first part.)` : text;
 }
 
-/** Calls a server's tool. Never throws: a failure comes back as an error for the model. */
-export async function callTool(s: McpServerRow, tool: string, input: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutcome> {
+/** Calls a server's tool for this person, on their connection. Never throws: a failure comes back as an error for the model. */
+export async function callTool(s: McpServerRow, userId: number, tool: string, input: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutcome> {
+  const key = openKey(s.id, userId);
   for (let attempt = 0; attempt < 2; attempt++) {
-    const reused = open.has(s.id);
+    const reused = open.has(key);
     try {
-      const client = await clientFor(s);
+      const client = await clientFor(s, userId);
       const result = (await client.callTool({ name: tool, arguments: input }, undefined, { signal, timeout: CALL_TIMEOUT_MS })) as {
         content?: unknown;
         structuredContent?: unknown;
@@ -237,7 +312,7 @@ export async function callTool(s: McpServerRow, tool: string, input: Record<stri
       if (result.content === undefined && result.toolResult !== undefined) return { content: JSON.stringify(result.toolResult, null, 2) };
       return { content: resultText(result), isError: !!result.isError };
     } catch (err) {
-      forget(s.id);
+      close(key);
       if (signal.aborted) return { content: "Stopped", isError: true };
       // A connection kept from earlier that the server has since dropped (it restarted, say) is
       // opened again once. The call never reached the tool, so nothing runs twice.

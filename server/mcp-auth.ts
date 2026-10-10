@@ -94,9 +94,16 @@ export function saveCredential(serverId: number, userId: number, secret: Secret)
   ).run(serverId, userId, encryptSecret(JSON.stringify(secret)), nowIso());
 }
 
-/** Its credential stopped working: forgotten, and the person is asked to connect again. */
-function markExpired(serverId: number, userId: number) {
-  db.prepare("UPDATE mcp_credentials SET secret = NULL, status = 'expired' WHERE server_id = ? AND user_id = ?").run(serverId, userId);
+/**
+ * Its credential stopped working: forgotten, and the person is asked to connect again. Only the
+ * one connected at `connectedAt`: one they connected since is another, and may well work.
+ */
+function markExpired(serverId: number, userId: number, connectedAt: string) {
+  db.prepare("UPDATE mcp_credentials SET secret = NULL, status = 'expired' WHERE server_id = ? AND user_id = ? AND connected_at = ?").run(
+    serverId,
+    userId,
+    connectedAt,
+  );
 }
 
 /** Notes that a person's credential carried a call. */
@@ -170,21 +177,28 @@ export const ownHeaders = (headers: Record<string, string>) => Object.fromEntrie
 
 /**
  * What a person's request to a server carries: their pasted token's headers, or their OAuth access
- * token (refreshed first when it's about to run out), with that token named for a retry.
+ * token (refreshed first when it's about to run out), with that token named for a retry, and when
+ * the credential was connected.
  */
-export async function personalCredential(s: ServerAuth, userId: number): Promise<{ headers: Record<string, string>; accessToken?: string }> {
+export async function personalCredential(
+  s: ServerAuth,
+  userId: number,
+): Promise<{ headers: Record<string, string>; accessToken?: string; connectedAt: string }> {
   const row = credentialOf(s.id, userId);
   const secret = row?.status === "ok" ? readSecret(row) : null;
-  if (!secret || secret.kind !== (s.auth_mode === "oauth" ? "oauth" : "token")) throw new AccountError(row ? "expired" : "missing");
-  if (secret.kind === "token") return { headers: ownHeaders(secret.headers) };
+  if (!row || !secret || secret.kind !== (s.auth_mode === "oauth" ? "oauth" : "token")) throw new AccountError(row ? "expired" : "missing");
+  if (secret.kind === "token") return { headers: ownHeaders(secret.headers), connectedAt: row.connected_at };
   let accessToken = secret.tokens.access_token;
   if (secret.expiresAt && secret.expiresAt - 60_000 < Date.now() && secret.tokens.refresh_token) accessToken = await refreshed(s, userId, accessToken);
-  return { headers: { Authorization: `Bearer ${accessToken}` }, accessToken };
+  return { headers: { Authorization: `Bearer ${accessToken}` }, accessToken, connectedAt: row.connected_at };
 }
 
-/** The server turned the person's credential down: a pasted token, or a sign-in that can't be refreshed, needs connecting again. */
-export function rejected(s: ServerAuth, userId: number): AccountError {
-  markExpired(s.id, userId);
+/**
+ * The server turned down the person's credential connected at `connectedAt`: a pasted token, or a
+ * sign-in that can't be refreshed, needs connecting again.
+ */
+export function rejected(s: ServerAuth, userId: number, connectedAt: string): AccountError {
+  markExpired(s.id, userId, connectedAt);
   return new AccountError("expired");
 }
 
@@ -203,10 +217,10 @@ export function refreshed(s: ServerAuth, userId: number, stale: string): Promise
   const run = (async () => {
     const row = credentialOf(s.id, userId);
     const secret = row?.status === "ok" ? readSecret(row) : null;
-    if (!secret || secret.kind !== "oauth") throw new AccountError(row ? "expired" : "missing");
+    if (!row || !secret || secret.kind !== "oauth") throw new AccountError(row ? "expired" : "missing");
     // Another request refreshed it meanwhile.
     if (secret.tokens.access_token !== stale) return secret.tokens.access_token;
-    if (!secret.tokens.refresh_token) throw rejected(s, userId);
+    if (!secret.tokens.refresh_token) throw rejected(s, userId, row.connected_at);
     let tokens: OAuthTokens;
     try {
       tokens = await refreshAuthorization(secret.authServer, {
@@ -217,15 +231,15 @@ export function refreshed(s: ServerAuth, userId: number, stale: string): Promise
         fetchFn: oauthFetch(s.url),
       });
     } catch (err) {
-      if (err instanceof OAuthError && !(err instanceof ServerError)) throw rejected(s, userId);
+      if (err instanceof OAuthError && !(err instanceof ServerError)) throw rejected(s, userId, row.connected_at);
       throw err;
     }
-    // Only the tokens change: the sign-in is the same one, from the same time.
-    db.prepare("UPDATE mcp_credentials SET secret = ? WHERE server_id = ? AND user_id = ?").run(
-      encryptSecret(JSON.stringify({ ...secret, tokens, expiresAt: expiryOf(tokens) } satisfies OAuthSecret)),
-      s.id,
-      userId,
-    );
+    // Only the tokens change: the sign-in is the same one, from the same time. One the person
+    // dropped or replaced while this ran stays as they left it, and its tokens aren't used.
+    const kept = db
+      .prepare("UPDATE mcp_credentials SET secret = ? WHERE server_id = ? AND user_id = ? AND connected_at = ? AND status = 'ok'")
+      .run(encryptSecret(JSON.stringify({ ...secret, tokens, expiresAt: expiryOf(tokens) } satisfies OAuthSecret)), s.id, userId, row.connected_at);
+    if (!kept.changes) throw new AccountError(credentialOf(s.id, userId) ? "expired" : "missing");
     return tokens.access_token;
   })().finally(() => refreshing.delete(key));
   refreshing.set(key, run);

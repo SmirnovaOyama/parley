@@ -209,12 +209,12 @@ function fetchFor(s: McpServerRow, userId: number): typeof fetch {
     let res = await fetch(input, { ...init, headers: headersFor(own.headers, init?.headers, who) });
     if (res.status !== 401) return res;
     await res.body?.cancel();
-    if (!own.accessToken) throw rejected(s, userId);
+    if (!own.accessToken) throw rejected(s, userId, own.connectedAt);
     const fresh = await refreshed(s, userId, own.accessToken);
     res = await fetch(input, { ...init, headers: headersFor({ Authorization: `Bearer ${fresh}` }, init?.headers, who) });
     if (res.status !== 401) return res;
     await res.body?.cancel();
-    throw rejected(s, userId);
+    throw rejected(s, userId, own.connectedAt);
   };
 }
 

@@ -72,6 +72,8 @@ export async function mcpServer(options: Options | number = {}) {
     /** Where its metadata says the sign-in page is. */
     authorizeAt: "",
     registrations: [] as Record<string, unknown>[],
+    /** Waited for before a refresh is answered, to hold one up partway. */
+    beforeRefresh: null as null | (() => Promise<void>),
     refreshes: 0,
     turnedDown: 0,
     revoked: [] as string[],
@@ -142,6 +144,7 @@ export async function mcpServer(options: Options | number = {}) {
         return send(res, 200, issue(code.account, client.client_id));
       }
       if (form.get("grant_type") === "refresh_token") {
+        await service.beforeRefresh?.();
         const grant = grants.get(form.get("refresh_token") ?? "");
         if (!grant || grant.client !== client.client_id) return send(res, 400, { error: "invalid_grant" });
         service.refreshes++;

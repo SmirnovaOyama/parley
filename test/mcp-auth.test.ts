@@ -218,6 +218,25 @@ describe("signing in on the server's own page", () => {
     assert.equal(mcp.auth.turnedDown, turnedDown, "the old token was never tried");
   });
 
+  test("a refresh that ends after the person signed in again leaves the new sign-in be", async () => {
+    await signIn(carol, "carol");
+    mcp.expireAccess();
+    const held: { release?: () => void } = {};
+    mcp.auth.beforeRefresh = () => new Promise<void>((r) => (held.release = r));
+    const call = callTool(server(), carol, "ping", {}, signal);
+    try {
+      await eventually(() => !!held.release);
+      // Meanwhile, they sign in again, as another account there.
+      await signIn(carol, "carol-at-home");
+    } finally {
+      mcp.auth.beforeRefresh = null;
+      held.release?.();
+    }
+    assert.equal((await call).isError, true, "the old sign-in's tokens carry nothing");
+    await callTool(server(), carol, "ping", {}, signal);
+    assert.equal(mcp.calls.at(-1)?.account, "carol-at-home");
+  });
+
   test("a sign-in the service withdrew means signing in again", async () => {
     mcp.withdrawAll();
     forget(serverId);

@@ -107,6 +107,15 @@ export type ConversationSummary = {
   generating?: boolean;
 };
 
+/** One of your chats found by a search, with a line of the newest message that matched (null when only its title did). */
+export type ChatHit = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  projectId: string | null;
+  snippet: string | null;
+};
+
 /** A project: a folder of chats with its own instructions and knowledge bases. */
 export type Project = { id: string; name: string; instructions: string; knowledgeIds: string[]; chats: number; updatedAt: string };
 

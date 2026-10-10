@@ -5,7 +5,9 @@ import { Wordmark } from "../icons/Brand.tsx";
 import { groupChats } from "../lib/groups.ts";
 import { useSession } from "../lib/session.tsx";
 import { isUnderChat } from "../lib/slide.ts";
+import { Marked, searchWords, useChatSearch } from "./ChatSearch.tsx";
 import { BusyMark, Spinner } from "./Feedback.tsx";
+import { SearchLine } from "./LineField.tsx";
 
 /** Signed-in frame: Sidebar from 768px, the floating BottomNav below it. */
 export function AppShell() {
@@ -41,6 +43,11 @@ export function AppShell() {
 function Sidebar() {
   const { user, conversations } = useSession();
   const { pathname, search } = useLocation();
+  // Searching swaps the list of chats for what's found; the search stays while chats are opened.
+  const [query, setQuery] = useState("");
+  const results = useChatSearch(query);
+  const words = searchWords(query);
+  const isOpen = (id: string) => (pathname === `/chat/${id}` || pathname.startsWith(`/chat/${id}/`) ? "page" : undefined);
 
   return (
     <nav className="oy-sidebar app-sidebar" aria-label="Main">
@@ -52,9 +59,31 @@ function Sidebar() {
         <NavItem to="/projects" icon="folder" label="Projects" current={pathname.startsWith("/projects")} />
         <NavItem to="/knowledge" icon="book" label="Knowledge" current={pathname.startsWith("/knowledge")} />
       </div>
+      {conversations.length > 0 && <SearchLine id="sidebar-search" label="Search chats" value={query} onChange={setQuery} className="sidebar-search" />}
 
       <ChatList>
-        {conversations.length === 0 ? (
+        {query.trim() ? (
+          results && (
+            <section className="sidebar-group sidebar-results" aria-label="Search results">
+              {results.length === 0 ? (
+                <p className="sidebar-empty">No chats match</p>
+              ) : (
+                results.map((r) => (
+                  <Link key={r.id} to={`/chat/${r.id}`} className="oy-nav-item sidebar-chat sidebar-hit" aria-current={isOpen(r.id)} title={r.title}>
+                    <span className="truncate">
+                      <Marked text={r.title} words={words} />
+                    </span>
+                    {r.snippet && (
+                      <span className="sidebar-hit-snippet truncate">
+                        <Marked text={r.snippet} words={words} />
+                      </span>
+                    )}
+                  </Link>
+                ))
+              )}
+            </section>
+          )
+        ) : conversations.length === 0 ? (
           <>
             <p className="oy-overline sidebar-heading">Chats</p>
             <p className="sidebar-empty">Your chats show up here</p>
@@ -64,13 +93,7 @@ function Sidebar() {
             <section key={g.label} className="sidebar-group" aria-label={g.label}>
               <p className="oy-overline sidebar-heading">{g.label}</p>
               {g.chats.map((c) => (
-                <Link
-                  key={c.id}
-                  to={`/chat/${c.id}`}
-                  className="oy-nav-item sidebar-chat"
-                  aria-current={pathname === `/chat/${c.id}` || pathname.startsWith(`/chat/${c.id}/`) ? "page" : undefined}
-                  title={c.title}
-                >
+                <Link key={c.id} to={`/chat/${c.id}`} className="oy-nav-item sidebar-chat" aria-current={isOpen(c.id)} title={c.title}>
                   <span className="truncate">{c.title}</span>
                   {c.generating && <BusyMark />}
                 </Link>

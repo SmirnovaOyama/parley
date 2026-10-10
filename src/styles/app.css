@@ -266,6 +266,20 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 @media (prefers-reduced-motion: reduce) {
   .line-field label, .line-field-rule .ink { transition: none; }
 }
+/* A search on the same line: no label to float, a magnifier on the line at its start and a cross
+   that clears it at its end. */
+.search-line .line-field-box { display: flex; align-items: center; gap: 10px; padding-top: 0; }
+.search-line input { flex: 1; min-width: 0; }
+.search-line input::placeholder { color: var(--text-muted); opacity: 1; }
+.search-line input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.search-line-icon { flex: none; color: var(--text-muted); }
+.search-line-clear {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; margin-inline-end: -6px;
+  border-radius: var(--radius-full); color: var(--text-muted);
+}
+.search-line-clear:hover { color: var(--text); background: var(--surface-hover); }
+/* Where a search's words were found: a soft stroke of highlighter. */
+.search-hit { color: var(--text); background: var(--accent-subtle-hover); border-radius: 3px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 
 /* ── feedback ──────────────────────────────────────────────────── */
 .callout-row { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0; }
@@ -977,6 +991,18 @@ html[data-slide="back"]::view-transition-new(root) { animation-name: slide-in-le
 .sidebar-group { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
 /* On the Chats page, Projects and Knowledge lead the list. */
 .chats-places { margin-bottom: 20px; }
+.chats-search { margin-bottom: 20px; }
+/* A found chat's matching message, three lines at most. */
+.chat-snippet { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
+/* In the sidebar the search sits over the list, its line in step with the rows' text. */
+.sidebar-search { padding: 10px 24px 2px; }
+.sidebar-search input { padding: 6px 0 7px; font-size: 14px; line-height: 20px; }
+/* A tablet zooms into a field under 16px (see above), and shows the sidebar. */
+@media (pointer: coarse) { .sidebar-search input { font-size: 16px; } }
+.sidebar-chat.sidebar-hit { height: auto; min-height: 36px; flex-direction: column; align-items: stretch; justify-content: center; gap: 0; padding-top: 7px; padding-bottom: 7px; }
+.sidebar-hit .truncate { flex: none; line-height: 20px; }
+.sidebar-hit .sidebar-hit-snippet { font-size: 12px; line-height: 16px; color: var(--text-muted); }
+.sidebar-results { padding-top: 10px; }
 
 /* ── projects and knowledge ────────────────────────────────────── */
 .project-instructions {

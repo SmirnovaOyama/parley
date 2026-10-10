@@ -44,11 +44,11 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - Search your own chats by title and by what was said in them, Chinese and Japanese included, with the line that matched.
 - Export everything as one file, and import chats from Parley, ChatGPT or Claude exports.
 - Share a read-only link to a chat.
-- Reset a forgotten password with a link by email, when the site can send email.
+- Reset a forgotten password with a link by email, when the site can send email, or ask an admin to set a new one.
 
 **For admins**
 - API keys: stored encrypted, checked with the provider before they're saved, with a backup key for when one fails.
-- People: who can use which keys, monthly token and spending limits, accounts on or off.
+- People: who can use which keys, monthly token and spending limits, accounts on or off, and a new password for someone who can't sign in.
 - Groups, like a class or a team, that open keys and MCP servers to their members and can give them a spending limit of their own.
 - MCP servers (Streamable HTTP or SSE): their tools work with every model, for everyone or for chosen groups. Each tool can be on or off, and can run straight away or ask the person first. When a server's tools change, the new ones wait for an admin to look over. A server acts with one shared account, or with each person's own: they sign in on its sign-in page (MCP's OAuth flow) or add a token of theirs. Admins see who has connected, never what with.
 - Knowledge bases shared with everyone, and the search service for models without their own web search (Tavily, Brave, Bocha, Jina or your own SearXNG).
@@ -179,6 +179,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 - The first account becomes the admin. Sign up right after you deploy, then turn off sign-ups in Admin → Settings if you don't want strangers joining.
 - Admins can point an "Another service" key at any address, and the server will connect to it. Only make people admins you trust with that.
 - Admins can read every chat. Parley tells everyone so on their account page.
+- Admins can set a new password for anyone but themselves, other admins included. It signs that person out everywhere and is written to the activity log, with who did it.
 - Password reset links are random, work once for 30 minutes, and only their hash is stored. Asking for one gets the same answer whether or not an account uses the address, and is limited by address and by network; behind a reverse proxy on the same machine or a private network, the network is read from the last address in `X-Forwarded-For`. Links always start with `PUBLIC_URL`, never with the address a request names. A turned-off account can't be reset.
 - MCP servers are reached from the server. Each one acts with one of two kinds of account. On a shared account, every request carries the headers the admin gives it, so everyone who can use the server acts with those credentials: give it a token that has only the rights everyone using it should have. On each person's own account, people sign in on the server's own sign-in page or add a token of theirs, under Account in Connected services; each person's requests carry only their own, never the admin's headers, and someone who hasn't connected can't use its tools. People's tokens are encrypted like API keys, refreshed when they run out, and forgotten when the person disconnects, loses access, is turned off, or the server's address or way of signing in changes. Each person gets an MCP session of their own, and a server can be told who's asking (an `X-Parley-User` header with their email, off by default).
 - Pages, search results, shared documents and MCP results can carry instructions aimed at the model (prompt injection). Parley marks them as coming from outside, and asks the person on a line in the chat before it reads a page whose address didn't come from their messages or a search (an address can carry the chat's contents away), keeps a memory note once the chat has taken in a page, file or tool result, or runs an MCP tool that may change things. MCP tools the server calls read-only run without asking, unless it says they reach services beyond it; admins can change that for each tool. This lowers the risk but doesn't remove it, so read what a question says before allowing it.

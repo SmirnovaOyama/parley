@@ -121,10 +121,13 @@ type IncomingChat = {
 };
 
 const clip = (s: string) => (s.length > MAX_TEXT ? `${s.slice(0, MAX_TEXT)}\n\n(Cut short when it was imported.)` : s);
-const iso = (v: unknown, fallback: string): string => {
-  if (typeof v === "number" && Number.isFinite(v)) return new Date(v < 1e12 ? v * 1000 : v).toISOString();
-  if (typeof v === "string" && !Number.isNaN(Date.parse(v))) return new Date(v).toISOString();
-  return fallback;
+/** A time from the file (seconds, milliseconds or text), as ISO; now if it's unreadable or still to come. */
+const iso = (v: unknown, now: string): string => {
+  const ms = typeof v === "number" ? (v < 1e12 ? v * 1000 : v) : typeof v === "string" ? Date.parse(v) : NaN;
+  const date = new Date(ms);
+  // A Date holds about 275,000 years either way; past that it's invalid, and toISOString throws.
+  if (Number.isNaN(date.getTime()) || date.getTime() > Date.parse(now)) return now;
+  return date.toISOString();
 };
 
 /**
@@ -348,11 +351,11 @@ export function importFor(userId: number, bytes: Buffer): ImportResult {
       const own = chat.instructions ? personalOnly(parseInstructions(JSON.stringify(chat.instructions))) : personal;
       db.prepare(
         `INSERT INTO conversations (id, user_id, title, system_prompt, chat_instructions, sealed_instructions, web_search_tool, code_tool,
-           project_id, pinned_at, tool_defs, title_auto, import_key, created_at, updated_at)
-         VALUES (?, ?, ?, '', ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+           project_id, pinned_at, tool_defs, title_auto, import_key, imported_at, created_at, updated_at)
+         VALUES (?, ?, ?, '', ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
       ).run(
         id, userId, chat.title.replace(/\s+/g, " ").trim().slice(0, 120) || "Imported chat", instructionsJson(own), search, code,
-        projectId, chat.pinned ? now : null, toolsJson, chat.key, chat.createdAt, chat.updatedAt,
+        projectId, chat.pinned ? now : null, toolsJson, chat.key, now, chat.createdAt, chat.updatedAt,
       );
       const setting = chatSetting(own, userId, id, projectId);
       db.prepare("UPDATE conversations SET system_prompt = ?, sealed_instructions = ? WHERE id = ?").run(

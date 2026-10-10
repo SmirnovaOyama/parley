@@ -8,7 +8,10 @@ import { findProvider, OFF_BY_DEFAULT } from "./providers/catalog.ts";
 mkdirSync(dirname(env.databasePath), { recursive: true });
 
 export const db = new DatabaseSync(env.databasePath);
-db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+// secure_delete zeroes what's deleted, so a chat that's gone (deleted, or past the retention
+// rules) can't be read back from the file's free pages or a copy of it. Deleting takes about twice
+// as long (a thousand chats in a third of a second); writing new rows costs nothing more.
+db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA secure_delete = ON;");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -332,6 +335,9 @@ addColumn("conversations", "pinned_at", "TEXT");
 // Where an imported chat came from ("chatgpt:<id>", "claude:<uuid>", "parley:<id>"), so importing
 // the same export twice doesn't bring a chat in twice.
 addColumn("conversations", "import_key", "TEXT");
+// When it was imported. A chat keeps its own dates from the export, so it sits in the list where it
+// was; the retention rules count from the import too, so an old chat isn't deleted as it comes in.
+addColumn("conversations", "imported_at", "TEXT");
 
 // Function tools a chat declares (memory, knowledge, MCP servers' tools), as JSON ToolSpec[]. Like
 // web search, the list is settled when the chat starts and never changes: Claude ties its reasoning

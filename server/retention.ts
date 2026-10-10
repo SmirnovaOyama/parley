@@ -22,7 +22,8 @@ export function enforceRetention(): number {
   const ids = new Set<string>();
   if (retainChatsDays != null && retainChatsDays > 0) {
     const before = new Date(Date.now() - retainChatsDays * DAY_MS).toISOString();
-    for (const r of db.prepare("SELECT id FROM conversations WHERE updated_at < ?").all(before) as { id: string }[]) ids.add(r.id);
+    const stale = db.prepare("SELECT id FROM conversations WHERE updated_at < ? AND (imported_at IS NULL OR imported_at < ?)");
+    for (const r of stale.all(before, before) as { id: string }[]) ids.add(r.id);
   }
   if (retainDeletedDays != null) {
     const before = new Date(Date.now() - retainDeletedDays * DAY_MS).toISOString();

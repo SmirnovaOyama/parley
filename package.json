@@ -1,6 +1,6 @@
 {
   "name": "parley",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A self-hosted AI chat site for teams: Claude, OpenAI, Gemini, Grok, DeepSeek and any OpenAI-compatible service, with shared API keys, limits and usage",
   "license": "AGPL-3.0-only",
   "repository": {

@@ -4,6 +4,13 @@ What changed in each version of Parley. The format follows [Keep a Changelog](ht
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-10
+
+### Fixed
+
+- The sharing and export parts of a chat's settings were missing for people whose ad blocker uses a social filter list (AdGuard Social, Fanboy's Social), which hides anything named `share-panel` or `share-text` on every site.
+- After the server turned away a request as too big, the next request on the same connection could fail with "other side closed".
+
 ## [0.1.0] - 2026-10-10
 
 The first public release.
@@ -39,5 +46,6 @@ The first public release.
 - The site's name (`VITE_APP_NAME`) is read when the server starts, so the published image works under any name.
 - `GET /api/health` for uptime checks, which the Docker image uses as its health check.
 
-[Unreleased]: https://github.com/SmirnovaOyama/parley/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/SmirnovaOyama/parley/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/SmirnovaOyama/parley/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/SmirnovaOyama/parley/releases/tag/v0.1.0

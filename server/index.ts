@@ -6,6 +6,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { Agent, setGlobalDispatcher } from "undici";
 import { sameOriginGuard, sessionMiddleware, type AppEnv } from "./auth.ts";
 import { clearStaleUploads } from "./attachments.ts";
+import { db } from "./db.ts";
 import { env } from "./env.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes } from "./routes/auth.ts";
@@ -47,6 +48,16 @@ app.use("*", (c, next) =>
   c.req.path === PREVIEW_PATH ? previewHeaders(c, next) : FILE_PATH.test(c.req.path) ? fileHeaders(c, next) : siteHeaders(c, next),
 );
 app.get(PREVIEW_PATH, (c) => c.html(PREVIEW_SHELL));
+
+// For the Docker HEALTHCHECK and uptime monitors: up when the server answers and the database reads.
+app.get("/api/health", (c) => {
+  try {
+    db.prepare("SELECT 1").get();
+    return c.json({ ok: true });
+  } catch {
+    return c.json({ ok: false }, 503);
+  }
+});
 
 app.use("/api/*", sameOriginGuard, sessionMiddleware);
 app.route("/api/auth", authRoutes);

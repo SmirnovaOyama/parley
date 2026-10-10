@@ -144,6 +144,10 @@ describe("api", () => {
   let keyId: number;
   let conversationId: string;
 
+  test("says it's healthy without an account", async () => {
+    assert.deepEqual(await new Visitor().json("GET", "/api/health"), { status: 200, body: { ok: true } });
+  });
+
   test("the first account becomes the admin", async () => {
     assert.deepEqual((await admin.json("GET", "/api/auth/state")).body, { needsSetup: true, allowSignup: true });
     const signup = await admin.json("POST", "/api/auth/signup", { email: "Admin@Example.com", password: "correct horse" });

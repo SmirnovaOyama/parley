@@ -35,13 +35,16 @@ function withFileNames(m: MessageRow): string {
  * stop, not Title Case, at most 60 characters.
  */
 export function cleanTitle(raw: string): string {
+  // A run at the end is matched from its first character only (the look-behind): /[.。]+$/ alone
+  // tries again from every character of a run that something follows, and a model that answered
+  // with 100,000 dots before a word kept the server busy for five seconds.
   let title = (raw.split("\n").find((l) => l.trim()) ?? "")
     .replace(/^\s*(title|标题|題名)\s*[:：]\s*/i, "")
     .replace(/[*_`#>]/g, "")
-    .replace(/^["'“”‘’「」『』《》]+|["'“”‘’「」『』《》]+$/g, "")
+    .replace(/^["'“”‘’「」『』《》]+|(?<!["'“”‘’「」『』《》])["'“”‘’「」『』《》]+$/g, "")
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/[.。]+$/u, "")
+    .replace(/(?<![.。])[.。]+$/u, "")
     .trim();
 
   // Title Case ("How To Fix Login Errors") becomes sentence case; acronyms and words with

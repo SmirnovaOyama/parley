@@ -12,6 +12,20 @@ export type HistoryTurn = {
   attachments?: HistoryAttachment[];
 };
 
+/**
+ * A tool the app runs itself, offered to every provider as a function: memory, knowledge search, an
+ * MCP server's tools, and web search for models without their own. `parameters` is a JSON Schema
+ * object. A chat's list is settled when it starts (see db.ts, tool_defs).
+ */
+export type ToolSpec = { name: string; description: string; parameters: Record<string, unknown> };
+/** The model asking for one: the provider's id for the call, the tool's name and its arguments. */
+export type ToolCall = { id: string; name: string; input: Record<string, unknown> };
+/** What goes back to the model: text, and whether it's an error the model should know about. */
+export type ToolOutcome = { content: string; isError?: boolean };
+
+/** Rounds of the app's own tools in one reply; the last one is asked to answer without them. */
+export const MAX_TOOL_ROUNDS = 8;
+
 /** One file's identity for uploads: its bytes and its name (code sees files by name). */
 export const fileRef = (a: Pick<HistoryAttachment, "sha256" | "name">) => `${a.sha256}:${a.name}`;
 
@@ -63,6 +77,10 @@ export type ChatRequest = {
    * every file this way; OpenAI only gets them in chats that run code, to put in the sandbox.
    */
   fileIds?: Map<string, string>;
+  /** The app's own tools to offer (fixed for the chat, plus web search where the model has none). */
+  functions: ToolSpec[];
+  /** Runs one of them. Never throws: a failure comes back as an error outcome for the model to read. */
+  runTool: (call: ToolCall) => Promise<ToolOutcome>;
   /** "searching" comes with the query; "coding" while it runs code. */
   onStatus: (status: "thinking" | "writing" | "searching" | "coding", detail?: string) => void;
   onNotice: (message: string) => void;
@@ -90,6 +108,8 @@ export type ChatResult = {
   fileIds: string[];
   /** The sandbox its code ran in, to reuse for the chat's next message. */
   container: { id: string; expiresAt: string } | null;
+  /** How much of the model's context the chat fills now: the last request's prompt and its reply. */
+  contextTokens: number;
 };
 
 /** A short one-off request (naming a chat), answered in full rather than streamed. */

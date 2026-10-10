@@ -29,6 +29,7 @@ import {
   getInstructions,
   instructionsJson,
   parseInstructions,
+  personalOnly,
   sameInstructions,
   systemPromptFor,
 } from "../instructions.ts";
@@ -47,6 +48,12 @@ import {
   unreadable,
 } from "../attachments.ts";
 import type { ChatResult } from "../providers/types.ts";
+import { canUse, getBase } from "../knowledge.ts";
+import { memoryOn, memoryPrompt } from "../memory.ts";
+import { chatSetting, ownProject, settingOf } from "../projects.ts";
+import { chatToolkit, codeOnSite, declaredOf, searchOnSite, toolsForNewChat, type ToolUse } from "../tools.ts";
+import { searchServiceReady } from "../web-tools.ts";
+import { purgeConversations } from "../retention.ts";
 
 export const chatRoutes = new Hono<AppEnv>();
 chatRoutes.use("*", requireUser);
@@ -59,19 +66,6 @@ const UPLOADS_PER_MINUTE = 40;
 const generating = new Map<string, { controller: AbortController; userId: number }>();
 const recentSends = new Map<number, number[]>();
 const recentUploads = new Map<number, number[]>();
-
-/** The providers whose keys search the web and make files, as JSON for SQL's json_each. */
-const TOOL_PROVIDERS = JSON.stringify(PROVIDERS.filter((p) => p.tools).map((p) => p.id));
-
-/** Some Claude or OpenAI key has web search on, so new chats declare it. */
-function searchOnSite(): boolean {
-  return !!db.prepare("SELECT 1 FROM api_keys WHERE provider IN (SELECT value FROM json_each(?)) AND web_search = 1 LIMIT 1").get(TOOL_PROVIDERS);
-}
-
-/** Some Claude or OpenAI key may make files, so new chats declare running code. */
-function codeOnSite(): boolean {
-  return !!db.prepare("SELECT 1 FROM api_keys WHERE provider IN (SELECT value FROM json_each(?)) AND code_execution = 1 LIMIT 1").get(TOOL_PROVIDERS);
-}
 
 /** The provider couldn't find a file id it was given: the file was deleted from that account. */
 function lostFile(err: unknown): boolean {
@@ -106,13 +100,23 @@ chatRoutes.get("/models", (c) => {
 chatRoutes.get("/conversations", (c) => {
   const rows = db
     .prepare(
-      `SELECT cv.id, cv.title, cv.updated_at, EXISTS (SELECT 1 FROM shares s WHERE s.conversation_id = cv.id) AS shared
-       FROM conversations cv WHERE cv.user_id = ? AND cv.deleted_at IS NULL ORDER BY cv.updated_at DESC LIMIT 200`,
+      `SELECT cv.id, cv.title, cv.updated_at, cv.project_id, cv.pinned_at,
+         EXISTS (SELECT 1 FROM shares s WHERE s.conversation_id = cv.id) AS shared
+       FROM conversations cv WHERE cv.user_id = ? AND cv.deleted_at IS NULL
+       ORDER BY cv.pinned_at IS NULL, cv.pinned_at DESC, cv.updated_at DESC LIMIT 500`,
     )
-    .all(c.var.user!.id) as { id: string; title: string; updated_at: string; shared: number }[];
+    .all(c.var.user!.id) as { id: string; title: string; updated_at: string; project_id: string | null; pinned_at: string | null; shared: number }[];
   return c.json({
     // generating: a reply is being written for it right now (the chat list shows a spinner).
-    conversations: rows.map((r) => ({ id: r.id, title: r.title, updatedAt: r.updated_at, shared: !!r.shared, generating: generating.has(r.id) })),
+    conversations: rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      updatedAt: r.updated_at,
+      projectId: r.project_id,
+      pinnedAt: r.pinned_at,
+      shared: !!r.shared,
+      generating: generating.has(r.id),
+    })),
   });
 });
 
@@ -127,7 +131,10 @@ chatRoutes.get("/conversations/:id", (c) => {
       keyId: conv.api_key_id,
       model: conv.model,
       effort: conv.effort,
-      instructions: parseInstructions(conv.chat_instructions),
+      instructions: personalOnly(parseInstructions(conv.chat_instructions)),
+      project: conv.project_id ? projectOut(conv.project_id, conv.user_id) : null,
+      knowledgeIds: (db.prepare("SELECT kb_id FROM conversation_knowledge WHERE conversation_id = ?").all(conv.id) as { kb_id: string }[]).map((r) => r.kb_id),
+      pinned: !!conv.pinned_at,
     },
     messages: viewPath(conv),
     generating: generating.has(conv.id),
@@ -135,6 +142,11 @@ chatRoutes.get("/conversations/:id", (c) => {
     sharing: getSettings().sharing,
   });
 });
+
+function projectOut(id: string, userId: number) {
+  const p = ownProject(id, userId);
+  return p ? { id: p.id, name: p.name } : null;
+}
 
 function shareInfo(conv: ConversationRow) {
   const share = shareOf(conv.id);
@@ -256,18 +268,48 @@ chatRoutes.post("/conversations/:id/branch", async (c) => {
   return c.json({ messages: viewPath({ ...conv, head_id: head }) });
 });
 
+/** Renames a chat, moves it into a project or out of one, or pins it to the top of the list. */
 chatRoutes.patch("/conversations/:id", async (c) => {
-  const conv = ownConversation(c.req.param("id"), c.var.user!.id);
+  const user = c.var.user!;
+  const conv = ownConversation(c.req.param("id"), user.id);
   if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
   const body = await c.req.json().catch(() => ({}));
-  const title = String(body.title ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
-  if (!title) return c.json({ error: "Give the chat a name" }, 400);
-  // A name someone chose is never rewritten by the automatic titles.
-  db.prepare("UPDATE conversations SET title = ?, title_auto = 0 WHERE id = ?").run(title, conv.id);
+  if (body.title !== undefined) {
+    const title = String(body.title ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!title) return c.json({ error: "Give the chat a name" }, 400);
+    // A name someone chose is never rewritten by the automatic titles.
+    db.prepare("UPDATE conversations SET title = ?, title_auto = 0 WHERE id = ?").run(title, conv.id);
+  }
+  if (body.projectId !== undefined) {
+    const project = body.projectId === null ? null : ownProject(body.projectId, user.id);
+    if (body.projectId !== null && !project) return c.json({ error: "That project doesn't exist" }, 404);
+    db.prepare("UPDATE conversations SET project_id = ? WHERE id = ?").run(project?.id ?? null, conv.id);
+  }
+  if (body.pinned !== undefined) {
+    db.prepare("UPDATE conversations SET pinned_at = ? WHERE id = ?").run(body.pinned ? nowIso() : null, conv.id);
+  }
   return c.json({ ok: true });
 });
 
-// Deleting hides the chat from its owner; admins keep it for their records (the prompt says so).
+/** The knowledge bases this chat searches, besides its project's. A change reaches the model with the next message. */
+chatRoutes.put("/conversations/:id/knowledge", async (c) => {
+  const user = c.var.user!;
+  const conv = ownConversation(c.req.param("id"), user.id);
+  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const ids = Array.isArray(body.knowledgeIds) ? [...new Set((body.knowledgeIds as unknown[]).map(String))] : null;
+  if (!ids) return c.json({ error: "Pick the knowledge bases for this chat" }, 400);
+  if (ids.some((id) => !canUse(getBase(id), user.id))) return c.json({ error: "One of those knowledge bases isn't yours to use" }, 400);
+  tx(() => {
+    db.prepare("DELETE FROM conversation_knowledge WHERE conversation_id = ?").run(conv.id);
+    const add = db.prepare("INSERT INTO conversation_knowledge (conversation_id, kb_id) VALUES (?, ?)");
+    for (const id of ids) add.run(conv.id, id);
+  });
+  return c.json({ knowledgeIds: ids });
+});
+
+// Deleting hides the chat from its owner; admins keep it for their records (the prompt says so),
+// for as long as the site's retention rules say.
 chatRoutes.delete("/conversations/:id", (c) => {
   const conv = ownConversation(c.req.param("id"), c.var.user!.id);
   if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
@@ -275,6 +317,8 @@ chatRoutes.delete("/conversations/:id", (c) => {
   db.prepare("UPDATE conversations SET deleted_at = ? WHERE id = ?").run(nowIso(), conv.id);
   // A deleted chat's link stops working with it.
   stopSharing(conv.id);
+  // Where the site keeps no deleted chats, it goes for good straight away.
+  if (getSettings().retainDeletedDays === 0) purgeConversations([conv.id]);
   return c.json({ ok: true });
 });
 
@@ -349,13 +393,18 @@ chatRoutes.post("/chat", async (c) => {
   if (overLimit) return c.json({ error: overLimit }, 429);
   if (rateLimited(user.id)) return c.json({ error: "You're sending messages quickly. Wait a moment and try again" }, 429);
 
-  // A new chat starts with the instructions set on its page, or the person's Account defaults.
+  // A new chat starts with the instructions set on its page, or the person's Account defaults, in
+  // the project it was started from, with the knowledge bases picked for it.
   let startInstructions = getInstructions(user.id);
   if (!existing && body.instructions !== undefined) {
     const cleaned = cleanInstructions(body.instructions);
     if (!cleaned) return c.json({ error: "Keep each instruction under 1500 characters" }, 400);
     startInstructions = cleaned;
   }
+  const startProject = !existing && body.projectId ? ownProject(body.projectId, user.id) : undefined;
+  if (!existing && body.projectId && !startProject) return c.json({ error: "That project doesn't exist" }, 404);
+  const startKnowledge = !existing && Array.isArray(body.knowledgeIds) ? [...new Set((body.knowledgeIds as unknown[]).map(String))] : [];
+  if (startKnowledge.some((id) => !canUse(getBase(id), user.id))) return c.json({ error: "One of those knowledge bases isn't yours to use" }, 400);
 
   const now = nowIso();
   const created = !conversationId;
@@ -367,29 +416,38 @@ chatRoutes.post("/chat", async (c) => {
   // same rule, so a chat that moves between the two searches, or doesn't, the same way throughout.
   const searchTool = existing ? !!existing.web_search_tool : searchOnSite();
   // A new message in such a chat whose key has search off says so to the model (see db.ts).
-  const searchOff = searchTool && hasTools(key.provider) && !key.web_search;
+  // (Models without search of their own search through the site's search service, when it's set up.)
+  const searchOff = searchTool && !key.web_search && (hasTools(key.provider) || searchServiceReady());
   // Making files works the same way: declared from the start or never, then the key decides.
   const codeOff = codeTool && hasTools(key.provider) && !key.code_execution;
   // A chat keeps the system prompt it started with, so editing the site's or the chat's
   // instructions never rewrites a chat in progress. Chats from before prompts were kept started
   // with the site's instructions alone, so that's what they keep.
-  const system = existing ? (existing.system_prompt ?? getSettings().systemPrompt) : systemPromptFor(startInstructions);
-  // The chat's instructions changed since the model last saw them on this branch: the new message
-  // carries them, and they go to the model as a system note right after it.
-  const changedInstructions =
-    existing && regenerate == null && existing.chat_instructions &&
-    !sameInstructions(parseInstructions(existing.chat_instructions), parseInstructions(instructionsBefore(existing, parentId)))
-      ? existing.chat_instructions
-      : null;
+  let system = existing ? (existing.system_prompt ?? getSettings().systemPrompt) : "";
+  // The chat's setting (its instructions, project, knowledge) changed since the model last saw it on
+  // this branch: the new message carries it, and it goes to the model as a system note right after.
+  const before = existing ? parseInstructions(instructionsBefore(existing, parentId)) : null;
+  const current = existing ? settingOf(existing, personalOnly(parseInstructions(existing.chat_instructions)), before!) : null;
+  const changedInstructions = existing && regenerate == null && !sameInstructions(current!, before!) ? instructionsJson(current!) : null;
+  // The app's own tools a new chat declares: settled now, for good (see db.ts).
+  const toolDefs = existing ? declaredOf(existing.tool_defs) : toolsForNewChat(user.id);
   const userMessageId = tx(() => {
     if (!conversationId) {
       conversationId = randomUUID();
-      const json = instructionsJson(startInstructions);
       db.prepare(
         `INSERT INTO conversations (id, user_id, title, api_key_id, model, effort, system_prompt, chat_instructions,
-           sealed_instructions, web_search_tool, code_tool, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(conversationId, user.id, title, key.id, key.model, key.effort, system, json, json, searchTool ? 1 : 0, codeTool ? 1 : 0, now, now);
+           sealed_instructions, web_search_tool, code_tool, project_id, tool_defs, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, '', ?, NULL, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        conversationId, user.id, title, key.id, key.model, key.effort, instructionsJson(startInstructions),
+        searchTool ? 1 : 0, codeTool ? 1 : 0, startProject?.id ?? null, toolDefs.length ? JSON.stringify(toolDefs) : null, now, now,
+      );
+      const link = db.prepare("INSERT INTO conversation_knowledge (conversation_id, kb_id) VALUES (?, ?)");
+      for (const id of startKnowledge) link.run(conversationId, id);
+      // Sealed with what it starts in: instructions, project, knowledge, and memory while it's on.
+      const setting = chatSetting(startInstructions, user.id, conversationId, startProject?.id ?? null);
+      system = systemPromptFor(setting, memoryOn(user.id) ? memoryPrompt(user.id) : null);
+      db.prepare("UPDATE conversations SET system_prompt = ?, sealed_instructions = ? WHERE id = ?").run(system, instructionsJson(setting), conversationId);
     } else {
       db.prepare(
         "UPDATE conversations SET updated_at = ?, api_key_id = ?, model = ?, effort = ?, system_prompt = ? WHERE id = ?",
@@ -464,6 +522,16 @@ chatRoutes.post("/chat", async (c) => {
         ? chatRow.container_id
         : null;
 
+    // The app's own tools: the chat's, and web search where the model has none of its own.
+    const kit = chatToolkit({
+      userId: user.id,
+      conversationId: convId,
+      declared: toolDefs,
+      signal: controller.signal,
+      onStatus: (status, detail) => void send("status", { status, detail }),
+    });
+    const webToolsFor = (k: KeyRow) => searchTool && searchAllowed && !hasTools(k.provider) && !!k.web_search && searchServiceReady();
+
     // Claude reads attached files from its own account, and OpenAI's sandbox takes them from its
     // account when the reply can run code: any not uploaded there yet go first. If the account lost
     // one (deleted there), they're uploaded again and the reply tried once more.
@@ -504,6 +572,8 @@ chatRoutes.post("/chat", async (c) => {
         codeTool,
         codeAllowed,
         container: containerFor(k),
+        functions: kit.functionsWith(webToolsFor(k)),
+        runTool: kit.run,
         onText: (delta) => {
           if (thinkingStarted && thinkingMs == null) thinkingMs = Date.now() - thinkingStarted;
           partial += delta;
@@ -554,6 +624,11 @@ chatRoutes.post("/chat", async (c) => {
     }
 
     if (thinkingStarted && thinkingMs == null) thinkingMs = Date.now() - thinkingStarted;
+    // Searches through the site's service show under the reply like a model's own.
+    if (result && !result.searches.length && kit.searches.length) {
+      result.searches = kit.searches;
+      if (!result.sources.length) result.found = kit.found;
+    }
     if (result?.container) {
       db.prepare("UPDATE conversations SET container_id = ?, container_key_id = ?, container_expires_at = ? WHERE id = ?").run(
         result.container.id,
@@ -573,6 +648,7 @@ chatRoutes.post("/chat", async (c) => {
       note: notes.join(". ") || null,
       thinking: thought.trim() || null,
       thinkingMs: thought.trim() ? thinkingMs : null,
+      tools: kit.uses,
     });
     // Files the reply's code made are copied here before the reply counts as done, so its cards
     // can link to them straight away.
@@ -614,18 +690,21 @@ type Outcome = {
   note: string | null;
   thinking: string | null;
   thinkingMs: number | null;
+  /** What the reply did with the app's tools. */
+  tools: ToolUse[];
 };
 
 /**
  * Stores the reply. Declined, failed and empty stopped replies stay readable for admins but
  * leave the context, together with the message that prompted them.
  */
-function saveOutcome({ convId, userId, userMessageId, key, partial, result, failure, note, thinking, thinkingMs }: Outcome) {
+function saveOutcome({ convId, userId, userMessageId, key, partial, result, failure, note, thinking, thinkingMs, tools }: Outcome) {
   const now = nowIso();
   return tx(() => {
     let row: Omit<
       MessageRow,
-      "id" | "conversation_id" | "parent_id" | "role" | "created_at" | "note" | "thinking" | "thinking_ms" | "instructions" | "declined_by" | "reviewed_at" | "reviewed_by" | "web" | "search_off" | "code_off"
+      | "id" | "conversation_id" | "parent_id" | "role" | "created_at" | "note" | "thinking" | "thinking_ms" | "instructions" | "declined_by"
+      | "reviewed_at" | "reviewed_by" | "web" | "search_off" | "code_off" | "tools" | "context_tokens"
     >;
     // A reply with no words (nothing, or thinking only) is a failure, shown with "Try again"; it
     // stays out of what's sent back, like any failed reply.
@@ -670,15 +749,17 @@ function saveOutcome({ convId, userId, userMessageId, key, partial, result, fail
       ? JSON.stringify({ searches: result.searches, sources: result.sources, found: result.sources.length ? [] : result.found })
       : null;
 
+    const toolsJson = tools.length ? JSON.stringify(tools) : null;
+    const contextTokens = result?.contextTokens || null;
     const id = Number(
       db
         .prepare(
           `INSERT INTO messages (conversation_id, parent_id, role, text, content, provider, model, stop_reason, error, note,
-             thinking, thinking_ms, in_context, declined_by, web, created_at)
-           VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             thinking, thinking_ms, in_context, declined_by, web, tools, context_tokens, created_at)
+           VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(convId, userMessageId, row.text, row.content, row.provider, row.model, row.stop_reason, row.error, note,
-          thinking, thinkingMs, row.in_context, declined, web, now)
+          thinking, thinkingMs, row.in_context, declined, web, toolsJson, contextTokens, now)
         .lastInsertRowid,
     );
 
@@ -721,6 +802,8 @@ function saveOutcome({ convId, userId, userMessageId, key, partial, result, fail
       web,
       search_off: 0,
       code_off: 0,
+      tools: toolsJson,
+      context_tokens: contextTokens,
       ...row,
     });
   });

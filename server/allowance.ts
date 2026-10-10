@@ -11,18 +11,34 @@ export const SPEND_LIMIT_MODES: readonly SpendLimitMode[] = ["site", "own", "non
 export const MAX_DOLLARS = 1_000_000;
 
 export type UserLimits = {
+  id: number;
   role: string;
   spend_limit_mode: string;
   monthly_spend_limit: number | null;
   monthly_token_limit: number | null;
 };
 
-/** The spending limit before any reward: their own, the site's for members, or none. */
+/** The highest monthly limit among the groups someone is in that set one; null when none do. */
+export function groupSpendLimit(userId: number): number | null {
+  const row = db
+    .prepare(
+      `SELECT MAX(g.spend_limit) AS spend FROM user_groups g JOIN group_members m ON m.group_id = g.id
+       WHERE m.user_id = ? AND g.spend_limit IS NOT NULL`,
+    )
+    .get(userId) as { spend: number | null };
+  return row.spend;
+}
+
+/**
+ * The spending limit before any reward: their own, their group's or the site's for members, or none.
+ * A member of a group with its own limit follows the group's (the highest, if they're in several).
+ */
 export function baseSpendLimit(u: UserLimits, siteLimit = getSettings().spendLimit): number | null {
   if (u.spend_limit_mode === "none") return null;
   if (u.spend_limit_mode === "own") return u.monthly_spend_limit;
   // Admins pay for the keys; the site's limit is for members.
-  return u.role === "admin" ? null : siteLimit;
+  if (u.role === "admin") return null;
+  return groupSpendLimit(u.id) ?? siteLimit;
 }
 
 export type Allowance = {
@@ -45,7 +61,7 @@ export function nextMonthIso(): string {
 
 export function allowanceOf(userId: number): Allowance {
   const u = db
-    .prepare("SELECT role, spend_limit_mode, monthly_spend_limit, monthly_token_limit FROM users WHERE id = ?")
+    .prepare("SELECT id, role, spend_limit_mode, monthly_spend_limit, monthly_token_limit FROM users WHERE id = ?")
     .get(userId) as UserLimits;
   const used = db
     .prepare(

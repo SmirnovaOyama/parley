@@ -4,7 +4,7 @@ import { hashPassword, verifyPassword } from "../crypto.ts";
 import { allowanceOf } from "../allowance.ts";
 import { bonusOf, BonusError, pendingCode, rewardDomain, sendCode, verifyCode } from "../bonus.ts";
 import { db, getSettings, nowIso } from "../db.ts";
-import { getInstructions, MAX_INSTRUCTION_CHARS } from "../instructions.ts";
+import { getInstructions } from "../instructions.ts";
 import { mailMode } from "../mail.ts";
 import { modelLabel } from "../providers/catalog.ts";
 
@@ -99,19 +99,8 @@ authRoutes.post("/password", requireUser, async (c) => {
   return c.json({ ok: true });
 });
 
-// Personal instructions: about you, and how you like answers. Used in your new chats.
+// What new chats start with: the persona picked for them (set under Account › Personas).
 authRoutes.get("/instructions", requireUser, (c) => c.json(getInstructions(c.var.user!.id)));
-
-authRoutes.put("/instructions", requireUser, async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const aboutMe = String(body.aboutMe ?? "").trim();
-  const answerStyle = String(body.answerStyle ?? "").trim();
-  if (aboutMe.length > MAX_INSTRUCTION_CHARS || answerStyle.length > MAX_INSTRUCTION_CHARS) {
-    return c.json({ error: `Keep each one under ${MAX_INSTRUCTION_CHARS} characters` }, 400);
-  }
-  db.prepare("UPDATE users SET about_me = ?, answer_style = ? WHERE id = ?").run(aboutMe || null, answerStyle || null, c.var.user!.id);
-  return c.json(getInstructions(c.var.user!.id));
-});
 
 // What this person has used this month, against their limits (the email reward included).
 authRoutes.get("/allowance", requireUser, (c) => c.json(allowanceOf(c.var.user!.id)));

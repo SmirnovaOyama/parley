@@ -80,8 +80,11 @@ export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
  * A mismatched Origin is rejected outright.
  */
 export const sameOriginGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (c.req.method === "GET" || c.req.method === "HEAD") return next();
   const origin = c.req.header("origin");
+  // A sandboxed page (code from a reply, running in the preview) has no origin of its own and
+  // never needs the API, whatever the method.
+  if (origin === "null") return c.json({ error: "Cross-site request blocked" }, 403);
+  if (c.req.method === "GET" || c.req.method === "HEAD") return next();
   const host = c.req.header("x-forwarded-host") ?? c.req.header("host");
   if (origin && host && new URL(origin).host !== host) {
     return c.json({ error: "Cross-site request blocked" }, 403);

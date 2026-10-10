@@ -10,6 +10,13 @@ import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { chatRoutes } from "./routes/chat.ts";
 import { sharedRoutes } from "./routes/shared.ts";
+import { adminToolRoutes } from "./routes/admin-tools.ts";
+import { knowledgeRoutes } from "./routes/knowledge.ts";
+import { meRoutes } from "./routes/me.ts";
+import { personaRoutes } from "./routes/personas.ts";
+import { projectRoutes } from "./routes/projects.ts";
+import { PREVIEW_SHELL, previewHeaders } from "./preview.ts";
+import { enforceRetention } from "./retention.ts";
 
 // Node gives up opening a connection after 10 seconds. Behind a slow proxy (common when reaching
 // the AI providers from some regions) the TLS handshake alone can take longer, so wait a minute.
@@ -32,14 +39,24 @@ const siteHeaders = secureHeaders({
 const fileHeaders = secureHeaders({
   contentSecurityPolicy: { sandbox: [], defaultSrc: ["'none'"], imgSrc: ["'self'"], styleSrc: ["'unsafe-inline'"] },
 });
-const FILE_PATH = /^\/api\/(files|shared\/[^/]+\/files)\//;
-app.use("*", (c, next) => (FILE_PATH.test(c.req.path) ? fileHeaders(c, next) : siteHeaders(c, next)));
+const FILE_PATH = /^\/api\/(files|shared\/[^/]+\/files|knowledge\/[^/]+\/docs)\//;
+// The page that runs code from a reply sets its own, sandboxed headers (server/preview.ts).
+const PREVIEW_PATH = "/api/preview";
+app.use("*", (c, next) =>
+  c.req.path === PREVIEW_PATH ? previewHeaders(c, next) : FILE_PATH.test(c.req.path) ? fileHeaders(c, next) : siteHeaders(c, next),
+);
+app.get(PREVIEW_PATH, (c) => c.html(PREVIEW_SHELL));
 
 app.use("/api/*", sameOriginGuard, sessionMiddleware);
 app.route("/api/auth", authRoutes);
 app.route("/api/admin", adminRoutes);
+app.route("/api/admin", adminToolRoutes);
 // Shared chat links, readable without an account when the site allows it (before the signed-in routes).
 app.route("/api/shared", sharedRoutes);
+app.route("/api", projectRoutes);
+app.route("/api", knowledgeRoutes);
+app.route("/api", meRoutes);
+app.route("/api", personaRoutes);
 app.route("/api", chatRoutes);
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 
@@ -49,9 +66,14 @@ if (env.isProd) {
   app.get("*", serveStatic({ path: "./dist/index.html" }));
 }
 
-// Files added to a message that was never sent are cleared after a day.
+// Files added to a message that was never sent are cleared after a day, and chats past the site's
+// retention rules are deleted; both checked every hour.
 clearStaleUploads();
-setInterval(clearStaleUploads, 60 * 60 * 1000).unref();
+enforceRetention();
+setInterval(() => {
+  clearStaleUploads();
+  enforceRetention();
+}, 60 * 60 * 1000).unref();
 
 serve({ fetch: app.fetch, port: env.port }, (info) => {
   console.log(`API listening on http://localhost:${info.port}`);

@@ -6,6 +6,7 @@ import { db } from "./db.ts";
 import { instructionsNote, parseInstructions } from "./instructions.ts";
 import { modelLabel } from "./providers/catalog.ts";
 import type { HistoryTurn } from "./providers/types.ts";
+import type { ToolUse } from "./tools.ts";
 
 export type ConversationRow = {
   id: string;
@@ -31,6 +32,11 @@ export type ConversationRow = {
   container_id: string | null;
   container_key_id: number | null;
   container_expires_at: string | null;
+  /** The project it's in, and when it was pinned to the top of the list. */
+  project_id: string | null;
+  pinned_at: string | null;
+  /** The app's own tools it declared when it started (JSON DeclaredTool[], see tools.ts). */
+  tool_defs: string | null;
 };
 
 export type MessageRow = {
@@ -61,6 +67,10 @@ export type MessageRow = {
   search_off: number;
   /** On a user message: 1 when making files (code execution) was off for it; a note says so. */
   code_off: number;
+  /** On a reply: the app's tools it used (JSON ToolUse[]). */
+  tools: string | null;
+  /** On a reply: how much of the model's context the chat filled by its end. */
+  context_tokens: number | null;
 };
 
 /** A file a reply made, as people see it: download it from /api/files/:id. */
@@ -99,6 +109,10 @@ export type PublicMessage = {
   files: PublicFile[];
   /** On a user message: the files attached to it. */
   attachments: PublicAttachment[];
+  /** On a reply: what it did with the app's tools (saved a memory, searched knowledge, used an MCP tool). */
+  tools: ToolUse[];
+  /** On a reply: the chat's size in the model's context by its end, in tokens. */
+  contextTokens: number | null;
   createdAt: string;
 };
 
@@ -155,8 +169,20 @@ export function toPublic(m: MessageRow, siblings: number[] = siblingIds(m)): Pub
     ...webOf(m.web),
     files: m.role === "assistant" ? filesOf(m.id) : [],
     attachments: m.role === "user" ? attachmentsOf(m.id) : [],
+    tools: toolsOf(m.tools),
+    contextTokens: m.context_tokens,
     createdAt: m.created_at,
   };
+}
+
+function toolsOf(json: string | null): ToolUse[] {
+  if (!json) return [];
+  try {
+    const list = JSON.parse(json);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
 }
 
 function webOf(json: string | null): Pick<PublicMessage, "searches" | "sources" | "found"> {

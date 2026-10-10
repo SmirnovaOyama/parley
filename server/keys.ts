@@ -128,7 +128,7 @@ export function keyById(id: number | null | undefined): KeyRow | undefined {
   return db.prepare("SELECT * FROM api_keys WHERE id = ?").get(id) as KeyRow | undefined;
 }
 
-/** Shared keys, the site default, keys granted to this person and the key bound to them. */
+/** Shared keys, the site default, keys granted to this person or their groups, and the key bound to them. */
 export function availableKeys(userId: number): KeyRow[] {
   // A verified address on a rewarded domain also unlocks the reward's keys.
   const bonus = bonusOf(userId);
@@ -139,9 +139,10 @@ export function availableKeys(userId: number): KeyRow[] {
           OR k.id IN (SELECT api_key_id FROM user_keys WHERE user_id = ?)
           OR k.id = (SELECT api_key_id FROM users WHERE id = ?)
           OR k.id IN (SELECT value FROM json_each(?))
+          OR k.id IN (SELECT gk.api_key_id FROM group_keys gk JOIN group_members gm ON gm.group_id = gk.group_id WHERE gm.user_id = ?)
        ORDER BY k.is_default DESC, k.created_at`,
     )
-    .all(userId, userId, JSON.stringify(bonus.eligible ? bonus.keyIds : [])) as KeyRow[];
+    .all(userId, userId, JSON.stringify(bonus.eligible ? bonus.keyIds : []), userId) as KeyRow[];
 }
 
 /** What new chats start with: the person's own default, else the site default, else the first. */
@@ -170,6 +171,8 @@ export function pickerChoices(keys: KeyRow[]) {
       // What it can open: images, PDFs and text, or less; Claude and OpenAI also anything else in
       // chats where they can run code.
       reads: readsFor(start, true),
+      /** Tokens it reads at once; null where it isn't known (another service's model). */
+      context: keyModel(key, model)?.context ?? null,
     };
   });
 }

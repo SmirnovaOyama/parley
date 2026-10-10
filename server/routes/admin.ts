@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { pathsOfConversation, removeUnused } from "../attachments.ts";
 import { requireAdmin, type AppEnv } from "../auth.ts";
 import { baseSpendLimit, MAX_DOLLARS, SPEND_LIMIT_MODES } from "../allowance.ts";
 import { DOMAIN_RE, rewardDomain } from "../bonus.ts";
@@ -21,6 +20,7 @@ import {
   type KeyRow,
 } from "../keys.ts";
 import { MIN_PASSWORD } from "./auth.ts";
+import { enforceRetention, purgeConversations } from "../retention.ts";
 
 export const adminRoutes = new Hono<AppEnv>();
 adminRoutes.use("*", requireAdmin);
@@ -210,8 +210,9 @@ adminRoutes.post("/keys", async (c) => {
   const makeDefault = first || !!body.isDefault;
   // The default key is everyone's, so it's always shared.
   const shared = makeDefault || body.shared !== false;
-  // Only Claude and OpenAI search the web and make files.
-  const webSearch = !!provider.tools && body.webSearch === true;
+  // Claude and OpenAI search with their own tool; other models through the site's search service, once it's set up.
+  const webSearch = body.webSearch === true;
+  // Only Claude and OpenAI make files.
   const codeExecution = !!provider.tools && body.codeExecution === true;
   // Another service offers every model listed for it.
   const known = modelsOf(draft).map((m) => m.id);
@@ -268,7 +269,7 @@ adminRoutes.patch("/keys/:id", async (c) => {
   if (fallbackError) return c.json({ error: fallbackError }, 400);
   const isDefault = body.isDefault === true || !!key.is_default;
   const shared = isDefault || (body.shared !== undefined ? body.shared !== false : !!key.shared);
-  const webSearch = !!provider.tools && (body.webSearch !== undefined ? body.webSearch === true : !!key.web_search);
+  const webSearch = body.webSearch !== undefined ? body.webSearch === true : !!key.web_search;
   const codeExecution = !!provider.tools && (body.codeExecution !== undefined ? body.codeExecution === true : !!key.code_execution);
   // A new starting model joins the list even when the list itself wasn't sent. Another service
   // offers every model listed for it.
@@ -346,6 +347,7 @@ adminRoutes.get("/users", (c) => {
   }[];
   const { bonusDomains, bonusTokens, bonusSpend, spendLimit: siteLimit } = getSettings();
   const grants = db.prepare("SELECT user_id, api_key_id FROM user_keys").all() as { user_id: number; api_key_id: number }[];
+  const memberships = db.prepare("SELECT user_id, group_id FROM group_members").all() as { user_id: number; group_id: number }[];
   return c.json({
     users: rows.map((u) => ({
       id: u.id,
@@ -353,6 +355,7 @@ adminRoutes.get("/users", (c) => {
       role: u.role,
       apiKeyId: u.api_key_id,
       keyIds: grants.filter((g) => g.user_id === u.id).map((g) => g.api_key_id),
+      groupIds: memberships.filter((m) => m.user_id === u.id).map((m) => m.group_id),
       keyLabel: u.key_label,
       monthlyTokenLimit: u.monthly_token_limit,
       /** Whose spending limit they follow, and their own amount (kept while they follow the site's). */
@@ -468,6 +471,12 @@ adminRoutes.patch("/users/:id", async (c) => {
     ownSpend ?? null,
     id,
   );
+  if (Array.isArray(body.groupIds)) {
+    const known = new Set((db.prepare("SELECT id FROM user_groups").all() as { id: number }[]).map((g) => g.id));
+    db.prepare("DELETE FROM group_members WHERE user_id = ?").run(id);
+    const join = db.prepare("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)");
+    for (const g of new Set((body.groupIds as unknown[]).map(Number))) if (known.has(g)) join.run(g, id);
+  }
   if (keyIds) {
     db.prepare("DELETE FROM user_keys WHERE user_id = ?").run(id);
     const grant = db.prepare("INSERT INTO user_keys (user_id, api_key_id) VALUES (?, ?)");
@@ -568,9 +577,7 @@ adminRoutes.delete("/conversations/:id", (c) => {
   const conv = getConversation(c.req.param("id"));
   if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
   // Its files go with it: the ones replies made and the ones people attached.
-  const paths = pathsOfConversation(conv.id);
-  db.prepare("DELETE FROM conversations WHERE id = ?").run(conv.id);
-  removeUnused(paths);
+  purgeConversations([conv.id]);
   audit(c.var.user!.id, "delete_conversation", conv.title);
   return c.json({ ok: true });
 });
@@ -935,7 +942,20 @@ adminRoutes.patch("/settings", async (c) => {
     if (prompt.length > 20_000) return c.json({ error: "The instructions are too long" }, 400);
     next.systemPrompt = prompt;
   }
+  if (body.memory !== undefined) next.memory = !!body.memory;
+  // Days to keep chats: a whole number, or empty to keep them for good.
+  for (const field of ["retainChatsDays", "retainDeletedDays"] as const) {
+    if (body[field] === undefined) continue;
+    const raw = body[field];
+    const n = raw === null || raw === "" ? null : Number(raw);
+    if (n !== null && (!Number.isInteger(n) || n < (field === "retainChatsDays" ? 1 : 0) || n > 36500)) {
+      return c.json({ error: field === "retainChatsDays" ? "Keep chats for at least a day, or for good" : "Enter a number of days, 0 or more, or leave it empty" }, 400);
+    }
+    next[field] = n;
+  }
   saveSettings(next);
+  // A shorter time to keep chats takes effect now, not at the next hourly pass.
+  if (next.retainChatsDays !== undefined || next.retainDeletedDays !== undefined) enforceRetention();
   audit(c.var.user!.id, "edit_settings");
   return c.json({ settings: getSettings(), mail: mailMode });
 });

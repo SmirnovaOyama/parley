@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -311,6 +312,166 @@ if (/CHECK \(provider IN/.test(keysSql)) {
   }
 }
 
+// Projects: a person's folders of chats. A project's instructions join those of every chat in it
+// (a change rides on the next message as a system note, like a chat's own), and its knowledge bases
+// are searchable from its chats. Deleting a project keeps its chats, moved out of it.
+db.exec(`
+CREATE TABLE IF NOT EXISTS projects (
+  id           TEXT PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  instructions TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id, updated_at);
+`);
+addColumn("conversations", "project_id", "TEXT REFERENCES projects(id) ON DELETE SET NULL");
+// Pinned chats sit at the top of the list, newest pin first.
+addColumn("conversations", "pinned_at", "TEXT");
+// Where an imported chat came from ("chatgpt:<id>", "claude:<uuid>", "parley:<id>"), so importing
+// the same export twice doesn't bring a chat in twice.
+addColumn("conversations", "import_key", "TEXT");
+
+// Function tools a chat declares (memory, knowledge, MCP servers' tools), as JSON ToolSpec[]. Like
+// web search, the list is settled when the chat starts and never changes: Claude ties its reasoning
+// to the exact tools a chat declares. Whether each one works is decided when it's called.
+addColumn("conversations", "tool_defs", "TEXT");
+// On a reply: the tools it used (JSON ToolUse[]), and how much of the model's context the chat
+// filled by its end (the last request's prompt and reply), for the meter over the message box.
+addColumn("messages", "tools", "TEXT");
+addColumn("messages", "context_tokens", "INTEGER");
+
+// Memory: short facts the AI keeps about a person between chats, with the chat it learnt each one
+// in (null when the person added it). New chats start with them in their system prompt.
+db.exec(`
+CREATE TABLE IF NOT EXISTS memories (
+  id              INTEGER PRIMARY KEY,
+  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text            TEXT NOT NULL,
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS memories_user ON memories(user_id, id);
+`);
+addColumn("users", "memory_off", "INTEGER NOT NULL DEFAULT 0");
+
+// Knowledge bases: documents a chat can search. A person's own, or an admin's shared with everyone.
+// Each document's text is cut into overlapping parts in a full-text index (trigrams, so Chinese and
+// Japanese match without word breaks). Chats reach them through their project or their own picks.
+db.exec(`
+CREATE TABLE IF NOT EXISTS knowledge_bases (
+  id          TEXT PRIMARY KEY,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  shared      INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS knowledge_docs (
+  id         TEXT PRIMARY KEY,
+  kb_id      TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  mime       TEXT NOT NULL,
+  size       INTEGER NOT NULL,
+  path       TEXT NOT NULL,
+  chars      INTEGER NOT NULL,
+  parts      INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS knowledge_docs_kb ON knowledge_docs(kb_id);
+CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunks USING fts5(text, doc_id UNINDEXED, kb_id UNINDEXED, part UNINDEXED, tokenize = 'trigram');
+CREATE TABLE IF NOT EXISTS project_knowledge (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kb_id      TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  PRIMARY KEY (project_id, kb_id)
+);
+CREATE TABLE IF NOT EXISTS conversation_knowledge (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  kb_id           TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  PRIMARY KEY (conversation_id, kb_id)
+);
+`);
+
+// Groups of people (a class, a team): admins open keys and MCP servers to a group, and can give its
+// members a monthly spending limit of their own in place of the site's.
+db.exec(`
+CREATE TABLE IF NOT EXISTS user_groups (
+  id          INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  spend_limit REAL,
+  created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS group_members (
+  group_id INTEGER NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+  user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (group_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS group_members_user ON group_members(user_id);
+CREATE TABLE IF NOT EXISTS group_keys (
+  group_id   INTEGER NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+  api_key_id INTEGER NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+  PRIMARY KEY (group_id, api_key_id)
+);
+`);
+
+// MCP servers an admin connects: their tools join new chats of the people allowed to use them.
+// headers (encrypted JSON) carry whatever the server asks for, like an Authorization token. tools is
+// what the server listed when last checked; off_tools, the ones admins turned off.
+db.exec(`
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id                INTEGER PRIMARY KEY,
+  name              TEXT NOT NULL,
+  url               TEXT NOT NULL,
+  encrypted_headers TEXT,
+  enabled           INTEGER NOT NULL DEFAULT 1,
+  shared            INTEGER NOT NULL DEFAULT 1,
+  tools             TEXT NOT NULL DEFAULT '[]',
+  off_tools         TEXT NOT NULL DEFAULT '[]',
+  checked_at        TEXT,
+  error             TEXT,
+  created_at        TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS group_mcp (
+  group_id  INTEGER NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+  server_id INTEGER NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+  PRIMARY KEY (group_id, server_id)
+);
+`);
+
+// Personas: up to five ways a person can present themselves to the AI, each a name with what the
+// AI should know about them and how it should answer. users.persona_id is the one new chats start
+// as (null: none). A chat copies its persona's words, so editing a persona never changes a chat.
+db.exec(`
+CREATE TABLE IF NOT EXISTS personas (
+  id           TEXT PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  about_me     TEXT NOT NULL DEFAULT '',
+  answer_style TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS personas_user ON personas(user_id, created_at);
+`);
+if (addColumn("users", "persona_id", "TEXT REFERENCES personas(id) ON DELETE SET NULL")) {
+  // The personal instructions from before personas become each person's first persona, which
+  // their new chats keep starting as.
+  const people = db
+    .prepare("SELECT id, about_me, answer_style FROM users WHERE TRIM(COALESCE(about_me, '')) != '' OR TRIM(COALESCE(answer_style, '')) != ''")
+    .all() as { id: number; about_me: string | null; answer_style: string | null }[];
+  const now = new Date().toISOString();
+  const insert = db.prepare("INSERT INTO personas (id, user_id, name, about_me, answer_style, created_at, updated_at) VALUES (?, ?, 'Me', ?, ?, ?, ?)");
+  const point = db.prepare("UPDATE users SET persona_id = ? WHERE id = ?");
+  for (const p of people) {
+    const id = randomUUID();
+    insert.run(id, p.id, p.about_me ?? "", p.answer_style ?? "", now, now);
+    point.run(id, p.id);
+  }
+}
+
 export const nowIso = () => new Date().toISOString();
 
 export function startOfMonthIso(): string {
@@ -346,7 +507,29 @@ export type Settings = {
   bonusSpend: number | null;
   /** What each member may spend a month, in dollars, unless their page says otherwise; null for no limit. */
   spendLimit: number | null;
+  /** Whether the AI may remember things about people between chats (each person can turn it off too). */
+  memory: boolean;
+  /**
+   * The search service behind web search for models without their own (DeepSeek, Gemini, Grok and
+   * other services): which one, and its address where it's self-hosted. Its key is kept apart, encrypted.
+   */
+  searchProvider: SearchProvider | null;
+  searchUrl: string;
+  /** Chats nobody has touched for this many days are deleted, files and all; null keeps them. */
+  retainChatsDays: number | null;
+  /** Chats people deleted stay readable to admins this many days, then go; null keeps them, 0 removes them at once. */
+  retainDeletedDays: number | null;
 };
+
+export type SearchProvider = "tavily" | "brave" | "bocha" | "searxng" | "jina";
+export const SEARCH_PROVIDERS: readonly SearchProvider[] = ["tavily", "brave", "bocha", "searxng", "jina"];
+
+/** A whole number of days saved as text; empty (or anything else) reads as none. */
+function days(raw: string | undefined): number | null {
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
 
 /** A dollar amount saved as text; empty (or anything that isn't an amount) reads as none. */
 function dollars(raw: string | undefined): number | null {
@@ -380,7 +563,22 @@ export function getSettings(): Settings {
     bonusKeyIds: jsonList(map.get("bonusKeyIds"), (v): v is number => Number.isInteger(v)),
     bonusSpend: dollars(map.get("bonusSpend")) || null,
     spendLimit: dollars(map.get("spendLimit")),
+    memory: map.get("memory") !== "false",
+    searchProvider: SEARCH_PROVIDERS.find((p) => p === map.get("searchProvider")) ?? null,
+    searchUrl: map.get("searchUrl") ?? "",
+    retainChatsDays: days(map.get("retainChatsDays")),
+    retainDeletedDays: days(map.get("retainDeletedDays")),
   };
+}
+
+/** The search service's key, still encrypted (server/crypto.ts decrypts it); null when none is saved. */
+export function searchKeySealed(): string | null {
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'searchKey'").get() as { value: string } | undefined;
+  return row?.value || null;
+}
+
+export function saveSearchKey(sealed: string | null) {
+  db.prepare("INSERT INTO settings (key, value) VALUES ('searchKey', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(sealed ?? "");
 }
 
 export function saveSettings(next: Partial<Settings>) {
@@ -396,4 +594,9 @@ export function saveSettings(next: Partial<Settings>) {
   if (next.bonusKeyIds !== undefined) put.run("bonusKeyIds", JSON.stringify(next.bonusKeyIds));
   if (next.bonusSpend !== undefined) put.run("bonusSpend", next.bonusSpend == null ? "" : String(next.bonusSpend));
   if (next.spendLimit !== undefined) put.run("spendLimit", next.spendLimit == null ? "" : String(next.spendLimit));
+  if (next.memory !== undefined) put.run("memory", String(next.memory));
+  if (next.searchProvider !== undefined) put.run("searchProvider", next.searchProvider ?? "");
+  if (next.searchUrl !== undefined) put.run("searchUrl", next.searchUrl);
+  if (next.retainChatsDays !== undefined) put.run("retainChatsDays", next.retainChatsDays == null ? "" : String(next.retainChatsDays));
+  if (next.retainDeletedDays !== undefined) put.run("retainDeletedDays", next.retainDeletedDays == null ? "" : String(next.retainDeletedDays));
 }

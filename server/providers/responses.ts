@@ -19,6 +19,7 @@ import { base64Of, fileNote, fileText } from "./compat.ts";
 import {
   fileRef,
   imageCaption,
+  MAX_TOOL_ROUNDS,
   type ChatProvider,
   type ChatRequest,
   type ChatResult,
@@ -27,6 +28,7 @@ import {
   type HistoryAttachment,
   type HistoryTurn,
   type Source,
+  type ToolCall,
 } from "./types.ts";
 
 type Options = {
@@ -65,6 +67,16 @@ function usageOf(u: ResponseUsage | null | undefined): Usage {
     cacheRead,
     cacheWrite,
   };
+}
+
+/** A function call's arguments, as an object even when the model wrote something else. */
+export function parseArguments(json: string | null | undefined): Record<string, unknown> {
+  try {
+    const value = JSON.parse(json || "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
 }
 
 /** A failure reported inside the stream, with the HTTP status it would have had. */
@@ -165,8 +177,14 @@ function citingWriter(onText: (delta: string) => void) {
   let sent = 0;
   /** Where the ")" closing a replaced citation's brackets is due, when it hadn't come with the link. */
   let close = -1;
+  /** A round of tools just ended: the next words start a new paragraph. */
+  let gap = false;
   const out = (chunk: string) => {
-    const words = chunk.replace(SANDBOX_LINK, "$1");
+    let words = chunk.replace(SANDBOX_LINK, "$1");
+    if (gap && text && words.trim()) {
+      words = `\n\n${words.trimStart()}`;
+      gap = false;
+    }
     if (!words) return;
     text += words;
     onText(words);
@@ -223,6 +241,11 @@ function citingWriter(onText: (delta: string) => void) {
     /** Something other than text came: all of it goes out. */
     flush() {
       sendTo(raw.length);
+    },
+    /** The model went off to use tools: what it writes next is a new paragraph. */
+    pause() {
+      sendTo(raw.length);
+      gap = true;
     },
   };
 }
@@ -335,36 +358,38 @@ export function responsesProvider(options: Options): ChatProvider {
     // Summaries cost nothing extra; they're asked for only when the site shows them.
     const summary = req.showThinking && effort !== "none" && options.summaries(req.model);
     const api = client(req.apiKey, 2);
-    const tools = await toolsFor(api, req);
+    // The provider's own tools, then the app's as functions.
+    let tools: Tool[] = [
+      ...(await toolsFor(api, req)),
+      ...req.functions.map((f): Tool => ({ type: "function", name: f.name, description: f.description, parameters: f.parameters, strict: false })),
+    ];
+    const own = new Set(req.functions.map((f) => f.name));
     const searching = tools.some((t) => t.type === "web_search");
     const coding = tools.some((t) => t.type === "code_interpreter");
     const boxed = (file: HistoryAttachment) => coding && !!req.fileIds?.has(fileRef(file));
-    const params = (withSummary: boolean): ResponseCreateParamsStreaming => ({
+    // What the model reads: the chat, then this reply's own tool calls and their results as it goes.
+    let input: ResponseInputItem[] = toInput(req, boxed);
+    const params = (withSummary: boolean, lastRound: boolean): ResponseCreateParamsStreaming => ({
       model: req.model,
       instructions: req.system,
-      input: toInput(req, boxed),
+      input,
       reasoning: { effort, ...(withSummary ? { summary: "auto" as const } : {}) },
       max_output_tokens: MAX_OUTPUT,
       store: false,
       stream: true,
       ...(req.cacheKey ? { prompt_cache_key: req.cacheKey } : {}),
-      ...(tools.length ? { tools } : {}),
+      ...(tools.length ? { tools, ...(lastRound && own.size ? { tool_choice: "none" as const } : {}) } : {}),
       // Every page a search looked at, shown when the reply cites none.
       ...(searching ? { include: ["web_search_call.action.sources" as const] } : {}),
     });
-    let stream;
-    try {
-      stream = await api.responses.create(params(summary), { signal: req.signal });
-    } catch (err) {
-      if (!summary || !summariesRefused(err)) throw err;
-      stream = await api.responses.create(params(false), { signal: req.signal });
-    }
 
     let thought = "";
     let refused = false;
     let stopReason = "stop";
-    let usage = usageOf(null);
+    const usage = usageOf(null);
+    let contextTokens = 0;
     let status = "";
+    let withSummary = summary;
     const setStatus = (next: Parameters<ChatRequest["onStatus"]>[0], detail?: string) => {
       status = next;
       req.onStatus(next, detail);
@@ -380,88 +405,132 @@ export function responsesProvider(options: Options): ChatProvider {
     // began by OpenAI's clock (files the sandbox lists from before then are older replies').
     const made: string[] = [];
     let container: string | null = null;
-    let began = Math.floor(Date.now() / 1000);
+    let began = 0;
 
-    for await (const event of stream) {
-      // Text goes out one event late, so a citation's link can still become its marker.
-      if (
-        event.type !== "response.output_text.delta" &&
-        event.type !== "response.output_text.annotation.added" &&
-        event.type !== "response.output_text.done"
-      ) writer.flush();
-      switch (event.type) {
-        case "response.created":
-          began = event.response.created_at;
-          break;
-        case "response.output_item.added":
-          if (event.item.type === "reasoning") setStatus("thinking");
-          else if (event.item.type === "web_search_call") setStatus("searching");
-          else if (event.item.type === "code_interpreter_call") {
-            container = event.item.container_id || container;
-            setStatus("coding");
-          }
-          break;
-        case "response.output_item.done":
-          // What a search looked for is known once it's done. Only searches are billed, not
-          // opening a page or finding in one.
-          if (event.item.type === "web_search_call" && event.item.action?.type === "search") {
-            const action = event.item.action;
-            webSearches++;
-            for (const q of action.queries?.length ? action.queries : action.query ? [action.query] : []) {
-              const query = q.trim();
-              if (!query || searches.includes(query)) continue;
-              searches.push(query);
-              setStatus("searching", query);
-            }
-            for (const page of action.sources ?? []) {
-              const url = cleanUrl(page.url);
-              if (found.length < MAX_FOUND && !found.some((f) => f.url === url)) found.push({ url, title: "" });
-            }
-          } else if (event.item.type === "code_interpreter_call") container = event.item.container_id || container;
-          break;
-        case "response.reasoning_summary_part.added":
-          // Each part of the summary is a paragraph of its own.
-          if (req.showThinking && thought) {
-            thought += "\n\n";
-            req.onThinking("\n\n");
-          }
-          break;
-        case "response.reasoning_summary_text.delta":
-          if (req.showThinking) {
-            thought += event.delta;
-            req.onThinking(event.delta);
-          }
-          break;
-        case "response.output_text.delta":
-          writer.delta(`${event.item_id}:${event.content_index}`, event.delta);
-          break;
-        case "response.output_text.annotation.added": {
-          const a = event.annotation;
-          if (a?.type === "url_citation") writer.cite(`${event.item_id}:${event.content_index}`, a.start_index, a.end_index, a.url, a.title);
-          else if (a?.type === "container_file_citation" && !made.includes(`${a.container_id}/${a.file_id}`)) {
-            made.push(`${a.container_id}/${a.file_id}`);
-          }
-          break;
-        }
-        case "response.refusal.delta":
-          refused = true;
-          break;
-        case "response.completed":
-        case "response.incomplete": {
-          const r = event.response;
-          usage = usageOf(r.usage);
-          const reason = r.incomplete_details?.reason;
-          if (reason === "content_filter") refused = true;
-          else if (reason === "max_output_tokens") stopReason = "max_tokens";
-          break;
-        }
-        case "response.failed":
-          throw streamError(event.response.error?.code, event.response.error?.message);
-        case "error":
-          throw streamError(event.code, event.message);
+    for (let round = 0; ; round++) {
+      let stream;
+      try {
+        stream = await api.responses.create(params(withSummary, round >= MAX_TOOL_ROUNDS), { signal: req.signal });
+      } catch (err) {
+        if (!withSummary || !summariesRefused(err)) throw err;
+        withSummary = false;
+        stream = await api.responses.create(params(false, round >= MAX_TOOL_ROUNDS), { signal: req.signal });
       }
+
+      // What goes back next round when the model asks for the app's tools: its words and calls.
+      const said: ResponseInputItem[] = [];
+      const calls: ToolCall[] = [];
+      for await (const event of stream) {
+        // Text goes out one event late, so a citation's link can still become its marker.
+        if (
+          event.type !== "response.output_text.delta" &&
+          event.type !== "response.output_text.annotation.added" &&
+          event.type !== "response.output_text.done"
+        ) writer.flush();
+        switch (event.type) {
+          case "response.created":
+            if (!began) began = event.response.created_at;
+            break;
+          case "response.output_item.added":
+            if (event.item.type === "reasoning") setStatus("thinking");
+            else if (event.item.type === "web_search_call") setStatus("searching");
+            else if (event.item.type === "code_interpreter_call") {
+              container = event.item.container_id || container;
+              setStatus("coding");
+            }
+            break;
+          case "response.output_item.done":
+            // What a search looked for is known once it's done. Only searches are billed, not
+            // opening a page or finding in one.
+            if (event.item.type === "web_search_call" && event.item.action?.type === "search") {
+              const action = event.item.action;
+              webSearches++;
+              for (const q of action.queries?.length ? action.queries : action.query ? [action.query] : []) {
+                const query = q.trim();
+                if (!query || searches.includes(query)) continue;
+                searches.push(query);
+                setStatus("searching", query);
+              }
+              for (const page of action.sources ?? []) {
+                const url = cleanUrl(page.url);
+                if (found.length < MAX_FOUND && !found.some((f) => f.url === url)) found.push({ url, title: "" });
+              }
+            } else if (event.item.type === "code_interpreter_call") container = event.item.container_id || container;
+            else if (event.item.type === "function_call" && own.has(event.item.name)) {
+              const item = event.item;
+              calls.push({ id: item.call_id, name: item.name, input: parseArguments(item.arguments) });
+              said.push({ type: "function_call", call_id: item.call_id, name: item.name, arguments: item.arguments });
+            } else if (event.item.type === "message") {
+              const words = event.item.content.map((c) => (c.type === "output_text" ? c.text : "")).join("");
+              if (words) said.push({ role: "assistant", content: words });
+            }
+            break;
+          case "response.reasoning_summary_part.added":
+            // Each part of the summary is a paragraph of its own.
+            if (req.showThinking && thought) {
+              thought += "\n\n";
+              req.onThinking("\n\n");
+            }
+            break;
+          case "response.reasoning_summary_text.delta":
+            if (req.showThinking) {
+              thought += event.delta;
+              req.onThinking(event.delta);
+            }
+            break;
+          case "response.output_text.delta":
+            writer.delta(`${event.item_id}:${event.content_index}`, event.delta);
+            break;
+          case "response.output_text.annotation.added": {
+            const a = event.annotation;
+            if (a?.type === "url_citation") writer.cite(`${event.item_id}:${event.content_index}`, a.start_index, a.end_index, a.url, a.title);
+            else if (a?.type === "container_file_citation" && !made.includes(`${a.container_id}/${a.file_id}`)) {
+              made.push(`${a.container_id}/${a.file_id}`);
+            }
+            break;
+          }
+          case "response.refusal.delta":
+            refused = true;
+            break;
+          case "response.completed":
+          case "response.incomplete": {
+            const r = event.response;
+            const u = usageOf(r.usage);
+            usage.input += u.input;
+            usage.output += u.output;
+            usage.cacheRead += u.cacheRead;
+            usage.cacheWrite += u.cacheWrite;
+            contextTokens = (r.usage?.input_tokens ?? 0) + (r.usage?.output_tokens ?? 0);
+            const reason = r.incomplete_details?.reason;
+            if (reason === "content_filter") refused = true;
+            else if (reason === "max_output_tokens") stopReason = "max_tokens";
+            break;
+          }
+          case "response.failed":
+            throw streamError(event.response.error?.code, event.response.error?.message);
+          case "error":
+            throw streamError(event.code, event.message);
+        }
+      }
+      writer.flush();
+      if (!calls.length || refused || req.signal.aborted || round > MAX_TOOL_ROUNDS) break;
+
+      // The model asked for the app's tools: run them all, and carry on with their results.
+      writer.pause();
+      const outcomes = await Promise.all(calls.map((call) => req.runTool(call)));
+      input = [
+        ...input,
+        ...said,
+        ...calls.map((call, i): ResponseInputItem => ({
+          type: "function_call_output",
+          call_id: call.id,
+          output: outcomes[i].isError ? `Error: ${outcomes[i].content}` : outcomes[i].content || "(no output)",
+        })),
+      ];
+      // The sandbox it started stays the one its code runs in.
+      if (container) tools = tools.map((t) => (t.type === "code_interpreter" ? { ...t, container: container! } : t));
+      setStatus("thinking");
     }
-    writer.flush();
     if (webSearches) usage.webSearches = webSearches;
 
     // Files its code wrote but didn't link to: the sandbox lists them as the model's.
@@ -490,6 +559,7 @@ export function responsesProvider(options: Options): ChatProvider {
       found,
       fileIds: refused ? [] : made,
       container: container ? { id: container, expiresAt: new Date(Date.now() + SANDBOX_IDLE_MS).toISOString() } : null,
+      contextTokens,
     };
   }
 

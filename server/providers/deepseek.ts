@@ -9,4 +9,6 @@ export const deepseekProvider = compatProvider({
   quick: () => ({ thinking: { type: "disabled" } }),
   maxTokens: 32768,
   systemMidChat: true,
+  // In thinking mode a turn that calls tools has to come back with its reasoning.
+  echoReasoning: true,
 });

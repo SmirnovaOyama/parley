@@ -62,6 +62,10 @@ export function sharedMessages(leafId: number): PublicMessage[] {
       thinking: null,
       thinkingMs: null,
       instructionsChanged: false,
+      // What the AI remembered about the person, or found in their documents, stays private; so
+      // does how full the chat is.
+      tools: p.tools.filter((t) => t.kind === "page" || t.kind === "mcp"),
+      contextTokens: null,
     };
   });
 }

@@ -7,7 +7,19 @@ import type {
   BetaMessageStreamParams,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { findModel, modelLabel } from "./catalog.ts";
-import { fileRef, imageCaption, type ChatProvider, type ChatRequest, type ChatResult, type CompleteRequest, type CompleteResult, type HistoryTurn, type Source } from "./types.ts";
+import {
+  fileRef,
+  imageCaption,
+  MAX_TOOL_ROUNDS,
+  type ChatProvider,
+  type ChatRequest,
+  type ChatResult,
+  type CompleteRequest,
+  type CompleteResult,
+  type HistoryTurn,
+  type Source,
+  type ToolOutcome,
+} from "./types.ts";
 
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
@@ -17,16 +29,28 @@ const FALLBACK_BETA = "server-side-fallback-2026-07-01";
  * history. Replies from another provider, or cut short, go back as plain text.
  */
 function toMessages(history: HistoryTurn[], fileIds: Map<string, string> | undefined, codeTool: boolean): BetaMessageParam[] {
-  return history.map((turn) => {
-    if (turn.role === "user") return { role: "user", content: userContent(turn, fileIds, codeTool) };
+  return history.flatMap((turn): BetaMessageParam[] => {
+    if (turn.role === "user") return [{ role: "user", content: userContent(turn, fileIds, codeTool) }];
     // A mid-chat system note (changed instructions), placed after a user message as the API asks.
-    if (turn.role === "system") return { role: "system", content: turn.text };
-    if (turn.provider === "anthropic" && Array.isArray(turn.content) && turn.content.length > 0) {
-      return { role: "assistant", content: echoable(turn.content as BetaContentBlockParam[]) };
+    if (turn.role === "system") return [{ role: "system", content: turn.text }];
+    // A reply that used the app's tools went back and forth: its turns go back as they were.
+    if (turn.provider === "anthropic" && isTurns(turn.content)) {
+      return turn.content.map((t) => (t.role === "assistant" ? { role: "assistant", content: echoable(t.content) } : t));
     }
-    return { role: "assistant", content: turn.text };
+    if (turn.provider === "anthropic" && Array.isArray(turn.content) && turn.content.length > 0) {
+      return [{ role: "assistant", content: echoable(turn.content as BetaContentBlockParam[]) }];
+    }
+    return [{ role: "assistant", content: turn.text }];
   });
 }
+
+/**
+ * How a reply that used the app's own tools is stored: its turns in order, the model's and the tool
+ * results between them. A reply without them is stored as its content blocks alone, as before.
+ */
+type ReplyTurn = { role: "assistant" | "user"; content: BetaContentBlockParam[] };
+const isTurns = (content: unknown): content is ReplyTurn[] =>
+  Array.isArray(content) && content.length > 0 && typeof (content[0] as { role?: unknown })?.role === "string";
 
 /**
  * A message with its files ahead of its words: images to look at (each after a line naming it),
@@ -97,7 +121,15 @@ async function chat(req: ChatRequest): Promise<ChatResult> {
 
   let text = "";
   let thought = "";
-  const content: BetaContentBlock[] = [];
+  // The reply's turns so far (when it used the app's tools), and the model's turn being written.
+  const turns: ReplyTurn[] = [];
+  let content: BetaContentBlock[] = [];
+  const own = new Set(req.functions.map((f) => f.name));
+  let toolRounds = 0;
+  let resumes = 0;
+  // After a round of tools, the next words start a new paragraph.
+  let gap = false;
+  let contextTokens = 0;
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, webSearches: 0 };
   const searches: string[] = [];
   const sources: Source[] = [];
@@ -109,11 +141,16 @@ async function chat(req: ChatRequest): Promise<ChatResult> {
     req.onStatus("searching", query);
   };
 
-  // A long search turn can pause (stop_reason "pause_turn"); sending it back resumes it. The
-  // pieces make one reply, stored as one turn.
-  for (let round = 0; round <= MAX_RESUMES; round++) {
-    const messages = round === 0 ? params.messages : [...params.messages, { role: "assistant" as const, content: [...content] }];
-    const stream = client.beta.messages.stream({ ...params, messages }, { signal: req.signal });
+  // A long search turn can pause (stop_reason "pause_turn"); sending it back resumes it, and the
+  // pieces make one turn. A turn that ends asking for the app's own tools gets their results and
+  // goes on; the last round allowed has to answer without them.
+  for (;;) {
+    const messages = [...params.messages, ...turns, ...(content.length ? [{ role: "assistant" as const, content: [...content] }] : [])];
+    const lastRound = toolRounds >= MAX_TOOL_ROUNDS && own.size > 0;
+    const stream = client.beta.messages.stream(
+      { ...params, messages, ...(lastRound ? { tool_choice: { type: "none" as const } } : {}) },
+      { signal: req.signal },
+    );
     // Per content block of this response: its type, a tool call's input so far, a text block's citations.
     const blocks = new Map<number, { type: string; name?: string; json: string; cites: Source[]; seen?: boolean }>();
 
@@ -151,8 +188,10 @@ async function chat(req: ChatRequest): Promise<ChatResult> {
       } else if (event.type === "content_block_delta") {
         const delta = event.delta;
         if (delta.type === "text_delta") {
-          text += delta.text;
-          req.onText(delta.text);
+          const piece = gap && text && delta.text ? `\n\n${delta.text.trimStart()}` : delta.text;
+          if (delta.text) gap = false;
+          text += piece;
+          req.onText(piece);
         } else if (delta.type === "thinking_delta" && req.showThinking) {
           thought += delta.thinking;
           req.onThinking(delta.thinking);
@@ -181,20 +220,43 @@ async function chat(req: ChatRequest): Promise<ChatResult> {
 
     message = await stream.finalMessage();
     content.push(...message.content);
-    usage.input += message.usage.input_tokens;
-    usage.output += message.usage.output_tokens;
-    usage.cacheRead += message.usage.cache_read_input_tokens ?? 0;
-    usage.cacheWrite += message.usage.cache_creation_input_tokens ?? 0;
-    usage.webSearches += message.usage.server_tool_use?.web_search_requests ?? 0;
-    if (message.stop_reason !== "pause_turn") break;
+    const u = message.usage;
+    usage.input += u.input_tokens;
+    usage.output += u.output_tokens;
+    usage.cacheRead += u.cache_read_input_tokens ?? 0;
+    usage.cacheWrite += u.cache_creation_input_tokens ?? 0;
+    usage.webSearches += u.server_tool_use?.web_search_requests ?? 0;
+    contextTokens = u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + u.output_tokens;
+    if (message.stop_reason === "pause_turn" && resumes++ < MAX_RESUMES) continue;
+    const calls = message.stop_reason === "tool_use" ? message.content.filter((b) => b.type === "tool_use" && own.has(b.name)) : [];
+    if (!calls.length || toolRounds > MAX_TOOL_ROUNDS) break;
+    // Every call of the turn runs, side by side, and all their results go back in one message.
+    const results = await Promise.all(
+      calls.map(async (b) => {
+        const call = b as Extract<BetaContentBlock, { type: "tool_use" }>;
+        const input = call.input && typeof call.input === "object" ? (call.input as Record<string, unknown>) : {};
+        const outcome: ToolOutcome = await req.runTool({ id: call.id, name: call.name, input });
+        return { type: "tool_result" as const, tool_use_id: call.id, content: outcome.content || "(no output)", ...(outcome.isError ? { is_error: true } : {}) };
+      }),
+    );
+    if (req.signal.aborted) break;
+    turns.push({ role: "assistant", content: content as BetaContentBlockParam[] }, { role: "user", content: results });
+    content = [];
+    toolRounds++;
+    gap = true;
+    req.onStatus("thinking");
   }
+  if (content.length) turns.push({ role: "assistant", content: content as BetaContentBlockParam[] });
+  // Everything the model wrote in this reply, across its turns.
+  const written = turns.filter((t) => t.role === "assistant").flatMap((t) => t.content) as BetaContentBlock[];
 
   const refused = message!.stop_reason === "refusal";
   const container = message?.container ? { id: message.container.id, expiresAt: message.container.expires_at } : null;
   return {
     text,
     thinking: thought,
-    content: refused ? null : content,
+    // One turn is stored as its blocks, as replies always were; several as the list of turns.
+    content: refused ? null : turns.length === 1 ? turns[0].content : turns,
     model: message!.model,
     stopReason: message!.stop_reason ?? "end_turn",
     refused,
@@ -202,8 +264,9 @@ async function chat(req: ChatRequest): Promise<ChatResult> {
     searches,
     sources,
     found,
-    fileIds: refused ? [] : madeFiles(content),
+    fileIds: refused ? [] : madeFiles(written),
     container,
+    contextTokens,
   };
 }
 
@@ -244,9 +307,14 @@ const CODE_TOOL = { type: "code_execution_20260120", name: "code_execution" } as
  * which are off (see chat-store).
  */
 function toolParams(req: ChatRequest): Pick<BetaMessageStreamParams, "tools" | "tool_choice"> {
-  const tools = [...(req.searchTool ? [WEB_SEARCH_TOOL] : []), ...(req.codeTool ? [CODE_TOOL] : [])];
+  const tools: NonNullable<BetaMessageStreamParams["tools"]> = [
+    ...(req.searchTool ? [WEB_SEARCH_TOOL] : []),
+    ...(req.codeTool ? [CODE_TOOL] : []),
+    // The app's own tools, as the chat declared them when it started.
+    ...req.functions.map((f) => ({ name: f.name, description: f.description, input_schema: f.parameters as { type: "object" } })),
+  ];
   if (!tools.length) return {};
-  const usable = (req.searchTool && req.searchAllowed) || (req.codeTool && req.codeAllowed);
+  const usable = (req.searchTool && req.searchAllowed) || (req.codeTool && req.codeAllowed) || req.functions.length > 0;
   return { tools, ...(usable ? {} : { tool_choice: { type: "none" as const } }) };
 }
 

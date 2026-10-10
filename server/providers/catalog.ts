@@ -40,6 +40,8 @@ export type ModelInfo = {
   fallbacks?: boolean;
   /** What it opens of the files people attach, where it differs from the rest of its provider. */
   reads?: FileKind[];
+  /** How many tokens it reads at once (its context window), for the meter over the message box. */
+  context?: number;
 };
 
 /**
@@ -73,26 +75,26 @@ export const PROVIDERS: ProviderInfo[] = [
     label: "Claude",
     detail: "Anthropic's models",
     models: [
-      { id: "claude-opus-5-5", label: "Claude Opus 5.5", input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5, efforts: CLAUDE_EFFORTS, defaultEffort: "low", fallbacks: true },
-      { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, efforts: ["off", ...CLAUDE_EFFORTS], defaultEffort: "low", fallbacks: true },
-      { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, efforts: ["off", ...CLAUDE_EFFORTS], defaultEffort: "low" },
-      { id: "claude-fable-5-1", label: "Claude Fable 5.1", input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5, efforts: CLAUDE_EFFORTS, defaultEffort: "low", fallbacks: true },
+      { id: "claude-opus-5-5", label: "Claude Opus 5.5", input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5, efforts: CLAUDE_EFFORTS, defaultEffort: "low", fallbacks: true, context: 1_000_000 },
+      { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, efforts: ["off", ...CLAUDE_EFFORTS], defaultEffort: "low", fallbacks: true, context: 1_000_000 },
+      { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, efforts: ["off", ...CLAUDE_EFFORTS], defaultEffort: "low", context: 1_000_000 },
+      { id: "claude-fable-5-1", label: "Claude Fable 5.1", input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5, efforts: CLAUDE_EFFORTS, defaultEffort: "low", fallbacks: true, context: 1_000_000 },
     ],
     defaultModel: "claude-opus-5-5",
     reads: ["image", "pdf", "text"],
     // $10 per 1,000 searches. Code runs free alongside search, else $0.05 an hour past 1,550 free hours a month.
     tools: { searchPrice: 0.01 },
   },
-  // Prices as of October 2026. OpenAI bills writing the cache too. A prompt over 272K tokens (OpenAI)
+  // Prices and context windows as of October 2026. OpenAI bills writing the cache too. A prompt over 272K tokens (OpenAI)
   // or 200K (Gemini Pro, Grok) costs more; these are the everyday rates.
   {
     id: "openai",
     label: "OpenAI",
     detail: "The models behind ChatGPT",
     models: [
-      { id: "gpt-6.1-sol", label: "GPT-6.1 Sol", input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "low" },
-      { id: "gpt-6-luna", label: "GPT-6 Luna", input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, efforts: ["off", "low", "medium", "high", "xhigh", "max"], defaultEffort: "low" },
-      { id: "gpt-6-astra", label: "GPT-6 Astra", input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "low" },
+      { id: "gpt-6.1-sol", label: "GPT-6.1 Sol", input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "low", context: 1_050_000 },
+      { id: "gpt-6-luna", label: "GPT-6 Luna", input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, efforts: ["off", "low", "medium", "high", "xhigh", "max"], defaultEffort: "low", context: 1_050_000 },
+      { id: "gpt-6-astra", label: "GPT-6 Astra", input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "low", context: 1_050_000 },
     ],
     defaultModel: "gpt-6.1-sol",
     reads: ["image", "pdf", "text"],
@@ -104,8 +106,8 @@ export const PROVIDERS: ProviderInfo[] = [
     id: "deepseek",
     label: "DeepSeek",
     models: [
-      { id: "deepseek-flash", label: "DeepSeek Flash", input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0.3, efforts: ["off", "low", "high", "max"], defaultEffort: "off" },
-      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", input: 1.32, output: 3.96, cacheRead: 0.044, cacheWrite: 1.32, efforts: ["off", "low", "high", "max"], defaultEffort: "off" },
+      { id: "deepseek-flash", label: "DeepSeek Flash", input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0.3, efforts: ["off", "low", "high", "max"], defaultEffort: "off", context: 1_000_000 },
+      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", input: 1.32, output: 3.96, cacheRead: 0.044, cacheWrite: 1.32, efforts: ["off", "low", "high", "max"], defaultEffort: "off", context: 1_000_000 },
     ],
     defaultModel: "deepseek-flash",
     reads: ["text"],
@@ -117,9 +119,9 @@ export const PROVIDERS: ProviderInfo[] = [
     detail: "Google's models",
     models: [
       // $1.50 in, $0.15 cached and $7.50 out from 1 January 2027.
-      { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 0.75, efforts: ["low", "medium", "high"], defaultEffort: "low" },
-      { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2, efforts: ["low", "medium", "high"], defaultEffort: "low" },
-      { id: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite", input: 0.3, output: 2.5, cacheRead: 0.03, cacheWrite: 0.3, efforts: ["minimal", "low", "medium", "high"], defaultEffort: "minimal" },
+      { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 0.75, efforts: ["low", "medium", "high"], defaultEffort: "low", context: 1_048_576 },
+      { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2, efforts: ["low", "medium", "high"], defaultEffort: "low", context: 1_048_576 },
+      { id: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite", input: 0.3, output: 2.5, cacheRead: 0.03, cacheWrite: 0.3, efforts: ["minimal", "low", "medium", "high"], defaultEffort: "minimal", context: 1_048_576 },
     ],
     defaultModel: "gemini-3.8-flash",
     reads: ["image", "text"],
@@ -130,8 +132,9 @@ export const PROVIDERS: ProviderInfo[] = [
     // xAI reads JPEG and PNG pictures; PDFs would need its own file store.
     detail: "xAI's models",
     models: [
-      { id: "grok-4.7", label: "Grok 4.7", input: 2, output: 6, cacheRead: 0.5, cacheWrite: 2, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "low" },
-      { id: "grok-4.3", label: "Grok 4.3", input: 1.25, output: 2.5, cacheRead: 0.2, cacheWrite: 1.25, efforts: ["off", "low", "medium", "high", "xhigh"], defaultEffort: "low" },
+      { id: "grok-4.7", label: "Grok 4.7", input: 2, output: 6, cacheRead: 0.5, cacheWrite: 2, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "low", context: 500_000 },
+      { id: "grok-4.6", label: "Grok 4.6", input: 2, output: 6, cacheRead: 0.5, cacheWrite: 2, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "low", context: 500_000 },
+      { id: "grok-4.3", label: "Grok 4.3", input: 1.25, output: 2.5, cacheRead: 0.2, cacheWrite: 1.25, efforts: ["off", "low", "medium", "high", "xhigh"], defaultEffort: "low", context: 1_000_000 },
     ],
     defaultModel: "grok-4.7",
     reads: ["image", "text"],

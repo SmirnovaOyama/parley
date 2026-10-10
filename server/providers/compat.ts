@@ -12,7 +12,19 @@ import type {
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import type { FileKind, Usage } from "./catalog.ts";
-import { imageCaption, type ChatProvider, type ChatRequest, type ChatResult, type CompleteRequest, type CompleteResult, type HistoryAttachment, type HistoryTurn } from "./types.ts";
+import { parseArguments } from "./responses.ts";
+import {
+  imageCaption,
+  MAX_TOOL_ROUNDS,
+  type ChatProvider,
+  type ChatRequest,
+  type ChatResult,
+  type CompleteRequest,
+  type CompleteResult,
+  type HistoryAttachment,
+  type HistoryTurn,
+  type ToolCall,
+} from "./types.ts";
 
 export type Dialect = {
   /** The service's address; null when each key brings its own (an admin's own endpoint). */
@@ -29,6 +41,8 @@ export type Dialect = {
   systemMidChat: boolean;
   /** Whether a reply may open with its reasoning in <think> or <thought> tags (open models, Gemini). */
   thinkTags?: boolean;
+  /** Whether a turn that calls tools goes back with its reasoning_content (DeepSeek asks for it). */
+  echoReasoning?: boolean;
 };
 
 /**
@@ -196,78 +210,163 @@ function thinkSplitter(onThinking: (s: string) => void, onText: (s: string) => v
   return { push, end };
 }
 
+/** A tool call as it streams in: its id and name come first, its arguments in pieces after. */
+type StreamedCall = { id: string; type: "function"; function: { name: string; arguments: string }; [extra: string]: unknown };
+type ToolCallPiece = { index?: number; id?: string; type?: string; function?: { name?: string; arguments?: string }; [extra: string]: unknown };
+
+/**
+ * Adds a piece of a streamed tool call to the call it belongs to. Fields a service adds of its own
+ * (Gemini's thought signature in extra_content) are kept, since some must go back with the call.
+ */
+function addCallPiece(calls: Map<number, StreamedCall>, piece: ToolCallPiece) {
+  const index = piece.index ?? calls.size;
+  const call = calls.get(index) ?? { id: "", type: "function", function: { name: "", arguments: "" } };
+  const { index: _index, id, type: _type, function: fn, ...extra } = piece;
+  if (id) call.id = id;
+  if (fn?.name) call.function.name = fn.name;
+  if (fn?.arguments) call.function.arguments += fn.arguments;
+  Object.assign(call, extra);
+  calls.set(index, call);
+}
+
+/** A request turned down because the model or service doesn't take tools. */
+function toolsRefused(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  return (status === 400 || status === 404 || status === 422) && /tool|function/i.test((err as Error).message ?? "");
+}
+
 /** Removes reasoning in <think> or <thought> tags from a whole answer. */
 const withoutThinking = (text: string) => text.replace(/^\s*<(think|thought)>[\s\S]*?<\/\1>\s*/, "");
 
 export function compatProvider(dialect: Dialect): ChatProvider {
   async function chat(req: ChatRequest): Promise<ChatResult> {
     const client = clientFor(dialect, req.apiKey, req.baseUrl, 2);
-    const params = {
-      model: req.model,
-      messages: toMessages(req, dialect),
-      stream: true,
-      stream_options: { include_usage: true },
-      ...(dialect.maxTokens ? { max_tokens: dialect.maxTokens } : {}),
-      ...dialect.thinking(req.effort, req.model, req.showThinking),
-    } as ChatCompletionCreateParamsStreaming;
-
-    const stream = await client.chat.completions.create(params, { signal: req.signal });
+    const messages = toMessages(req, dialect);
+    // The app's tools as functions. A service (or a local model) that can't take them gets the
+    // request again without, and answers from what it knows.
+    let tools = req.functions.length
+      ? req.functions.map((f) => ({ type: "function" as const, function: { name: f.name, description: f.description, parameters: f.parameters } }))
+      : null;
+    const params = (lastRound: boolean) =>
+      ({
+        model: req.model,
+        messages,
+        stream: true,
+        stream_options: { include_usage: true },
+        ...(dialect.maxTokens ? { max_tokens: dialect.maxTokens } : {}),
+        ...dialect.thinking(req.effort, req.model, req.showThinking),
+        ...(tools ? { tools, ...(lastRound ? { tool_choice: "none" } : {}) } : {}),
+      }) as ChatCompletionCreateParamsStreaming;
 
     let text = "";
     let thought = "";
     let stopReason = "stop";
     let refused = false;
-    let usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    let contextTokens = 0;
     let status: "thinking" | "writing" | null = null;
+    /** A round of tools just ended: the next words start a new paragraph. */
+    let gap = false;
 
-    const thinking = (piece: string) => {
-      if (!piece) return;
-      if (status !== "thinking" && !text) {
-        status = "thinking";
-        req.onStatus("thinking");
+    for (let round = 0; ; round++) {
+      let stream;
+      try {
+        stream = await client.chat.completions.create(params(round >= MAX_TOOL_ROUNDS), { signal: req.signal });
+      } catch (err) {
+        if (!tools || round > 0 || !toolsRefused(err)) throw err;
+        console.error(`[chat] ${req.model} took no tools, asking without them:`, (err as Error).message);
+        tools = null;
+        stream = await client.chat.completions.create(params(false), { signal: req.signal });
       }
-      if (req.showThinking) {
-        thought += piece;
-        req.onThinking(piece);
-      }
-    };
-    const writing = (piece: string) => {
-      if (!piece) return;
-      if (status !== "writing") {
-        status = "writing";
-        req.onStatus("writing");
-      }
-      text += piece;
-      req.onText(piece);
-    };
-    const split = dialect.thinkTags ? thinkSplitter(thinking, writing) : null;
 
-    for await (const chunk of stream) {
-      const choice = chunk.choices?.[0];
-      const delta = choice?.delta as Delta | undefined;
-      const reasoning = delta?.reasoning_content ?? delta?.reasoning;
-      if (typeof reasoning === "string") thinking(reasoning);
-      const content = delta?.content;
-      if (typeof content === "string" && content) {
-        if (delta?.extra_content?.google?.thought) thinking(content);
-        else if (split) split.push(content);
-        else writing(content);
-      } else if (Array.isArray(content)) {
-        for (const part of content) {
-          if (part.type === "thinking") {
-            thinking(typeof part.thinking === "string" ? part.thinking : (part.thinking ?? []).map((t) => t.text ?? "").join(""));
-          } else if (part.text) writing(part.text);
+      // This round's words, reasoning and calls (the calls arrive in pieces, by index).
+      let said = "";
+      let reasoned = "";
+      const calls = new Map<number, StreamedCall>();
+      const thinking = (piece: string) => {
+        if (!piece) return;
+        reasoned += piece;
+        if (status !== "thinking" && !said) {
+          status = "thinking";
+          req.onStatus("thinking");
+        }
+        if (req.showThinking) {
+          // A new round's reasoning starts a new paragraph.
+          const p = thought && reasoned === piece ? `\n\n${piece}` : piece;
+          thought += p;
+          req.onThinking(p);
+        }
+      };
+      const writing = (piece: string) => {
+        if (!piece) return;
+        if (status !== "writing") {
+          status = "writing";
+          req.onStatus("writing");
+        }
+        said += piece;
+        const out = gap && text ? `\n\n${piece.trimStart()}` : piece;
+        if (gap && piece.trim()) gap = false;
+        text += out;
+        req.onText(out);
+      };
+      const split = dialect.thinkTags ? thinkSplitter(thinking, writing) : null;
+
+      for await (const chunk of stream) {
+        const choice = chunk.choices?.[0];
+        const delta = choice?.delta as Delta | undefined;
+        const reasoning = delta?.reasoning_content ?? delta?.reasoning;
+        if (typeof reasoning === "string") thinking(reasoning);
+        const content = delta?.content;
+        if (typeof content === "string" && content) {
+          if (delta?.extra_content?.google?.thought) thinking(content);
+          else if (split) split.push(content);
+          else writing(content);
+        } else if (Array.isArray(content)) {
+          for (const part of content) {
+            if (part.type === "thinking") {
+              thinking(typeof part.thinking === "string" ? part.thinking : (part.thinking ?? []).map((t) => t.text ?? "").join(""));
+            } else if (part.text) writing(part.text);
+          }
+        }
+        for (const piece of delta?.tool_calls ?? []) addCallPiece(calls, piece as ToolCallPiece);
+        if (delta?.refusal) refused = true;
+        if (choice?.finish_reason) stopReason = choice.finish_reason;
+        if (chunk.usage) {
+          const u = usageOf(chunk.usage as ServiceUsage);
+          usage.input += u.input;
+          usage.output += u.output;
+          usage.cacheRead += u.cacheRead;
+          contextTokens = (chunk.usage as ServiceUsage).prompt_tokens + u.output;
         }
       }
-      if (delta?.refusal) refused = true;
-      if (choice?.finish_reason) stopReason = choice.finish_reason;
-      if (chunk.usage) usage = usageOf(chunk.usage as ServiceUsage);
+      split?.end();
+
+      const asked = [...calls.values()].filter((c) => c.function.name);
+      if (!asked.length || refused || req.signal.aborted || round > MAX_TOOL_ROUNDS || !tools) break;
+
+      // The model asked for tools: its turn goes back with the calls (Gemini's thought signatures
+      // ride along on them, DeepSeek's reasoning beside them), then a result for each.
+      asked.forEach((c, i) => (c.id ||= `call_${round}_${i}`));
+      const toolCalls: ToolCall[] = asked.map((c) => ({ id: c.id, name: c.function.name, input: parseArguments(c.function.arguments) }));
+      const outcomes = await Promise.all(toolCalls.map((call) => req.runTool(call)));
+      messages.push({
+        role: "assistant",
+        content: said || null,
+        tool_calls: asked,
+        ...(reasoned && dialect.echoReasoning ? { reasoning_content: reasoned } : {}),
+      } as ChatCompletionMessageParam);
+      toolCalls.forEach((call, i) =>
+        messages.push({ role: "tool", tool_call_id: call.id, content: outcomes[i].isError ? `Error: ${outcomes[i].content}` : outcomes[i].content || "(no output)" }),
+      );
+      stopReason = "stop";
+      gap = true;
+      status = null;
     }
-    split?.end();
 
     refused ||= stopReason === "content_filter";
+    if (stopReason === "tool_calls") stopReason = "stop";
     // The id asked for, which the catalog knows, rather than a dated alias some services report.
-    return { text, thinking: thought, content: null, model: req.model, stopReason, refused, usage, searches: [], sources: [], found: [], fileIds: [], container: null };
+    return { text, thinking: thought, content: null, model: req.model, stopReason, refused, usage, searches: [], sources: [], found: [], fileIds: [], container: null, contextTokens };
   }
 
   async function complete(req: CompleteRequest): Promise<CompleteResult> {

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { serve } from "@hono/node-server";
+import { serve, type HttpBindings } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -58,6 +58,17 @@ app.get("/api/health", (c) => {
   } catch {
     return c.json({ ok: false }, 503);
   }
+});
+
+// A body left unread, because the answer came before it had all arrived (one too big, say), is
+// read and thrown away, so the connection can carry the client's next request. @hono/node-server
+// means to do this itself, but once the body has started to be read, the stream it was read
+// through holds it paused. Then the clean-up stalls and cuts the connection off half a second
+// later, when the client may already have sent its next request down it.
+app.use("/api/*", async (c, next) => {
+  await next();
+  const incoming = (c.env as Partial<HttpBindings> | undefined)?.incoming;
+  if (incoming && !incoming.readableEnded) incoming.removeAllListeners("data").resume();
 });
 
 // A request's body is read whole, so a JSON one is held to 1 MB (the longest message is a few

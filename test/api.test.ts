@@ -12,6 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { deflateRawSync } from "node:zlib";
+import { Agent, fetch as undiciFetch } from "undici";
 import { chunk, completionStream, json, mockServer, modelList, usageChunk, type MockServer } from "./helpers/mock-server.ts";
 import { zipOf } from "./helpers/zip.ts";
 
@@ -307,6 +308,21 @@ describe("api", () => {
       req.end();
     });
     assert.equal(status, 413);
+  });
+
+  test("the connection a body too big came on carries the next request", async () => {
+    // One connection only, so the next request goes down the one the big body was turned away on.
+    const agent = new Agent({ connections: 1 });
+    try {
+      const body = JSON.stringify({ email: `${"a".repeat(2 * 1024 * 1024)}@example.com`, password: "x" });
+      const big = await undiciFetch(`${server.url}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body, dispatcher: agent });
+      assert.equal(big.status, 413);
+      await big.arrayBuffer();
+      const next = await undiciFetch(`${server.url}/api/health`, { dispatcher: agent });
+      assert.deepEqual({ status: next.status, body: await next.json() }, { status: 200, body: { ok: true } });
+    } finally {
+      await agent.close();
+    }
   });
 
   test("an address too long for any account is turned down quickly", async () => {

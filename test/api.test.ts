@@ -361,6 +361,55 @@ describe("api", () => {
     assert.doesNotMatch(server.log().slice(mark), /\[mail\] to off@example\.com/);
   });
 
+  test("an admin sets someone's new password, which signs them out everywhere", async () => {
+    const email = "locked-out@example.com";
+    const laptop = new Visitor();
+    assert.equal((await laptop.json("POST", "/api/auth/signup", { email, password: "first password" })).status, 200);
+    const phone = new Visitor();
+    assert.equal((await phone.json("POST", "/api/auth/login", { email, password: "first password" })).status, 200);
+    const id: number = (await laptop.json("GET", "/api/auth/me")).body.user.id;
+    const from = server.log().length;
+    assert.equal((await forgot(email)).status, 200);
+    const token = await resetToken(email, from);
+    // Guessing at a forgotten password locks the address for a while.
+    for (let i = 0; i < 8; i++) await new Visitor().json("POST", "/api/auth/login", { email, password: `guess ${i}` });
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "first password" })).status, 429);
+
+    const path = `/api/admin/users/${id}/password`;
+    assert.deepEqual(await member.json("POST", path, { password: "member's pick" }), { status: 403, body: { error: "Admins only" } });
+    assert.deepEqual(await laptop.json("POST", path, { password: "my own pick" }), { status: 403, body: { error: "Admins only" } });
+    assert.deepEqual(await admin.json("POST", path, { password: "short" }), {
+      status: 400,
+      body: { error: "Use at least 8 characters for the password" },
+    });
+    assert.deepEqual(await admin.json("POST", "/api/admin/users/99999/password", { password: "admin's pick" }), {
+      status: 404,
+      body: { error: "This person doesn't exist" },
+    });
+    assert.equal((await laptop.json("GET", "/api/auth/me")).status, 200, "nothing changed yet");
+
+    assert.deepEqual(await admin.json("POST", path, { password: "admin's pick" }), { status: 200, body: { ok: true } });
+    assert.equal((await laptop.json("GET", "/api/auth/me")).status, 401);
+    assert.equal((await phone.json("GET", "/api/auth/me")).status, 401);
+    assert.equal((await admin.json("GET", "/api/auth/me")).status, 200, "the admin stays signed in");
+    // The link they asked for earlier can't change it back.
+    assert.equal((await new Visitor().json("POST", "/api/auth/reset/check", { token })).status, 410);
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "first password" })).status, 401);
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "admin's pick" })).status, 200);
+    const [entry] = (await admin.json("GET", "/api/admin/audit")).body.entries;
+    assert.deepEqual([entry.admin, entry.action, entry.target], ["admin@example.com", "set_password", email]);
+  });
+
+  test("an admin changes their own password under Account, not on their person page", async () => {
+    const me = (await admin.json("GET", "/api/auth/me")).body.user;
+    assert.deepEqual(await admin.json("POST", `/api/admin/users/${me.id}/password`, { password: "new admin password" }), {
+      status: 400,
+      body: { error: "Change your own password under Account" },
+    });
+    assert.equal((await admin.json("GET", "/api/auth/me")).status, 200);
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email: me.email, password: "correct horse" })).status, 200);
+  });
+
   test("reset links are limited by network as well as by address", async () => {
     const network = "198.51.100.7";
     for (let i = 0; i < 20; i++) assert.equal((await forgot(`stranger${i}@example.com`, network)).status, 200, `request ${i + 1}`);

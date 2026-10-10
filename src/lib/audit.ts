@@ -6,6 +6,7 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   delete_key: "Deleted a key",
   add_user: "Added a person",
   edit_user: "Changed a person",
+  set_password: "Set a person's password",
   view_conversation: "Opened a chat",
   view_declined: "Looked at declined messages",
   delete_conversation: "Deleted a chat",

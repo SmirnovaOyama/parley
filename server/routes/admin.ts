@@ -20,7 +20,7 @@ import {
   type EndpointModel,
   type KeyRow,
 } from "../keys.ts";
-import { MIN_PASSWORD } from "./auth.ts";
+import { clearFailures, MIN_PASSWORD } from "./auth.ts";
 import { enforceRetention, purgeConversations } from "../retention.ts";
 
 export const adminRoutes = new Hono<AppEnv>();
@@ -487,6 +487,31 @@ adminRoutes.patch("/users/:id", async (c) => {
   // Turned off, or out of a group: their own accounts on servers they can't use now are forgotten.
   sweepCredentials();
   audit(c.var.user!.id, "edit_user", target.email);
+  return c.json({ ok: true });
+});
+
+// Someone who can't sign in, on a site that can't email them a reset link, asks an admin: the admin
+// sets a new password here and passes it on. Whoever had the old one is signed out everywhere.
+adminRoutes.post("/users/:id/password", async (c) => {
+  const id = Number(c.req.param("id"));
+  const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
+  if (!target) return c.json({ error: "This person doesn't exist" }, 404);
+  // Your own is changed under Account, which asks for the current one and keeps you signed in.
+  if (id === c.var.user!.id) return c.json({ error: "Change your own password under Account" }, 400);
+  const body = await c.req.json().catch(() => ({}));
+  const password = String(body.password ?? "");
+  if (password.length < MIN_PASSWORD) return c.json({ error: `Use at least ${MIN_PASSWORD} characters for the password` }, 400);
+
+  const hash = await hashPassword(password);
+  tx(() => {
+    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, id);
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(id);
+    // A reset link they asked for before can't change it again behind the admin's back.
+    db.prepare("DELETE FROM password_resets WHERE user_id = ?").run(id);
+  });
+  // Guesses at the old password don't keep them out of the new one.
+  clearFailures(target.email);
+  audit(c.var.user!.id, "set_password", target.email);
   return c.json({ ok: true });
 });
 

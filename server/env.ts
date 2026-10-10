@@ -26,9 +26,11 @@ function publicUrl(): string | null {
 export const env = {
   port: Number(process.env.PORT ?? 8787),
   /**
-   * The address people reach the site at, for links that leave it and come back (an MCP server's
-   * sign-in page returns to it). Unset, it's taken from the request, which works unless a proxy
-   * in front changes the address.
+   * The address people reach the site at, for links that leave it and come back. An MCP server's
+   * sign-in page returns to it; unset, that's taken from the request, which works unless a proxy
+   * in front changes the address. Emails link to it too, and password reset links are sent only
+   * when it's set: a request's own address can't be trusted for them, since anyone can send one
+   * naming another host, and the link would lead there.
    */
   publicUrl: publicUrl(),
   isProd: process.env.NODE_ENV === "production",
@@ -36,7 +38,7 @@ export const env = {
   keyEncryptionSecret: secret,
   /** The site's name, written into the web app's page and used in emails. */
   appName: process.env.VITE_APP_NAME?.trim() || "Parley",
-  /** Outgoing mail for verification codes, e.g. smtps://user:password@smtp.example.com:465. */
+  /** Outgoing mail for reset links and verification codes, e.g. smtps://user:password@smtp.example.com:465. */
   smtpUrl: process.env.SMTP_URL?.trim() || null,
   /** The sender; defaults to the SMTP account itself. */
   mailFrom: process.env.MAIL_FROM?.trim() || null,

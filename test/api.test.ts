@@ -2,7 +2,7 @@
 // database with a throwaway secret, talking to a mock "another service" for its replies.
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { request as httpRequest } from "node:http";
@@ -91,6 +91,40 @@ class Visitor {
     assert.equal(res.status, 200, await res.clone().text());
     assert.match(res.headers.get("content-type") ?? "", /^text\/event-stream/);
     return parseEvents(await res.text());
+  }
+}
+
+/**
+ * Asks for a link to reset the password of `email`, as someone at `network`. The server reads
+ * that from X-Forwarded-For, which it trusts from this machine as from a proxy in front of it.
+ */
+async function forgot(email: string, network = "203.0.113.1") {
+  const res = await new Visitor().request("POST", "/api/auth/forgot", { email }, { "x-forwarded-for": network });
+  return { status: res.status, body: (await res.json()) as any };
+}
+
+/**
+ * The token in the last reset link sent to `email` since the server's log was `from` long. In
+ * development mail goes to the server's log, so that's where it's read.
+ */
+async function resetToken(email: string, from: number): Promise<string> {
+  const until = Date.now() + 5000;
+  while (Date.now() < until) {
+    const sent = server.log().slice(from).split("[mail] to ").filter((mail) => mail.startsWith(`${email}:`));
+    const token = sent.at(-1)?.match(/\/reset-password#([\w-]+)/)?.[1];
+    if (token) return token;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`No reset link was sent to ${email}:\n${server.log().slice(from)}`);
+}
+
+/** Changes the database under the server, as time passing would. */
+function writeDatabase(sql: string, ...params: (string | number)[]) {
+  const db = new DatabaseSync(DATABASE_PATH, { timeout: 5000 });
+  try {
+    db.prepare(sql).run(...params);
+  } finally {
+    db.close();
   }
 }
 
@@ -188,7 +222,7 @@ describe("api", () => {
   });
 
   test("the first account becomes the admin", async () => {
-    assert.deepEqual((await admin.json("GET", "/api/auth/state")).body, { needsSetup: true, allowSignup: true });
+    assert.deepEqual((await admin.json("GET", "/api/auth/state")).body, { needsSetup: true, allowSignup: true, passwordReset: true });
     const signup = await admin.json("POST", "/api/auth/signup", { email: "Admin@Example.com", password: "correct horse" });
     assert.equal(signup.status, 200);
     assert.ok(admin.cookie, "signing up starts a session");
@@ -212,6 +246,178 @@ describe("api", () => {
     assert.equal((await member.json("PATCH", "/api/admin/users/1", { role: "user" })).status, 403);
     assert.equal((await admin.json("GET", "/api/admin/keys")).status, 200);
     assert.equal((await admin.json("GET", "/api/admin/settings")).body.settings.allowSignup, true);
+  });
+
+  test("asking for a reset link gets the same answer whether or not an account uses the address", async () => {
+    assert.deepEqual(await forgot("not an address"), { status: 400, body: { error: "Enter a valid email address" } });
+    const from = server.log().length;
+    const unknown = await forgot("nobody@example.com");
+    const known = await forgot(" Member@Example.com");
+    assert.deepEqual(unknown, { status: 200, body: { ok: true, resendIn: 60, mail: "dev" } });
+    assert.deepEqual(known, unknown);
+    // The mail log is in order, so had the unknown address been sent anything, it would be there by now.
+    await resetToken("member@example.com", from);
+    assert.doesNotMatch(server.log().slice(from), /\[mail\] to nobody@example\.com/);
+
+    // Asking again straight away is too soon, for both alike.
+    const again = await forgot("nobody@example.com");
+    assert.deepEqual(again, { status: 429, body: { error: "A link for that address was just asked for. Wait a minute before asking again" } });
+    assert.deepEqual(await forgot("member@example.com"), again);
+  });
+
+  test("a reset link sets a new password once, signs its opener in and everyone else out", async () => {
+    const email = "forgetful@example.com";
+    const first = new Visitor();
+    assert.equal((await first.json("POST", "/api/auth/signup", { email, password: "first password" })).status, 200);
+    const laptop = new Visitor();
+    assert.equal((await laptop.json("POST", "/api/auth/login", { email, password: "first password" })).status, 200);
+
+    const from = server.log().length;
+    assert.equal((await forgot(email)).status, 200);
+    const token = await resetToken(email, from);
+
+    const phone = new Visitor();
+    assert.deepEqual(await phone.json("POST", "/api/auth/reset/check", { token }), { status: 200, body: { email } });
+    // A password that's too short is turned away without using the link up.
+    assert.deepEqual(await phone.json("POST", "/api/auth/reset", { token, password: "short" }), {
+      status: 400,
+      body: { error: "Use at least 8 characters for the password" },
+    });
+    assert.deepEqual(await phone.json("POST", "/api/auth/reset", { token, password: "second password" }), { status: 200, body: { ok: true } });
+    assert.equal((await phone.json("GET", "/api/auth/me")).body.user.email, email);
+    assert.equal((await first.json("GET", "/api/auth/me")).status, 401);
+    assert.equal((await laptop.json("GET", "/api/auth/me")).status, 401);
+
+    const dead = { status: 410, body: { error: "This link has expired or was already used. Ask for a new one" } };
+    assert.deepEqual(await new Visitor().json("POST", "/api/auth/reset/check", { token }), dead);
+    assert.deepEqual(await new Visitor().json("POST", "/api/auth/reset", { token, password: "third password" }), dead);
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "first password" })).status, 401);
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "second password" })).status, 200);
+  });
+
+  test("a reset link stops working when it expires, a newer one is sent, or the password changes", async () => {
+    const email = "twice@example.com";
+    const owner = new Visitor();
+    assert.equal((await owner.json("POST", "/api/auth/signup", { email, password: "first password" })).status, 200);
+    const userId: number = (await owner.json("GET", "/api/auth/me")).body.user.id;
+    const check = async (token: string) => (await new Visitor().json("POST", "/api/auth/reset/check", { token })).status;
+
+    // A link as the server keeps one (the hash of its token), sent `ago` minutes back.
+    const older = randomBytes(32).toString("base64url");
+    const saveLink = (ago: number) => {
+      const at = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+      writeDatabase(
+        `INSERT INTO password_resets (user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET token_hash = excluded.token_hash, expires_at = excluded.expires_at`,
+        userId,
+        createHash("sha256").update(older).digest("hex"),
+        at(30 - ago),
+        at(-ago),
+      );
+    };
+    saveLink(31);
+    assert.equal(await check(older), 410);
+    assert.equal((await new Visitor().json("POST", "/api/auth/reset", { token: older, password: "second password" })).status, 410);
+
+    saveLink(20);
+    assert.equal(await check(older), 200);
+    const from = server.log().length;
+    assert.equal((await forgot(email)).status, 200);
+    const newer = await resetToken(email, from);
+    assert.equal(await check(older), 410);
+    assert.equal(await check(newer), 200);
+
+    assert.equal((await owner.json("POST", "/api/auth/password", { current: "first password", next: "second password" })).status, 200);
+    assert.equal(await check(newer), 410);
+  });
+
+  test("a reset doesn't get round a turned-off account", async () => {
+    const [paused, off] = ["paused@example.com", "off@example.com"];
+    for (const email of [paused, off]) {
+      assert.equal((await new Visitor().json("POST", "/api/auth/signup", { email, password: "first password" })).status, 200);
+    }
+    const from = server.log().length;
+    assert.equal((await forgot(paused)).status, 200);
+    const token = await resetToken(paused, from);
+
+    const people: { id: number; email: string }[] = (await admin.json("GET", "/api/admin/users")).body.users;
+    for (const email of [paused, off]) {
+      const id = people.find((p) => p.email === email)!.id;
+      assert.equal((await admin.json("PATCH", `/api/admin/users/${id}`, { disabled: true })).status, 200);
+    }
+    const turnedOff = { status: 403, body: { error: "This account is turned off. Ask an admin" } };
+    const visitor = new Visitor();
+    assert.deepEqual(await visitor.json("POST", "/api/auth/reset/check", { token }), turnedOff);
+    assert.deepEqual(await visitor.json("POST", "/api/auth/reset", { token, password: "second password" }), turnedOff);
+    assert.equal(visitor.cookie, "", "nobody was signed in");
+    // The old password still matches (the account is off, not the password wrong).
+    assert.deepEqual(await new Visitor().json("POST", "/api/auth/login", { email: paused, password: "first password" }), turnedOff);
+
+    // An account that's off is answered like any other, and sent nothing.
+    const mark = server.log().length;
+    assert.deepEqual(await forgot(off), { status: 200, body: { ok: true, resendIn: 60, mail: "dev" } });
+    assert.equal((await forgot("admin@example.com")).status, 200);
+    await resetToken("admin@example.com", mark);
+    assert.doesNotMatch(server.log().slice(mark), /\[mail\] to off@example\.com/);
+  });
+
+  test("an admin sets someone's new password, which signs them out everywhere", async () => {
+    const email = "locked-out@example.com";
+    const laptop = new Visitor();
+    assert.equal((await laptop.json("POST", "/api/auth/signup", { email, password: "first password" })).status, 200);
+    const phone = new Visitor();
+    assert.equal((await phone.json("POST", "/api/auth/login", { email, password: "first password" })).status, 200);
+    const id: number = (await laptop.json("GET", "/api/auth/me")).body.user.id;
+    const from = server.log().length;
+    assert.equal((await forgot(email)).status, 200);
+    const token = await resetToken(email, from);
+    // Guessing at a forgotten password locks the address for a while.
+    for (let i = 0; i < 8; i++) await new Visitor().json("POST", "/api/auth/login", { email, password: `guess ${i}` });
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "first password" })).status, 429);
+
+    const path = `/api/admin/users/${id}/password`;
+    assert.deepEqual(await member.json("POST", path, { password: "member's pick" }), { status: 403, body: { error: "Admins only" } });
+    assert.deepEqual(await laptop.json("POST", path, { password: "my own pick" }), { status: 403, body: { error: "Admins only" } });
+    assert.deepEqual(await admin.json("POST", path, { password: "short" }), {
+      status: 400,
+      body: { error: "Use at least 8 characters for the password" },
+    });
+    assert.deepEqual(await admin.json("POST", "/api/admin/users/99999/password", { password: "admin's pick" }), {
+      status: 404,
+      body: { error: "This person doesn't exist" },
+    });
+    assert.equal((await laptop.json("GET", "/api/auth/me")).status, 200, "nothing changed yet");
+
+    assert.deepEqual(await admin.json("POST", path, { password: "admin's pick" }), { status: 200, body: { ok: true } });
+    assert.equal((await laptop.json("GET", "/api/auth/me")).status, 401);
+    assert.equal((await phone.json("GET", "/api/auth/me")).status, 401);
+    assert.equal((await admin.json("GET", "/api/auth/me")).status, 200, "the admin stays signed in");
+    // The link they asked for earlier can't change it back.
+    assert.equal((await new Visitor().json("POST", "/api/auth/reset/check", { token })).status, 410);
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "first password" })).status, 401);
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "admin's pick" })).status, 200);
+    const [entry] = (await admin.json("GET", "/api/admin/audit")).body.entries;
+    assert.deepEqual([entry.admin, entry.action, entry.target], ["admin@example.com", "set_password", email]);
+  });
+
+  test("an admin changes their own password under Account, not on their person page", async () => {
+    const me = (await admin.json("GET", "/api/auth/me")).body.user;
+    assert.deepEqual(await admin.json("POST", `/api/admin/users/${me.id}/password`, { password: "new admin password" }), {
+      status: 400,
+      body: { error: "Change your own password under Account" },
+    });
+    assert.equal((await admin.json("GET", "/api/auth/me")).status, 200);
+    assert.equal((await new Visitor().json("POST", "/api/auth/login", { email: me.email, password: "correct horse" })).status, 200);
+  });
+
+  test("reset links are limited by network as well as by address", async () => {
+    const network = "198.51.100.7";
+    for (let i = 0; i < 20; i++) assert.equal((await forgot(`stranger${i}@example.com`, network)).status, 200, `request ${i + 1}`);
+    assert.deepEqual(await forgot("stranger20@example.com", network), {
+      status: 429,
+      body: { error: "Too many links asked for from here. Try again in an hour" },
+    });
+    assert.equal((await forgot("stranger20@example.com", "198.51.100.8")).status, 200);
   });
 
   test("an admin adds a key on another service, checked against its model list", async () => {

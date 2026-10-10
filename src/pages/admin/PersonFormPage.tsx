@@ -251,7 +251,117 @@ export function PersonFormPage() {
             </div>
           </form>
         )}
+
+        {person && (
+          <div className="oy-group settings-group">
+            <p className="oy-overline">Password</p>
+            {isSelf ? (
+              <div className="settings-panel">
+                <p className="settings-text">Yours is changed under Account, which keeps you signed in here</p>
+                <div className="form-page-actions">
+                  <SlideLink to="/account/password" direction="forward" className="btn-secondary">
+                    Change your password
+                  </SlideLink>
+                </div>
+              </div>
+            ) : (
+              <NewPassword person={person} />
+            )}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * A new password for someone who can't sign in (when the site can't email them a link, say), set
+ * apart from the form above. It unfolds in place into a field and the line that says what it does.
+ */
+function NewPassword({ person }: { person: Person }) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  /** Folded again by the admin: the button that opened it takes focus back. */
+  const [refolded, setRefolded] = useState(false);
+
+  const fold = (saved: boolean) => {
+    setOpen(false);
+    setPassword("");
+    setError(null);
+    setDone(saved);
+    setRefolded(true);
+  };
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/admin/users/${person.id}/password`, { password });
+      fold(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div className="settings-panel">
+        <p id="person-password-note" className="settings-text">
+          {done ? "New password set. They were signed out everywhere" : "If they can't sign in, set a new one and pass it on. It signs them out everywhere"}
+        </p>
+        <div className="form-page-actions">
+          <button
+            type="button"
+            className="btn-secondary"
+            aria-describedby="person-password-note"
+            autoFocus={refolded}
+            onClick={() => setOpen(true)}
+          >
+            Set a new password
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="settings-panel"
+      onSubmit={save}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !e.nativeEvent.isComposing) fold(false);
+      }}
+    >
+      <LineField
+        id="person-new-password"
+        label="New password"
+        type="text"
+        autoComplete="off"
+        spellCheck={false}
+        autoFocus
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        hint="At least 8 characters"
+        error={error}
+      />
+      {/* InlineConfirm's line, under the field it asks about: the field is the first step. */}
+      <div className="inline-confirm" role="group" aria-label="Setting it signs them out everywhere">
+        <span>Setting it signs them out everywhere</span>
+        <span className="inline-confirm-actions">
+          <button type="button" className="btn-secondary btn-sm" onClick={() => fold(false)}>
+            Cancel
+          </button>
+          <BusyButton type="submit" className="btn-danger btn-sm" busy={busy} disabled={!password}>
+            Set password
+          </BusyButton>
+        </span>
+      </div>
+    </form>
   );
 }

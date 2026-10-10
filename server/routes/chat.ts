@@ -19,6 +19,7 @@ import {
   type MessageRow,
 } from "../chat-store.ts";
 import { allowanceOf, overLimitMessage } from "../allowance.ts";
+import { searchChats } from "../chat-search.ts";
 import { decryptSecret } from "../crypto.ts";
 import { db, getSettings, nowIso } from "../db.ts";
 import { availableKeys, endpointOf, keyById, keyModel, keyModelLabel, opensOf, pickerChoices, startingKey, withChoice, type KeyRow } from "../keys.ts";
@@ -118,6 +119,11 @@ chatRoutes.get("/conversations", (c) => {
       generating: generating.has(r.id),
     })),
   });
+});
+
+/** Searches the person's own chats by title and message (only theirs, never one they deleted). */
+chatRoutes.get("/conversations/search", (c) => {
+  return c.json({ results: searchChats(c.var.user!.id, c.req.query("q") ?? "") });
 });
 
 chatRoutes.get("/conversations/:id", (c) => {

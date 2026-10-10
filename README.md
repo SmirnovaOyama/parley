@@ -156,6 +156,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 | `DATABASE_PATH` | Where the SQLite database lives (default `data/chat.db`). Files sit next to it. |
 | `PORT` | The API's port (default 8787). |
 | `SMTP_URL`, `MAIL_FROM` | Outgoing email for the optional email rewards. |
+| `ALLOW_FAKE_IP` | Set to `1` only if the server reaches the internet through a proxy that answers every name with a 198.18.x.x stand-in address (Clash, Surge, sing-box and the like in fake-IP mode). Off by default: the page reader for other models' web search refuses those addresses, because behind such a proxy it can't check where a name really leads, and a name that points inside the network would be read. |
 
 ## Running it for real
 

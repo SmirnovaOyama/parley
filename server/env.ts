@@ -20,4 +20,6 @@ export const env = {
   smtpUrl: process.env.SMTP_URL?.trim() || null,
   /** The sender; defaults to the SMTP account itself. */
   mailFrom: process.env.MAIL_FROM?.trim() || null,
+  /** The server reaches the web through a proxy that hands out 198.18.x.x addresses (server/web-tools.ts). */
+  allowFakeIp: /^(1|true|yes|on)$/i.test(process.env.ALLOW_FAKE_IP?.trim() ?? ""),
 };

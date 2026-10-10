@@ -14,7 +14,7 @@ The site runs on http://localhost:5173 and the API on 8787; the API restarts by 
 
 ## Before you open a pull request
 
-- `npm run typecheck` and `npm run build` pass.
+- `npm run typecheck`, `npm test` and `npm run build` pass.
 - The change works in the browser, in light and dark mode, and at phone width if it touches the interface.
 - Keep pull requests to one change. For anything big, open an issue first so we can agree on the approach.
 
@@ -23,6 +23,7 @@ The site runs on http://localhost:5173 and the API on 8787; the API restarts by 
 - Match the code around your change: its naming, its comments (they say why, in full sentences) and its patterns.
 - Database changes go through the `addColumn` pattern in `server/db.ts`, so existing databases update themselves on start.
 - A new provider or model goes in `server/providers/catalog.ts`; a new OpenAI-style service is usually just a dialect for `server/providers/compat.ts`.
+- Tests go in `test/` and run on Node's own test runner. They never reach the network: a provider is tested against a mock server the test starts (`test/helpers/mock-server.ts`), and the API runs on a temporary database. A change to how a provider reads its stream, or to the database, comes with a test.
 
 ## How the interface is written
 

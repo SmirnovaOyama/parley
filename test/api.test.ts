@@ -1,0 +1,287 @@
+// The API end to end: the real server (server/index.ts) in a child process, on a temporary
+// database with a throwaway secret, talking to a mock "another service" for its replies.
+import assert from "node:assert/strict";
+import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { once } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { after, before, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { chunk, completionStream, json, mockServer, modelList, usageChunk, type MockServer } from "./helpers/mock-server.ts";
+
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const dir = mkdtempSync(join(tmpdir(), "parley-api-"));
+const DATABASE_PATH = join(dir, "chat.db");
+
+/** The server, and everything it has printed (shown when it doesn't start). */
+let server: { child: ChildProcess; url: string; log: () => string };
+let service: MockServer;
+
+async function startServer() {
+  const child = spawn(process.execPath, ["server/index.ts"], {
+    cwd: ROOT,
+    // Only what the server needs, so nothing in the shell (or a .env) changes what's tested.
+    env: { PATH: process.env.PATH, NODE_ENV: "test", PORT: "0", DATABASE_PATH, KEY_ENCRYPTION_SECRET: randomBytes(24).toString("hex") },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let log = "";
+  const port = await new Promise<number>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`The server didn't start:\n${log}`)), 15_000);
+    const read = (data: Buffer) => {
+      log += data;
+      const port = log.match(/listening on http:\/\/localhost:(\d+)/)?.[1];
+      if (port) {
+        clearTimeout(timer);
+        resolve(Number(port));
+      }
+    };
+    child.stdout!.on("data", read);
+    child.stderr!.on("data", read);
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`The server stopped (exit code ${code}):\n${log}`));
+    });
+  });
+  return { child, url: `http://127.0.0.1:${port}`, log: () => log };
+}
+
+/** Someone using the site: keeps their session cookie between requests. */
+class Visitor {
+  cookie = "";
+
+  async request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
+    const raw = body instanceof Uint8Array;
+    const res = await fetch(server.url + path, {
+      method,
+      headers: {
+        ...(body !== undefined && !raw ? { "content-type": "application/json" } : {}),
+        ...(this.cookie ? { cookie: this.cookie } : {}),
+        ...headers,
+      },
+      body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
+    });
+    const sid = res.headers.getSetCookie().find((c) => c.startsWith("sid="));
+    if (sid) this.cookie = sid.split(";")[0];
+    return res;
+  }
+
+  async json(method: string, path: string, body?: unknown) {
+    const res = await this.request(method, path, body);
+    return { status: res.status, body: (await res.json()) as any };
+  }
+
+  /** Adds a file to the message being written, as the browser does. */
+  async upload(name: string, bytes: string | Buffer) {
+    const res = await this.request("PUT", "/api/uploads", Buffer.from(bytes), { "x-file-name": encodeURIComponent(name) });
+    assert.equal(res.status, 200, await res.clone().text());
+    return ((await res.json()) as { attachment: { id: string; kind: string } }).attachment;
+  }
+
+  /** Sends a message and reads the reply's events to the end of the stream. */
+  async chat(body: Record<string, unknown>) {
+    const res = await this.request("POST", "/api/chat", body);
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.match(res.headers.get("content-type") ?? "", /^text\/event-stream/);
+    return parseEvents(await res.text());
+  }
+}
+
+/** Server-sent events as { event, data } with the data parsed. */
+function parseEvents(text: string): { event: string; data: any }[] {
+  return text
+    .split("\n\n")
+    .filter((block) => block.trim())
+    .map((block) => {
+      const lines = block.split("\n");
+      const event = lines.find((l) => l.startsWith("event: "))?.slice(7) ?? "message";
+      const data = lines.filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
+      return { event, data: data ? JSON.parse(data) : null };
+    });
+}
+
+/** The service's reply to a chat message: reasoning, two pieces of answer, then usage with a cache hit. */
+const REPLY = [
+  chunk({ role: "assistant", content: "" }),
+  chunk({ reasoning_content: "Thinking it over." }),
+  chunk({ content: "Hi" }),
+  chunk({ content: " there!" }),
+  chunk({}, "stop"),
+  usageChunk({ prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500, prompt_tokens_details: { cached_tokens: 200 } }),
+];
+const TITLE = {
+  id: "chatcmpl-title",
+  object: "chat.completion",
+  created: 0,
+  model: "mock-model",
+  choices: [{ index: 0, message: { role: "assistant", content: "Friendly greeting" }, finish_reason: "stop" }],
+  usage: { prompt_tokens: 50, completion_tokens: 5, total_tokens: 55 },
+};
+
+before(async () => {
+  service = await mockServer((req) => {
+    if (req.method === "GET" && req.path === "/v1/models") return modelList(["mock-model"]);
+    if (req.method === "POST" && req.path === "/v1/chat/completions") return req.body.stream ? completionStream(REPLY) : json(TITLE);
+    throw new Error(`Unexpected ${req.method} ${req.path}`);
+  });
+  server = await startServer();
+});
+
+after(async () => {
+  if (server && server.child.exitCode === null) {
+    server.child.kill();
+    await once(server.child, "exit");
+  }
+  await service?.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+describe("api", () => {
+  const admin = new Visitor();
+  const member = new Visitor();
+  let keyId: number;
+  let conversationId: string;
+
+  test("the first account becomes the admin", async () => {
+    assert.deepEqual((await admin.json("GET", "/api/auth/state")).body, { needsSetup: true, allowSignup: true });
+    const signup = await admin.json("POST", "/api/auth/signup", { email: "Admin@Example.com", password: "correct horse" });
+    assert.equal(signup.status, 200);
+    assert.ok(admin.cookie, "signing up starts a session");
+    const me = await admin.json("GET", "/api/auth/me");
+    assert.deepEqual(me.body.user, { id: me.body.user.id, email: "admin@example.com", role: "admin" });
+  });
+
+  test("a second account doesn't", async () => {
+    assert.equal((await member.json("POST", "/api/auth/signup", { email: "member@example.com", password: "battery staple" })).status, 200);
+    assert.equal((await member.json("GET", "/api/auth/me")).body.user.role, "user");
+    assert.equal((await member.json("GET", "/api/auth/state")).body.needsSetup, false);
+  });
+
+  test("only admins reach /api/admin", async () => {
+    assert.deepEqual(await new Visitor().json("GET", "/api/admin/keys"), { status: 401, body: { error: "Sign in to continue" } });
+    for (const path of ["/api/admin/keys", "/api/admin/users", "/api/admin/settings", "/api/admin/usage", "/api/admin/overview", "/api/admin/conversations", "/api/admin/audit"]) {
+      assert.deepEqual(await member.json("GET", path), { status: 403, body: { error: "Admins only" } }, path);
+    }
+    assert.equal((await member.json("POST", "/api/admin/keys", { label: "Mine", provider: "custom" })).status, 403);
+    assert.equal((await member.json("PATCH", "/api/admin/settings", { allowSignup: false })).status, 403);
+    assert.equal((await member.json("PATCH", "/api/admin/users/1", { role: "user" })).status, 403);
+    assert.equal((await admin.json("GET", "/api/admin/keys")).status, 200);
+    assert.equal((await admin.json("GET", "/api/admin/settings")).body.settings.allowSignup, true);
+  });
+
+  test("an admin adds a key on another service, checked against its model list", async () => {
+    const draft = { label: "Mock service", provider: "custom", effort: "default", apiKey: "sk-mock-0001" };
+    const wrong = await admin.json("POST", "/api/admin/keys", {
+      ...draft,
+      model: "missing-model",
+      endpoint: { baseUrl: `${service.url}/v1`, models: [{ id: "missing-model" }] },
+    });
+    assert.deepEqual(wrong, { status: 400, body: { error: "This key can't use missing-model. It offers mock-model" } });
+
+    const added = await admin.json("POST", "/api/admin/keys", {
+      ...draft,
+      model: "mock-model",
+      endpoint: { baseUrl: `${service.url}/v1/`, models: [{ id: "mock-model", input: "1", output: 2 }] },
+    });
+    assert.equal(added.status, 200, JSON.stringify(added.body));
+    keyId = added.body.id;
+    const check = service.requests.at(-1)!;
+    assert.equal(`${check.method} ${check.path}`, "GET /v1/models");
+    assert.equal(check.headers.authorization, "Bearer sk-mock-0001");
+
+    const [key] = (await admin.json("GET", "/api/admin/keys")).body.keys;
+    assert.equal(key.id, keyId);
+    assert.equal(key.providerLabel, new URL(service.url).host);
+    assert.equal(key.isDefault, true);
+    assert.equal(key.last4, "0001");
+    assert.deepEqual(key.models, ["mock-model"]);
+    assert.deepEqual(key.endpoint, { baseUrl: `${service.url}/v1`, models: [{ id: "mock-model", input: 1, output: 2 }], images: false });
+
+    // Everyone can pick it: the first key is the site's default.
+    const models = (await member.json("GET", "/api/models")).body;
+    assert.deepEqual(models.start, { keyId, model: "mock-model", effort: "default" });
+    assert.deepEqual(models.choices, [
+      { keyId, model: "mock-model", label: "mock-model", efforts: [{ id: "default", label: "Default" }], defaultEffort: "default", reads: ["text"] },
+    ]);
+  });
+
+  test("a chat streams its reply as events and gets a title", async () => {
+    const before = service.requests.length;
+    const events = await admin.chat({ text: "Hello there" });
+    assert.deepEqual(
+      events.map((e) => e.event),
+      ["meta", "status", "thinking", "status", "delta", "delta", "done", "title"],
+    );
+    const [meta, thinking, writing] = [events[0].data, events[1].data, events[3].data];
+    conversationId = meta.conversationId;
+    assert.deepEqual(meta, { conversationId, title: "Hello there", created: true, userMessageId: meta.userMessageId, keyId, model: "mock-model", modelId: "mock-model", effort: "default" });
+    assert.deepEqual([thinking, writing], [{ status: "thinking" }, { status: "writing" }]);
+    assert.equal(events[2].data.text, "Thinking it over.");
+    assert.deepEqual(events.filter((e) => e.event === "delta").map((e) => e.data.text), ["Hi", " there!"]);
+    const done = events[6].data.message;
+    assert.equal(done.text, "Hi there!");
+    assert.equal(done.status, "ok");
+    assert.equal(done.model, "mock-model");
+    assert.equal(done.thinking, "Thinking it over.");
+    assert.equal(done.parentId, meta.userMessageId);
+    assert.deepEqual(events[7].data, { title: "Friendly greeting" });
+
+    // What the service was sent: the conversation streamed, then a one-off request for the title.
+    const [reply, title] = service.requests.slice(before);
+    assert.equal(reply.headers.authorization, "Bearer sk-mock-0001");
+    assert.equal(reply.body.model, "mock-model");
+    assert.equal(reply.body.stream, true);
+    assert.equal(reply.body.messages[0].role, "system");
+    assert.deepEqual(reply.body.messages.slice(1), [{ role: "user", content: "Hello there" }]);
+    assert.equal(title.body.stream, undefined);
+    assert.match(title.body.messages[1].content, /<conversation>\nPerson: Hello there\n\nAssistant: Hi there!\n<\/conversation>/);
+
+    const chat = (await admin.json("GET", `/api/conversations/${conversationId}`)).body;
+    assert.equal(chat.conversation.title, "Friendly greeting");
+    assert.deepEqual(chat.messages.map((m: { role: string; text: string }) => [m.role, m.text]), [["user", "Hello there"], ["assistant", "Hi there!"]]);
+  });
+
+  test("the reply and its title are costed at the key's prices", () => {
+    const db = new DatabaseSync(DATABASE_PATH, { readOnly: true });
+    const rows = db
+      .prepare("SELECT api_key_id, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd FROM usage_events ORDER BY id")
+      .all()
+      .map((row) => ({ ...row }));
+    db.close();
+    const near = (actual: unknown, expected: number) => assert.ok(Math.abs(Number(actual) - expected) < 1e-12, `${actual} is not ${expected}`);
+    assert.equal(rows.length, 2);
+    // 1,000 fresh input tokens and 200 cached at $1 a million (cache reads at the input price), 300 out at $2.
+    assert.deepEqual({ ...rows[0], cost_usd: 0 }, { api_key_id: keyId, provider: "custom", model: "mock-model", input_tokens: 1000, output_tokens: 300, cache_read_tokens: 200, cache_write_tokens: 0, cost_usd: 0 });
+    near(rows[0].cost_usd, (1000 * 1 + 300 * 2 + 200 * 1) / 1_000_000);
+    // Naming the chat counts too.
+    assert.deepEqual([rows[1].input_tokens, rows[1].output_tokens], [50, 5]);
+    near(rows[1].cost_usd, (50 * 1 + 5 * 2) / 1_000_000);
+  });
+
+  test("a text file goes in with the message", async () => {
+    const before = service.requests.length;
+    const file = await admin.upload("shopping list.txt", "Milk\nEggs\n");
+    assert.equal(file.kind, "text");
+    const events = await admin.chat({ conversationId, text: "What's on it?", attachments: [file.id] });
+    // The second exchange keeps the title.
+    assert.deepEqual(events.map((e) => e.event).slice(-2), ["delta", "done"]);
+    assert.equal(service.requests.length, before + 1);
+    const sent = service.requests[before].body.messages;
+    assert.deepEqual(sent.slice(1), [
+      { role: "user", content: "Hello there" },
+      { role: "assistant", content: "Hi there!" },
+      { role: "user", content: '<file name="shopping list.txt">\nMilk\nEggs\n\n</file>\n\nWhat\'s on it?' },
+    ]);
+  });
+
+  test("a PDF to a model that reads text only is turned away", async () => {
+    const before = service.requests.length;
+    const file = await admin.upload("report.pdf", "%PDF-1.7\n%âãÏÓ\n");
+    assert.equal(file.kind, "pdf");
+    const sent = await admin.json("POST", "/api/chat", { text: "Summarise this", attachments: [file.id] });
+    assert.deepEqual(sent, { status: 400, body: { error: "mock-model reads text files only. Pick another model to send report.pdf" } });
+    assert.equal(service.requests.length, before, "nothing reached the service");
+  });
+});

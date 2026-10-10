@@ -20,6 +20,7 @@
     "build": "vite build",
     "start": "NODE_ENV=production node --env-file-if-exists=.env server/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit",
+    "test": "node --test --test-timeout=30000 \"test/**/*.test.ts\"",
     "setup": "node scripts/setup.ts"
   },
   "dependencies": {

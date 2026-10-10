@@ -142,7 +142,7 @@ API（端口 8787）会同时提供 `dist/` 里构建好的网页。
 
 ## 开发
 
-项目结构和技术细节见[英文 README](README.md#how-it-works)。`npm run typecheck` 会同时检查前端和后端。参与开发请看 [CONTRIBUTING.md](CONTRIBUTING.md)。
+项目结构和技术细节见[英文 README](README.md#how-it-works)。`npm run typecheck` 会同时检查前端和后端，`npm test` 运行测试（不联网，也不需要 API 密钥）。参与开发请看 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可证
 

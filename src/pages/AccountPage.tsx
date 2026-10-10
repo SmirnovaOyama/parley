@@ -4,7 +4,7 @@ import { Segmented } from "../components/Controls.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
-import { api, uploadRaw, type Persona, type Policy } from "../lib/api.ts";
+import { api, uploadRaw, type Connection, type Persona, type Policy } from "../lib/api.ts";
 import { domainsText, rewardText, type BonusStatus } from "../lib/bonus.ts";
 import { compactNumber, formatCost, plural, shortDate } from "../lib/format.ts";
 import { useSession } from "../lib/session.tsx";
@@ -55,6 +55,7 @@ export function AccountPage() {
   const [allowance, setAllowance] = useState<Allowance | null>(null);
   const [memory, setMemory] = useState<MemoryState | null>(null);
   const [policy, setPolicy] = useState<Policy | null>(null);
+  const [connections, setConnections] = useState<Connection[] | null>(null);
 
   useEffect(() => {
     // Once read, the note leaves the history entry, so a reload doesn't say it again.
@@ -64,6 +65,7 @@ export function AccountPage() {
     api.get<Allowance>("/auth/allowance").then(setAllowance, () => {});
     api.get<MemoryState>("/memory").then(setMemory, () => {});
     api.get<Policy>("/policy").then(setPolicy, () => {});
+    api.get<{ connections: Connection[] }>("/mcp/connections").then((r) => setConnections(r.connections), () => {});
   }, []);
 
   const memoryDesc = !memory
@@ -139,6 +141,22 @@ export function AccountPage() {
           </div>
         </div>
 
+        {connections && connections.length > 0 && (
+          <div className="oy-group">
+            <p className="oy-overline">Tools</p>
+            <div className="oy-section">
+              <SlideLink className="oy-row" to="/account/connections" direction="forward">
+                <Icon name="plug" size={20} />
+                <div className="text">
+                  <p className="title">Connected services</p>
+                  <div className="desc">{connectionsText(connections)}</div>
+                </div>
+                <Icon name="chevron-right" size={18} className="chevron" />
+              </SlideLink>
+            </div>
+          </div>
+        )}
+
         {allowance && (allowance.spendLimit != null || allowance.tokenLimit != null) && <AllowanceGroup allowance={allowance} />}
 
         {bonus && bonus.domains.length > 0 && <RewardsGroup bonus={bonus} />}
@@ -194,6 +212,18 @@ export function AccountPage() {
 
     </>
   );
+}
+
+/** "Notes", "Notes and GitHub", "Notes, GitHub and Linear". */
+function namesText(names: string[]): string {
+  return names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+/** Where you stand with the services whose tools act with your own account, as a sentence. */
+function connectionsText(list: Connection[]): string {
+  const waiting = list.filter((c) => c.status !== "connected").map((c) => c.name);
+  if (!waiting.length) return `Connected to ${namesText(list.map((c) => c.name))}`;
+  return `${namesText(waiting)} ${waiting.length === 1 ? "needs" : "need"} your own account before chats can use ${waiting.length === 1 ? "its" : "their"} tools`;
 }
 
 /** The site's retention rules, as sentences. */

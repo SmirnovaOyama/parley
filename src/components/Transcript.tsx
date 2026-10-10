@@ -4,6 +4,7 @@ import type { Ask, Attachment, Message, ToolUse } from "../lib/api.ts";
 import { dateTime, fileSize } from "../lib/format.ts";
 import { EditFiles, MessageFiles } from "./Attachments.tsx";
 import { Advisory, BusyMark } from "./Feedback.tsx";
+import { SlideLink } from "./SlideLink.tsx";
 // The renderer brings code highlighting and math typesetting, so it loads on first use; until then
 // a reply shows as plain text.
 const Markdown = lazy(() => import("./Markdown.tsx").then((m) => ({ default: m.Markdown })));
@@ -265,7 +266,7 @@ function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegene
       {asks.length > 0 && <AskLines asks={asks} onAnswer={onAnswer} />}
       {message.streaming && !asks.length && BUSY_PHASES.has(message.phase ?? "") && <Thinking phase={message.phase} detail={message.searchQuery} />}
       {message.files && message.files.length > 0 && <FileCards files={message.files} url={fileUrl} />}
-      {!message.streaming && message.tools && message.tools.length > 0 && <ToolUses uses={message.tools} />}
+      {!message.streaming && message.tools && message.tools.length > 0 && <ToolUses uses={message.tools} own={!!onAnswer} />}
       {!message.streaming && (message.sources?.length || message.searches?.length) ? (
         <SourcesFold sources={message.sources ?? []} found={message.found ?? []} searches={message.searches ?? []} />
       ) : null}
@@ -426,14 +427,25 @@ function AskLines({ asks, onAnswer }: { asks: Ask[]; onAnswer?: (ask: Ask, allow
 
 /**
  * What a reply did with the app's tools: a quiet line when it was one thing ("Remembered “…”"),
- * otherwise "Used 3 tools", unfolding to a line each.
+ * otherwise "Used 3 tools", unfolding to a line each. In your own chat, a tool that needed your
+ * account on its server links to where you connect it.
  */
-function ToolUses({ uses }: { uses: ToolUse[] }) {
+function ToolUses({ uses, own }: { uses: ToolUse[]; own: boolean }) {
   const [open, setOpen] = useState(false);
   const line = (u: ToolUse, i: number) => (
     <li key={i} className={u.error ? "is-error" : undefined}>
       <Icon name={TOOL_ICONS[u.kind] ?? "plug"} size={14} />
-      <span>{u.text}</span>
+      <span>
+        {u.text}
+        {u.connect && own && (
+          <>
+            {". "}
+            <SlideLink to="/account/connections" direction="forward">
+              Connect it
+            </SlideLink>
+          </>
+        )}
+      </span>
     </li>
   );
   if (uses.length === 1) return <ul className="tool-uses">{uses.map(line)}</ul>;

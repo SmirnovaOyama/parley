@@ -15,6 +15,7 @@ services:
       VITE_APP_NAME: ${VITE_APP_NAME:-Parley}
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
       ALLOW_FAKE_IP: ${ALLOW_FAKE_IP:-}
     volumes:
       - parley-data:/data

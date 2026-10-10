@@ -2,6 +2,8 @@ import { useState } from "react";
 
 type ConfirmProps = {
   message: string;
+  /** The button that goes ahead (Delete unless said). */
+  action?: string;
   onCancel: () => void;
   onConfirm: () => Promise<void> | void;
   /** Laid over the row it asks about (which gets `is-confirming`), so the row keeps its size. */
@@ -9,7 +11,7 @@ type ConfirmProps = {
 };
 
 /** Asks "are you sure" in place, as a line on the page. There are no pop-ups in this app. */
-export function InlineConfirm({ message, onCancel, onConfirm, overlay }: ConfirmProps) {
+export function InlineConfirm({ message, action = "Delete", onCancel, onConfirm, overlay }: ConfirmProps) {
   const [busy, setBusy] = useState(false);
   return (
     <div className={`inline-confirm${overlay ? " is-overlay" : ""}`} role="group" aria-label={message}>
@@ -31,19 +33,19 @@ export function InlineConfirm({ message, onCancel, onConfirm, overlay }: Confirm
             }
           }}
         >
-          Delete
+          {action}
         </button>
       </span>
     </div>
   );
 }
 
-type RowProps = { label: string; confirmLabel: string; onConfirm: () => Promise<void> | void };
+type RowProps = { label: string; confirmLabel: string; action?: string; onConfirm: () => Promise<void> | void };
 
 /** A destructive action at the foot of a page; it turns into an InlineConfirm when pressed. */
-export function DangerRow({ label, confirmLabel, onConfirm }: RowProps) {
+export function DangerRow({ label, confirmLabel, action, onConfirm }: RowProps) {
   const [asking, setAsking] = useState(false);
-  if (asking) return <InlineConfirm message={confirmLabel} onCancel={() => setAsking(false)} onConfirm={onConfirm} />;
+  if (asking) return <InlineConfirm message={confirmLabel} action={action} onCancel={() => setAsking(false)} onConfirm={onConfirm} />;
   return (
     <button type="button" className="danger-row" onClick={() => setAsking(true)}>
       {label}

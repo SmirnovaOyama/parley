@@ -12,6 +12,7 @@ import { env } from "./env.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { chatRoutes } from "./routes/chat.ts";
+import { connectionRoutes } from "./routes/connections.ts";
 import { sharedRoutes } from "./routes/shared.ts";
 import { adminToolRoutes } from "./routes/admin-tools.ts";
 import { knowledgeRoutes } from "./routes/knowledge.ts";
@@ -84,6 +85,9 @@ app.route("/api/admin", adminRoutes);
 app.route("/api/admin", adminToolRoutes);
 // Shared chat links, readable without an account when the site allows it (before the signed-in routes).
 app.route("/api/shared", sharedRoutes);
+// People's own accounts on MCP servers. Its sign-in callback answers without an account too (with
+// a way to the sign-in page), so it goes before the routes that turn those away.
+app.route("/api", connectionRoutes);
 app.route("/api", projectRoutes);
 app.route("/api", knowledgeRoutes);
 app.route("/api", meRoutes);

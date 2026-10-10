@@ -384,7 +384,7 @@ describe("an MCP server listing its tools again", () => {
 
   test("keeps changed words waiting, so new chats get the old ones until an admin uses the new", async () => {
     mcp.tool("add_note").description = POISONED;
-    const listed = (await refreshServer(server()))!;
+    const listed = (await refreshServer(server(), carol))!;
     assert.equal(listed.error, null);
     assert.deepEqual(listingChanges(toolsOf(listed), toolsOf({ tools: listed.pending_tools! })).map((c) => [c.name, c.change, c.parts]), [["add_note", "changed", ["description"]]]);
     assert.equal(told("add_note"), "Adds a note (from Jots)");
@@ -400,22 +400,22 @@ describe("an MCP server listing its tools again", () => {
 
   test("or the admin keeps the old ones, until the server lists them again", async () => {
     mcp.tool("add_note").description = "Adds a note";
-    const listed = (await refreshServer(server()))!;
+    const listed = (await refreshServer(server(), carol))!;
     assert.equal(settleListing(serverId, listingVersion(listed.pending_tools!), false), "done");
     assert.equal(server().pending_tools, null);
     assert.equal(told("add_note"), `${POISONED} (from Jots)`);
     // Still what the server says, so asking again brings it back to look over.
-    assert.ok((await refreshServer(server()))!.pending_tools);
+    assert.ok((await refreshServer(server(), carol))!.pending_tools);
   });
 
   test("a server that goes back to what was kept has nothing waiting", async () => {
     mcp.tool("add_note").description = POISONED;
-    assert.equal((await refreshServer(server()))!.pending_tools, null);
+    assert.equal((await refreshServer(server(), carol))!.pending_tools, null);
   });
 
   test("a new tool stays out of new chats until an admin uses it", async () => {
     mcp.tools.push({ name: "export_all", description: "Exports every note", inputSchema: { type: "object", properties: {} } });
-    const listed = (await refreshServer(server()))!;
+    const listed = (await refreshServer(server(), carol))!;
     assert.equal(told("export_all"), undefined);
     settleListing(serverId, listingVersion(listed.pending_tools!), true);
     assert.equal(told("export_all"), "Exports every note (from Jots)");
@@ -423,7 +423,7 @@ describe("an MCP server listing its tools again", () => {
 
   test("a tool the server now calls read-only waits too, as it would run without asking", async () => {
     mcp.tool("ping").annotations = { readOnlyHint: true };
-    const listed = (await refreshServer(server()))!;
+    const listed = (await refreshServer(server(), carol))!;
     assert.equal(runsUnasked(listed, "ping"), false);
     settleListing(serverId, listingVersion(listed.pending_tools!), true);
     assert.equal(runsUnasked(server(), "ping"), true);
@@ -431,7 +431,7 @@ describe("an MCP server listing its tools again", () => {
 
   test("one that only drops a tool is taken straight away, since it says nothing new", async () => {
     mcp.tools.splice(mcp.tools.findIndex((t) => t.name === "fetch"), 1);
-    const listed = (await refreshServer(server()))!;
+    const listed = (await refreshServer(server(), carol))!;
     assert.equal(listed.pending_tools, null);
     assert.deepEqual(toolsOf(listed).map((t) => t.name), ["read_notes", "add_note", "ping", "export_all"]);
   });

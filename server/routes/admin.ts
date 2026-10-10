@@ -7,6 +7,7 @@ import { encryptSecret, decryptSecret, hashPassword } from "../crypto.ts";
 import { audit, db, getSettings, nowIso, saveSettings, SHARING_MODES, startOfMonthIso, type Settings } from "../db.ts";
 import { EFFORT_LABELS, OFF_BY_DEFAULT, PROVIDERS, SERVICES, featuresOf, findModel, findProvider, modelLabel, serviceName } from "../providers/catalog.ts";
 import { mailMode } from "../mail.ts";
+import { sweepCredentials } from "../mcp.ts";
 import { getProvider } from "../providers/index.ts";
 import {
   allowedModels,
@@ -483,6 +484,8 @@ adminRoutes.patch("/users/:id", async (c) => {
     for (const k of keyIds) grant.run(id, k);
   }
   if (disabled) db.prepare("DELETE FROM sessions WHERE user_id = ?").run(id);
+  // Turned off, or out of a group: their own accounts on servers they can't use now are forgotten.
+  sweepCredentials();
   audit(c.var.user!.id, "edit_user", target.email);
   return c.json({ ok: true });
 });

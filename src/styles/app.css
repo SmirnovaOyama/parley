@@ -29,6 +29,7 @@ h1, h2, h3, p { margin: 0; }
 .section-title { font-size: 15px; line-height: 22px; font-weight: 600; margin-bottom: 8px; }
 .footnote { margin-top: 16px; font-size: 12px; line-height: 16px; color: var(--text-muted); }
 .text-danger { color: var(--danger); }
+.text-warning { color: var(--warning); }
 /* House rule: no "…" on titles. Long one-line text fades out at the end instead of being dotted,
    and page titles wrap. */
 .truncate {

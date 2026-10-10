@@ -68,7 +68,30 @@ export type Message = {
   createdAt: string;
 };
 
-export type ToolUse = { kind: "memory" | "knowledge" | "page" | "mcp"; text: string; error?: boolean };
+export type ToolUse = {
+  kind: "memory" | "knowledge" | "page" | "mcp";
+  text: string;
+  error?: boolean;
+  /** An MCP tool that didn't run for want of your own account on its server: the line links to Connected services. */
+  connect?: boolean;
+};
+
+/**
+ * An MCP server that acts with each person's own account, as Account › Connected services shows
+ * it: signed in on its own page (oauth) or with a pasted token, and where you stand with it.
+ */
+export type Connection = {
+  id: number;
+  name: string;
+  mode: "oauth" | "token";
+  /** Where the server is, so you know whose sign-in page to expect. */
+  host: string;
+  /** What your admins say to paste, for a server on pasted tokens. */
+  hint: string;
+  status: "connected" | "missing" | "expired";
+  connectedAt: string | null;
+  usedAt: string | null;
+};
 
 /**
  * A question a reply is waiting on before one of its tools runs (reading a page nobody linked,

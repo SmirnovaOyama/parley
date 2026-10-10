@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { deflateRawSync } from "node:zlib";
 import { describe, test } from "node:test";
-import { htmlText } from "../server/knowledge.ts";
+import { htmlText, partsOf } from "../server/knowledge.ts";
 import { readZip } from "../server/zip.ts";
 import { zipOf } from "./helpers/zip.ts";
 
@@ -64,6 +64,22 @@ describe("html", () => {
       const started = Date.now();
       htmlText(page);
       assert.ok(Date.now() - started < 2000, `${unit} took ${Date.now() - started} ms`);
+    }
+  });
+});
+
+describe("knowledge parts", () => {
+  test("drops the spaces at the ends of lines and keeps one blank line between paragraphs", () => {
+    assert.deepEqual(partsOf("One  \r\nTwo\t\n\n\n\nThree   "), ["One\nTwo\n\nThree"]);
+  });
+
+  test("takes time in proportion to the document, however it's written", () => {
+    // 200 KB of spaces with no line break after them took half a minute with /[ \t]+\n/.
+    for (const unit of [" ", "\t", " \t", " x", " \n"]) {
+      const text = unit.repeat(Math.ceil((1024 * 1024) / unit.length)) + "end";
+      const started = Date.now();
+      partsOf(text);
+      assert.ok(Date.now() - started < 2000, `${JSON.stringify(unit)} took ${Date.now() - started} ms`);
     }
   });
 });

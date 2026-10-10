@@ -201,7 +201,15 @@ export async function documentText(name: string, bytes: Buffer): Promise<{ text:
  * near, and starting a little before the last one ended so nothing falls between two parts.
  */
 export function partsOf(text: string): string[] {
-  const clean = text.replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  // Spaces at the ends of lines go a line at a time: /[ \t]+\n/ tries again from every space in a
+  // run that no line break follows, and 200 KB of spaces took half a minute.
+  const clean = text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   const parts: string[] = [];
   let at = 0;
   while (at < clean.length) {

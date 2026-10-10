@@ -51,5 +51,8 @@
     "concurrently": "^10.0.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.3"
+  },
+  "overrides": {
+    "katex": "$katex"
   }
 }

@@ -253,7 +253,7 @@ describe("api", () => {
     assert.equal((await first.json("GET", "/api/auth/me")).status, 401);
     assert.equal((await laptop.json("GET", "/api/auth/me")).status, 401);
 
-    const dead = { status: 400, body: { error: "This link has expired or was already used. Ask for a new one" } };
+    const dead = { status: 410, body: { error: "This link has expired or was already used. Ask for a new one" } };
     assert.deepEqual(await new Visitor().json("POST", "/api/auth/reset/check", { token }), dead);
     assert.deepEqual(await new Visitor().json("POST", "/api/auth/reset", { token, password: "third password" }), dead);
     assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "first password" })).status, 401);
@@ -281,19 +281,19 @@ describe("api", () => {
       );
     };
     saveLink(31);
-    assert.equal(await check(older), 400);
-    assert.equal((await new Visitor().json("POST", "/api/auth/reset", { token: older, password: "second password" })).status, 400);
+    assert.equal(await check(older), 410);
+    assert.equal((await new Visitor().json("POST", "/api/auth/reset", { token: older, password: "second password" })).status, 410);
 
     saveLink(20);
     assert.equal(await check(older), 200);
     const from = server.log().length;
     assert.equal((await forgot(email)).status, 200);
     const newer = await resetToken(email, from);
-    assert.equal(await check(older), 400);
+    assert.equal(await check(older), 410);
     assert.equal(await check(newer), 200);
 
     assert.equal((await owner.json("POST", "/api/auth/password", { current: "first password", next: "second password" })).status, 200);
-    assert.equal(await check(newer), 400);
+    assert.equal(await check(newer), 410);
   });
 
   test("a reset doesn't get round a turned-off account", async () => {

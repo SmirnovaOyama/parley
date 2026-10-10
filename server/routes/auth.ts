@@ -141,7 +141,7 @@ const OFF = "This account is turned off. Ask an admin";
 authRoutes.post("/reset/check", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const reset = findReset(String(body.token ?? ""));
-  if (!reset) return c.json({ error: DEAD_LINK }, 400);
+  if (!reset) return c.json({ error: DEAD_LINK }, 410);
   if (reset.disabled) return c.json({ error: OFF }, 403);
   return c.json({ email: reset.email });
 });
@@ -152,7 +152,7 @@ authRoutes.post("/reset", async (c) => {
   // Checked before the link is used up, so a short password doesn't cost it.
   if (password.length < MIN_PASSWORD) return c.json({ error: `Use at least ${MIN_PASSWORD} characters for the password` }, 400);
   const reset = takeReset(String(body.token ?? ""));
-  if (!reset) return c.json({ error: DEAD_LINK }, 400);
+  if (!reset) return c.json({ error: DEAD_LINK }, 410);
   if (reset.disabled) return c.json({ error: OFF }, 403);
 
   db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(await hashPassword(password), reset.userId);

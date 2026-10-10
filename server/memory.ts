@@ -1,10 +1,16 @@
 // Memory: short notes the AI keeps about a person between chats. The model saves and deletes them
 // with its memory tool when the person shares something lasting or asks it to; the person sees,
 // edits and deletes them under Account. New chats start with them in their system prompt.
+import { bonusOf } from "./bonus.ts";
 import { db, getSettings, nowIso } from "./db.ts";
 
 export const MAX_MEMORIES = 200;
+/** Someone with a verified address on a rewarded domain (bonus.ts) keeps more, while it's rewarded. */
+export const MAX_MEMORIES_VERIFIED = 1000;
 export const MAX_MEMORY_CHARS = 500;
+
+/** How many notes this person can keep. */
+export const memoryLimit = (userId: number) => (bonusOf(userId).eligible ? MAX_MEMORIES_VERIFIED : MAX_MEMORIES);
 
 export type MemoryRow = { id: number; user_id: number; text: string; conversation_id: string | null; created_at: string; updated_at: string };
 
@@ -27,7 +33,8 @@ export function saveMemory(userId: number, text: string, conversationId: string 
   const same = db.prepare("SELECT * FROM memories WHERE user_id = ? AND lower(text) = lower(?)").get(userId, text) as MemoryRow | undefined;
   if (same) return same;
   const { n } = db.prepare("SELECT COUNT(*) AS n FROM memories WHERE user_id = ?").get(userId) as { n: number };
-  if (n >= MAX_MEMORIES) return { error: `Memory is full (${MAX_MEMORIES} notes). Ask the person to delete some under Account first` };
+  const max = memoryLimit(userId);
+  if (n >= max) return { error: `Memory is full (${max} notes). Ask the person to delete some under Account first` };
   const now = nowIso();
   const id = Number(
     db.prepare("INSERT INTO memories (user_id, text, conversation_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(userId, text, conversationId, now, now)

@@ -86,9 +86,10 @@ connectionRoutes.get("/mcp/callback", async (c) => {
   if (!held) return c.redirect("/account/connections?result=expired");
   const back = (result: "connected" | "denied" | "failed") =>
     c.redirect(held.from === "admin" ? `/admin/mcp/${held.serverId}?result=${result}` : `/account/connections?server=${held.serverId}&result=${result}`);
-  const s = getServer(held.serverId);
+  // Still a server this person may connect, signed in to at the address it started for.
+  const s = serverToConnect(held.serverId, user);
   const code = c.req.query("code");
-  if (!s || s.auth_mode !== "oauth") return back("failed");
+  if (!s || s.auth_mode !== "oauth" || s.url !== held.serverUrl) return back("failed");
   if (!code) return back(c.req.query("error") === "access_denied" ? "denied" : "failed");
   try {
     await finishSignIn(s, held, code);
@@ -98,7 +99,7 @@ connectionRoutes.get("/mcp/callback", async (c) => {
   }
   forgetPerson(s.id, user.id);
   // An admin signing in from the server's page does it so the server lists its tools.
-  if (held.from === "admin") await refreshServer(getServer(s.id)!, user.id);
+  if (held.from === "admin" && user.role === "admin") await refreshServer(getServer(s.id)!, user.id);
   return back("connected");
 });
 

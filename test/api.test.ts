@@ -500,9 +500,25 @@ describe("api", () => {
       const back = new URL((await fetch(theirs.body.url, { redirect: "manual" })).headers.get("location")!);
       assert.equal(await redirectFor(member, back.pathname + back.search), "/account/connections?result=expired");
 
+      // A sign-in still under way when the server is closed to the person, or moves, isn't kept.
+      const halfway = async (visitor: Visitor) => {
+        const start = await visitor.json("POST", `/api/mcp/connections/${id}/sign-in`, {});
+        const back = new URL((await fetch(start.body.url, { redirect: "manual" })).headers.get("location")!);
+        return back.pathname + back.search;
+      };
+      await member.json("DELETE", `/api/mcp/connections/${id}`);
+      const closing = await halfway(member);
+      assert.equal((await admin.json("PATCH", `/api/admin/mcp/${id}`, { shared: false })).status, 200);
+      assert.equal(await redirectFor(member, closing), `/account/connections?server=${id}&result=failed`);
+      assert.equal((await admin.json("PATCH", `/api/admin/mcp/${id}`, { shared: true })).status, 200);
+      assert.equal((await member.json("GET", "/api/mcp/connections")).body.connections.find((x: { id: number }) => x.id === id).status, "missing");
+
       // A new address forgets everyone's sign-in: they were for the old one.
+      const before = await halfway(member);
       const moved = await admin.json("PATCH", `/api/admin/mcp/${id}`, { url: `${signIns.url}?v=2` });
       assert.deepEqual([moved.body.server.people, moved.body.server.yours], [[], "missing"]);
+      assert.equal(await redirectFor(member, before), `/account/connections?server=${id}&result=failed`);
+      assert.equal((await member.json("GET", "/api/mcp/connections")).body.connections.find((x: { id: number }) => x.id === id).status, "missing");
       assert.equal((await admin.json("DELETE", `/api/admin/mcp/${id}`)).status, 200);
     });
   });

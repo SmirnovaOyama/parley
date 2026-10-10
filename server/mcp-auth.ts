@@ -272,6 +272,8 @@ export type SignInFrom = "account" | "admin";
 /** A sign-in under way: what's needed when the person comes back with a code, for ten minutes. */
 type Pending = {
   serverId: number;
+  /** The server's address then: a sign-in for one it has moved from isn't kept. */
+  serverUrl: string;
   userId: number;
   from: SignInFrom;
   redirectUrl: string;
@@ -378,7 +380,17 @@ export async function startSignIn(s: ServerAuth, userId: number, redirectUrl: st
   for (const [key, p] of pending) if (p.expires < now) pending.delete(key);
   const theirs = [...pending].filter(([, p]) => p.userId === userId);
   for (const [key] of theirs.slice(0, Math.max(0, theirs.length - MAX_PENDING_EACH + 1))) pending.delete(key);
-  pending.set(out.state, { serverId: s.id, userId, from, redirectUrl, verifier: out.verifier, client: out.client, discovery: out.discovery, expires: now + PENDING_MS });
+  pending.set(out.state, {
+    serverId: s.id,
+    serverUrl: s.url,
+    userId,
+    from,
+    redirectUrl,
+    verifier: out.verifier,
+    client: out.client,
+    discovery: out.discovery,
+    expires: now + PENDING_MS,
+  });
   return out.url.href;
 }
 

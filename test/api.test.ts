@@ -106,6 +106,29 @@ function parseEvents(text: string): { event: string; data: any }[] {
     });
 }
 
+/** Reads a reply's events as they arrive, handing each to `on` (which may act on it, say answer a question) before reading on. */
+async function readEvents(res: Response, on: (e: { event: string; data: any }) => Promise<void> | void) {
+  // (Its text is read only on a failure: the stream may be waiting on what `on` does.)
+  if (res.status !== 200) assert.fail(await res.text());
+  const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+  const events: { event: string; data: any }[] = [];
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    let split: number;
+    while ((split = buffer.indexOf("\n\n")) !== -1) {
+      const [event] = parseEvents(buffer.slice(0, split));
+      buffer = buffer.slice(split + 2);
+      if (!event) continue;
+      events.push(event);
+      await on(event);
+    }
+  }
+  return events;
+}
+
 /** The service's reply to a chat message: reasoning, two pieces of answer, then usage with a cache hit. */
 const REPLY = [
   chunk({ role: "assistant", content: "" }),
@@ -114,6 +137,13 @@ const REPLY = [
   chunk({ content: " there!" }),
   chunk({}, "stop"),
   usageChunk({ prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500, prompt_tokens_details: { cached_tokens: 200 } }),
+];
+/** A message that has the service ask for the memory tool before it answers. */
+const REMEMBER = "Remember that I teach chemistry";
+const REMEMBER_CALL = [
+  chunk({ role: "assistant", content: "" }),
+  chunk({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "memory", arguments: '{"action":"save","text":"Teaches chemistry"}' } }] }),
+  chunk({}, "tool_calls"),
 ];
 const TITLE = {
   id: "chatcmpl-title",
@@ -127,7 +157,11 @@ const TITLE = {
 before(async () => {
   service = await mockServer((req) => {
     if (req.method === "GET" && req.path === "/v1/models") return modelList(["mock-model"]);
-    if (req.method === "POST" && req.path === "/v1/chat/completions") return req.body.stream ? completionStream(REPLY) : json(TITLE);
+    if (req.method === "POST" && req.path === "/v1/chat/completions") {
+      if (!req.body.stream) return json(TITLE);
+      const last = req.body.messages.at(-1);
+      return completionStream(typeof last.content === "string" && last.content.endsWith(REMEMBER) ? REMEMBER_CALL : REPLY);
+    }
     throw new Error(`Unexpected ${req.method} ${req.path}`);
   });
   server = await startServer();
@@ -332,6 +366,43 @@ describe("api", () => {
     assert.equal((await new Visitor().json("POST", "/api/auth/signup", { email, password: "long enough" })).status, 400);
     assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "long enough" })).status, 401);
     assert.ok(Date.now() - started < 5000, `took ${Date.now() - started} ms`);
+  });
+
+  test("once a file is in the chat, a note waits for the person's OK on a line in the reply", async () => {
+    const file = await admin.upload("lesson plan.txt", "Week 1: atoms\n");
+    const before = service.requests.length;
+    let chat = "";
+    const res = await admin.request("POST", "/api/chat", { text: REMEMBER, attachments: [file.id] });
+    const events = await readEvents(res, async (e) => {
+      if (e.event === "meta") chat = e.data.conversationId;
+      if (e.event !== "asks" || !e.data.asks.length) return;
+      const [ask] = e.data.asks;
+      assert.deepEqual(ask, {
+        id: ask.id,
+        kind: "memory",
+        question: "Remember this?",
+        detail: "Teaches chemistry",
+        reason: "This chat has taken in pages, files or tool results, so you're asked before a note is kept",
+      });
+      // Someone who comes back to the chat finds it waiting too; nobody else can answer it.
+      const shown = (await admin.json("GET", `/api/conversations/${chat}`)).body;
+      assert.deepEqual([shown.generating, shown.asks], [true, [ask]]);
+      assert.equal((await member.json("POST", `/api/conversations/${chat}/asks/${ask.id}`, { allow: true })).status, 404);
+      assert.deepEqual(await admin.json("POST", `/api/conversations/${chat}/asks/${ask.id}`, { allow: false }), { status: 200, body: { ok: true } });
+    });
+    assert.deepEqual(
+      events.filter((e) => e.event === "asks").map((e) => e.data.asks.length),
+      [1, 0],
+    );
+    const done = events.find((e) => e.event === "done")!.data.message;
+    assert.equal(done.text, "Hi there!");
+    assert.deepEqual(done.tools, [{ kind: "memory", text: "Didn't remember “Teaches chemistry” without your OK" }]);
+    // The model heard no, and nothing was kept.
+    const answered = service.requests.slice(before).find((r) => r.body.stream && r.body.messages.at(-1).role === "tool");
+    assert.match(answered!.body.messages.at(-1).content, /^Error: The person didn't allow this/);
+    const notes = (await admin.json("GET", "/api/memory")).body;
+    assert.ok(!JSON.stringify(notes).includes("Teaches chemistry"));
+    assert.equal((await admin.json("POST", `/api/conversations/${chat}/asks/not-waiting`, { allow: true })).status, 409);
   });
 
   test("an export that unpacks into too much is turned away unread", async () => {

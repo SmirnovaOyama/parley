@@ -4,6 +4,19 @@ What changed in each version of Parley. The format follows [Keep a Changelog](ht
 
 ## [Unreleased]
 
+### Security
+
+- Reading a page now asks the person first, on a line in the chat, when its address didn't come from their messages or a search. Text on a page or in a tool's result could otherwise have had the model read an address it made up, with what the chat holds in it.
+- Keeping a memory note asks the person first once the chat has taken in a page, a file, search results, knowledge passages or a tool's result, so someone else's words can't plant notes that steer later chats.
+- MCP tools that may change things ask the person first, showing what they'd send. Tools the server calls read-only run straight away, unless it says they reach services beyond it, and admins choose for each tool under Admin → Tools. Servers added before this release ask for every tool until an admin asks the server for its tools again (which brings in what it says about each one) or ticks them under "Run without asking".
+- Each person gets their own MCP connection and session, so a server that keeps state between calls no longer shares it between people.
+- What pages, searches, knowledge bases and MCP servers return reaches the model marked as coming from outside the chat, with a reminder not to follow instructions in it.
+- The page reader refuses addresses with a name or password in them.
+
+### Added
+
+- "Tell it who's asking" for an MCP server: every request carries the person's email in an `X-Parley-User` header, so the server can tell people apart. Off by default.
+
 ## [0.1.1] - 2026-10-10
 
 ### Fixed

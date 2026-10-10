@@ -446,6 +446,14 @@ CREATE TABLE IF NOT EXISTS group_mcp (
   PRIMARY KEY (group_id, server_id)
 );
 `);
+// Which of a server's tools run as soon as the model calls them and which ask the person first:
+// tool_modes holds an admin's choice where it differs from what the server says (mcp.ts,
+// runsUnasked). send_user: requests name the person asking, for servers that tell people apart.
+addColumn("mcp_servers", "tool_modes", "TEXT NOT NULL DEFAULT '{}'");
+addColumn("mcp_servers", "send_user", "INTEGER NOT NULL DEFAULT 0");
+// On a reply: addresses later replies may read without asking (JSON string[], see tools.ts): what
+// its searches through the site's service returned, and pages the person let it read.
+addColumn("messages", "page_urls", "TEXT");
 
 // Personas: up to five ways a person can present themselves to the AI, each a name with what the
 // AI should know about them and how it should answer. users.persona_id is the one new chats start

@@ -71,6 +71,8 @@ export type MessageRow = {
   tools: string | null;
   /** On a reply: how much of the model's context the chat filled by its end. */
   context_tokens: number | null;
+  /** On a reply: addresses later replies may read without asking (JSON string[], see tools.ts). */
+  page_urls: string | null;
 };
 
 /** A file a reply made, as people see it: download it from /api/files/:id. */

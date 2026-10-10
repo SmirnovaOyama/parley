@@ -47,7 +47,7 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - API keys: stored encrypted, checked with the provider before they're saved, with a backup key for when one fails.
 - People: who can use which keys, monthly token and spending limits, accounts on or off.
 - Groups, like a class or a team, that open keys and MCP servers to their members and can give them a spending limit of their own.
-- MCP servers (Streamable HTTP or SSE): their tools work with every model, for everyone or for chosen groups, each tool on or off.
+- MCP servers (Streamable HTTP or SSE): their tools work with every model, for everyone or for chosen groups. Each tool can be on or off, and can run straight away or ask the person first.
 - Knowledge bases shared with everyone, and the search service for models without their own web search (Tavily, Brave, Bocha, Jina or your own SearXNG).
 - Every chat, read-only and searchable. People are told admins can read chats, and every look is logged.
 - Replies the AI declined, gathered for review.
@@ -175,7 +175,9 @@ Set in `.env` (see [`.env.example`](.env.example)):
 - The first account becomes the admin. Sign up right after you deploy, then turn off sign-ups in Admin → Settings if you don't want strangers joining.
 - Admins can point an "Another service" key at any address, and the server will connect to it. Only make people admins you trust with that.
 - Admins can read every chat. Parley tells everyone so on their account page.
-- MCP servers are reached from the server, with whatever headers the admin gives them; only connect ones you trust. The page reader behind web search for other models refuses addresses inside the server's own network.
+- MCP servers are reached from the server, with whatever headers the admin gives them, so everyone who can use a server acts with those credentials. Only connect servers you trust, with a token that has only the rights everyone using it should have. Each person gets an MCP session of their own, and a server can be told who's asking (an `X-Parley-User` header with their email, off by default).
+- Pages, search results, shared documents and MCP results can carry instructions aimed at the model (prompt injection). Parley marks them as coming from outside, and asks the person on a line in the chat before it reads a page whose address didn't come from their messages or a search (an address can carry the chat's contents away), keeps a memory note once the chat has taken in a page, file or tool result, or runs an MCP tool that may change things. MCP tools the server calls read-only run without asking, unless it says they reach services beyond it; admins can change that for each tool. This lowers the risk but doesn't remove it, so read what a question says before allowing it.
+- The page reader behind web search for other models refuses addresses inside the server's own network.
 - Code previews run on a page of their own (`/api/preview`) that the browser sandboxes by its Content-Security-Policy, so the code can't act as the site. It may load scripts from a few public CDNs (jsDelivr, unpkg, esm.sh, cdnjs).
 - To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
@@ -185,7 +187,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 - **Claude.** `@anthropic-ai/sdk`, with prompt caching and server-side refusal fallbacks. Earlier replies go back exactly as they came, as the newest models require.
 - **OpenAI and Grok.** The Responses API through the `openai` package, with nothing stored at the provider. Reasoning summaries show where the model gives them.
 - **Gemini, DeepSeek and other services.** OpenAI's chat-completions format ([`server/providers/compat.ts`](server/providers/compat.ts)), one dialect per service. Reasoning shows whether it comes as its own field or in `<think>` tags.
-- **Tools.** Memory, knowledge search, MCP servers' tools and (for models without their own) web search are functions every provider can call ([`server/tools.ts`](server/tools.ts)); each provider runs the loop its own way. A chat's tool list is settled when it starts, because Claude ties its reasoning to it.
+- **Tools.** Memory, knowledge search, MCP servers' tools and (for models without their own) web search are functions every provider can call ([`server/tools.ts`](server/tools.ts)); each provider runs the loop its own way. A chat's tool list is settled when it starts, because Claude ties its reasoning to it. A call that needs the person's OK waits for it ([`server/asks.ts`](server/asks.ts)), asked on a line in the reply.
 - **Knowledge.** Documents are cut into overlapping parts in an SQLite FTS5 index with the trigram tokenizer, so Chinese and Japanese match without word breaks. No embeddings, no extra service.
 - **Attachments.** Each file uploads as it's added and is kept next to the database. Claude gets files through its Files API, uploaded once per account; other models get images and PDFs inline, and text files go in as text. Photos are scaled down in the browser; files can be up to 30 MB (images 5 MB).
 - **Keys.** Encrypted with AES-256-GCM under `KEY_ENCRYPTION_SECRET`.

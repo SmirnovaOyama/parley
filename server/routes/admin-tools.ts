@@ -6,7 +6,19 @@ import { MAX_DOLLARS } from "../allowance.ts";
 import { tx } from "../chat-store.ts";
 import { encryptSecret } from "../crypto.ts";
 import { audit, db, getSettings, nowIso, saveSearchKey, saveSettings, searchKeySealed, SEARCH_PROVIDERS } from "../db.ts";
-import { forget, getServer, headersOf, listTools, mcpErrorMessage, offToolsOf, refreshServer, toolsOf, type McpServerRow } from "../mcp.ts";
+import {
+  forget,
+  getServer,
+  headersOf,
+  listTools,
+  mcpErrorMessage,
+  offToolsOf,
+  refreshServer,
+  runsByDefault,
+  runsUnasked,
+  toolsOf,
+  type McpServerRow,
+} from "../mcp.ts";
 import { SEARCH_SERVICES, webSearch } from "../web-tools.ts";
 
 export const adminToolRoutes = new Hono<AppEnv>();
@@ -116,8 +128,18 @@ function serverOut(s: McpServerRow) {
     headerNames: Object.keys(headers),
     enabled: !!s.enabled,
     shared: !!s.shared,
-    tools: toolsOf(s).map((t) => ({ name: t.name, title: t.title ?? null, description: t.description ?? "" })),
+    // What the server says of each tool (null: it doesn't say), shown beside the choice to let it run unasked.
+    tools: toolsOf(s).map((t) => ({
+      name: t.name,
+      title: t.title ?? null,
+      description: t.description ?? "",
+      readOnly: t.annotations?.readOnlyHint ?? null,
+      openWorld: t.annotations?.openWorldHint ?? null,
+    })),
     offTools: offToolsOf(s),
+    /** The tools that run as soon as the model calls them; the rest ask the person first. */
+    runTools: toolsOf(s).filter((t) => runsUnasked(s, t.name)).map((t) => t.name),
+    sendUser: !!s.send_user,
     groupIds: idsOf("SELECT group_id AS v FROM group_mcp WHERE server_id = ?", s.id),
     checkedAt: s.checked_at,
     error: s.error,
@@ -173,9 +195,12 @@ adminToolRoutes.post("/mcp", async (c) => {
   const id = Number(
     db
       .prepare(
-        "INSERT INTO mcp_servers (name, url, encrypted_headers, enabled, shared, tools, off_tools, checked_at, created_at) VALUES (?, ?, ?, 1, ?, ?, '[]', ?, ?)",
+        "INSERT INTO mcp_servers (name, url, encrypted_headers, enabled, shared, tools, off_tools, send_user, checked_at, created_at) VALUES (?, ?, ?, 1, ?, ?, '[]', ?, ?, ?)",
       )
-      .run(name, url, Object.keys(headers).length ? encryptSecret(JSON.stringify(headers)) : null, body.shared === false ? 0 : 1, JSON.stringify(tools), nowIso(), nowIso())
+      .run(
+        name, url, Object.keys(headers).length ? encryptSecret(JSON.stringify(headers)) : null, body.shared === false ? 0 : 1, JSON.stringify(tools),
+        body.sendUser ? 1 : 0, nowIso(), nowIso(),
+      )
       .lastInsertRowid,
   );
   setServerGroups(id, groups);
@@ -188,6 +213,18 @@ function setServerGroups(id: number, groups: number[]) {
   db.prepare("DELETE FROM group_mcp WHERE server_id = ?").run(id);
   const add = db.prepare("INSERT INTO group_mcp (group_id, server_id) VALUES (?, ?)");
   for (const g of groups) if (known.has(g)) add.run(g, id);
+}
+
+/**
+ * What an admin chose about each tool running unasked, kept only where it differs from what the
+ * server says (a tool it calls read-only runs; any other asks). So a tool whose description
+ * changes when the server is asked again follows what it says now, where no admin chose otherwise.
+ */
+function modesFor(tools: ReturnType<typeof toolsOf>, runTools: string[]): Record<string, "run" | "ask"> {
+  const run = new Set(runTools);
+  const modes: Record<string, "run" | "ask"> = {};
+  for (const t of tools) if (run.has(t.name) !== runsByDefault(t)) modes[t.name] = run.has(t.name) ? "run" : "ask";
+  return modes;
 }
 
 /** Changes a server. A new address or headers is checked before it's kept. */
@@ -217,11 +254,13 @@ adminToolRoutes.patch("/mcp/:id", async (c) => {
     }
   }
   const offTools = Array.isArray(body.offTools) ? JSON.stringify([...new Set(body.offTools.map(String))]) : s.off_tools;
+  const toolModes = Array.isArray(body.runTools) ? JSON.stringify(modesFor(toolsOf({ tools }), body.runTools.map(String))) : s.tool_modes;
   const enabled = body.enabled === undefined ? s.enabled : body.enabled ? 1 : 0;
   const shared = body.shared === undefined ? s.shared : body.shared ? 1 : 0;
+  const sendUser = body.sendUser === undefined ? s.send_user : body.sendUser ? 1 : 0;
   db.prepare(
-    "UPDATE mcp_servers SET name = ?, url = ?, encrypted_headers = ?, tools = ?, off_tools = ?, enabled = ?, shared = ?, error = ?, checked_at = ? WHERE id = ?",
-  ).run(name, url, sealed, tools, offTools, enabled, shared, error, nowIso(), s.id);
+    "UPDATE mcp_servers SET name = ?, url = ?, encrypted_headers = ?, tools = ?, off_tools = ?, tool_modes = ?, enabled = ?, shared = ?, send_user = ?, error = ?, checked_at = ? WHERE id = ?",
+  ).run(name, url, sealed, tools, offTools, toolModes, enabled, shared, sendUser, error, nowIso(), s.id);
   if (Array.isArray(body.groupIds)) setServerGroups(s.id, body.groupIds.map(Number));
   forget(s.id);
   audit(c.var.user!.id, "edit_mcp", name);

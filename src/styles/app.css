@@ -1022,6 +1022,23 @@ a.doc-link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .tool-uses li { display: flex; align-items: flex-start; gap: 6px; font-size: 13px; line-height: 18px; color: var(--text-muted); overflow-wrap: anywhere; }
 .tool-uses li .oy-icon { flex: none; margin-top: 2px; }
 .tool-uses li.is-error { color: var(--warning); }
+/* A question a reply waits on before a tool runs: a line in the reply, with its answers beside it. */
+.tool-asks { display: flex; flex-direction: column; margin-top: 8px; }
+.tool-ask {
+  display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px 10px; padding: 10px 0;
+  border-top: 1px solid var(--border); animation: fade-in var(--duration-base) var(--ease-standard);
+}
+.tool-ask:last-child { border-bottom: 1px solid var(--border); }
+.tool-ask > .oy-icon { flex: none; margin-top: 3px; color: var(--text-muted); }
+.tool-ask-body { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.tool-ask-question { font-size: 15px; line-height: 22px; font-weight: 500; overflow-wrap: anywhere; }
+.tool-ask-detail { margin: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
+pre.tool-ask-detail {
+  max-height: 160px; overflow: auto; padding: 8px 10px; border-radius: var(--radius-xs);
+  background: var(--surface-muted); font-family: var(--font-mono); white-space: pre-wrap;
+}
+.tool-ask-reason { font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.tool-ask .inline-confirm-actions { align-self: center; }
 
 /* ── context meter ─────────────────────────────────────────────── */
 /* Model on the left; the context meter and thinking together on the right. */

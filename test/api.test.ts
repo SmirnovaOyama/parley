@@ -369,6 +369,52 @@ describe("api", () => {
     assert.ok(Date.now() - started < 5000, `took ${Date.now() - started} ms`);
   });
 
+  /** What a person's search of their own chats finds: each chat's id, title and snippet. */
+  async function search(who: Visitor, q: string) {
+    const res = await who.json("GET", `/api/conversations/search?q=${encodeURIComponent(q)}`);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    return (res.body.results as { id: string; title: string; snippet: string | null }[]).map((r) => [r.id, r.title, r.snippet]);
+  }
+
+  test("people search their own chats by title and by what was said", async () => {
+    // Any case; the newest message with every word, as a snippet.
+    assert.deepEqual(await search(admin, "HELLO"), [[conversationId, "Friendly greeting", "Hello there"]]);
+    assert.deepEqual(await search(admin, "there hi"), [[conversationId, "Friendly greeting", "Hi there!"]]);
+    // Words too short for anything clever still match.
+    assert.deepEqual(await search(admin, "on it"), [[conversationId, "Friendly greeting", "What's on it?"]]);
+    // A title match has no snippet when no message has the words.
+    assert.deepEqual(await search(admin, "friendly"), [[conversationId, "Friendly greeting", null]]);
+    assert.deepEqual(await search(admin, "nothing like this"), []);
+    assert.deepEqual(await search(admin, "  "), []);
+  });
+
+  let memberChat: string;
+
+  test("someone else's chats stay out of a search", async () => {
+    memberChat = (await member.chat({ text: "帮我规划一下数据库迁移的步骤" }))[0].data.conversationId;
+    // Both chats are called "Friendly greeting"; each person finds only their own.
+    assert.deepEqual(await search(admin, "friendly"), [[conversationId, "Friendly greeting", null]]);
+    assert.deepEqual(await search(member, "friendly"), [[memberChat, "Friendly greeting", null]]);
+    assert.deepEqual(await search(member, "hello"), []);
+    assert.deepEqual(await search(admin, "数据库"), []);
+  });
+
+  test("a Chinese query finds its words inside a sentence", async () => {
+    const found = [[memberChat, "Friendly greeting", "帮我规划一下数据库迁移的步骤"]];
+    assert.deepEqual(await search(member, "数据库迁移"), found);
+    assert.deepEqual(await search(member, "迁移"), found);
+    assert.deepEqual(await search(member, "步骤 数据库"), found);
+    assert.deepEqual(await search(member, "数据库备份"), []);
+  });
+
+  test("a deleted chat leaves the search, though admins keep it", async () => {
+    assert.equal((await member.json("DELETE", `/api/conversations/${memberChat}`)).status, 200);
+    assert.deepEqual(await search(member, "数据库迁移"), []);
+    assert.deepEqual(await search(member, "friendly"), []);
+    const kept = (await admin.json("GET", `/api/admin/conversations?q=${encodeURIComponent("数据库迁移")}`)).body.conversations;
+    assert.deepEqual(kept.map((c: { id: string; deletedByUser: boolean }) => [c.id, c.deletedByUser]), [[memberChat, true]]);
+  });
+
   test("once a file is in the chat, a note waits for the person's OK on a line in the reply", async () => {
     const file = await admin.upload("lesson plan.txt", "Week 1: atoms\n");
     const before = service.requests.length;

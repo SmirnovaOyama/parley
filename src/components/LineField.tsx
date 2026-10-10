@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { Icon } from "../icons/Icon.tsx";
 
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "placeholder"> & {
   id: string;
@@ -75,6 +76,77 @@ export function LineArea({ id, label, hint, error, value, ...area }: AreaProps) 
           {error ?? hint}
         </p>
       )}
+    </div>
+  );
+}
+
+type SearchProps = {
+  id: string;
+  /** What to search, shown in the field until something is typed. */
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+};
+
+/**
+ * A search on the same line: a magnifier at its start and a cross at its end that clears it, as
+ * Escape does. Words still being put together in an input method (pinyin, kana) aren't passed on
+ * until they're chosen, so the search doesn't run on half-typed syllables.
+ */
+export function SearchLine({ id, label, value, onChange, className }: SearchProps) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+
+  const clear = () => {
+    setDraft("");
+    onChange("");
+  };
+
+  return (
+    <div className={`line-field search-line${className ? ` ${className}` : ""}`}>
+      <div className="line-field-box">
+        <Icon name="search" size={18} className="search-line-icon" />
+        <input
+          ref={ref}
+          id={id}
+          type="search"
+          placeholder={label}
+          aria-label={label}
+          autoComplete="off"
+          spellCheck={false}
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (!(e.nativeEvent as InputEvent).isComposing) onChange(e.target.value);
+          }}
+          onCompositionEnd={(e) => onChange(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && draft) {
+              e.preventDefault();
+              clear();
+            }
+          }}
+        />
+        {draft && (
+          <button
+            type="button"
+            className="search-line-clear"
+            aria-label="Clear the search"
+            onClick={() => {
+              clear();
+              ref.current?.focus();
+            }}
+          >
+            <Icon name="close" size={16} />
+          </button>
+        )}
+        <svg className="line-field-rule" viewBox="0 0 320 8" preserveAspectRatio="none" aria-hidden="true">
+          <path className="base" d={RULE} />
+          <path className="ink" d={RULE} pathLength={1} />
+        </svg>
+      </div>
     </div>
   );
 }

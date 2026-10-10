@@ -1,6 +1,15 @@
 // MCP servers an admin connects (Streamable HTTP, or the older HTTP+SSE). Their tools join new chats
-// of the people allowed to use them, under names made from the server's and the tool's. Connections
-// are kept open while they're in use and closed after a few idle minutes.
+// of the people allowed to use them, under names made from the server's and the tool's. Each person
+// gets a connection (and MCP session) of their own, so a server that keeps state between calls
+// keeps it per person; connections stay open while in use and close after a few idle minutes.
+// Whose account the calls act with is the server's auth_mode: on a shared server everyone calls
+// with the headers the admin gave, so the server acts for all of them alike; on the others each
+// person calls with their own account, or not at all (mcp-auth.ts).
+//
+// What a server says of its tools (their descriptions and inputs) goes to the model in every new
+// chat that has them, so it's taken once, when an admin adds the server. Listed again later, tools
+// that are new or read differently wait for an admin to look them over (keptListing), and chats go
+// on getting the ones kept: a server that's been taken over can't slip words into them unseen.
 import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -8,6 +17,17 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { decryptSecret } from "./crypto.ts";
 import { db, nowIso } from "./db.ts";
 import { env } from "./env.ts";
+import {
+  AccountError,
+  accountErrorIn,
+  dropCredentials,
+  markUsed,
+  personal,
+  personalCredential,
+  refreshed,
+  rejected,
+  type AccountState,
+} from "./mcp-auth.ts";
 import type { ToolOutcome, ToolSpec } from "./providers/types.ts";
 
 export type McpServerRow = {
@@ -19,15 +39,35 @@ export type McpServerRow = {
   shared: number;
   tools: string;
   off_tools: string;
+  /** JSON { tool: "run" | "ask" } where an admin chose differently from what the server says of it (see runsUnasked). */
+  tool_modes: string;
+  /** 1: every request says who's asking, in an X-Parley-User header with the person's email. */
+  send_user: number;
+  /** Tools as the server listed them last, waiting for an admin because they differ from `tools` (null: none waiting). */
+  pending_tools: string | null;
+  /** Whose account calls act with (mcp-auth.ts): "shared", "oauth" or "token". */
+  auth_mode: string;
+  /** For "token": what an admin tells people to paste. */
+  token_hint: string | null;
+  /** For "oauth": a client an admin registered (encrypted), and the one Parley registered itself (encrypted). */
+  oauth_client: string | null;
+  oauth_registration: string | null;
   checked_at: string | null;
   error: string | null;
   created_at: string;
 };
 
+/** What a server says a tool does (MCP's annotations). Hints only: they're the server's word. */
+export type ToolHints = { readOnlyHint?: boolean; destructiveHint?: boolean; openWorldHint?: boolean };
+
 /** A tool as the server described it. */
-export type McpTool = { name: string; title?: string; description?: string; inputSchema: Record<string, unknown> };
+export type McpTool = { name: string; title?: string; description?: string; inputSchema: Record<string, unknown>; annotations?: ToolHints };
 
 const IDLE_MS = 5 * 60_000;
+/** Open connections at most, across servers and people; the one idle longest closes first. */
+const MAX_OPEN = 200;
+/** The header that names the person, on servers set to say who's asking. */
+export const USER_HEADER = "X-Parley-User";
 const CALL_TIMEOUT_MS = 90_000;
 /** What a tool returns is cut here, so one call can't flood the chat. */
 const MAX_RESULT_CHARS = 60_000;
@@ -45,6 +85,23 @@ export function headersOf(s: Pick<McpServerRow, "encrypted_headers">): Record<st
   }
 }
 
+/** "Authorization: Bearer abc" lines, or a token alone (sent as a bearer token). */
+export function parseHeaders(raw: unknown): Record<string, string> | { error: string } {
+  const text = String(raw ?? "").trim();
+  if (!text) return {};
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 1 && !lines[0].includes(":")) return { Authorization: `Bearer ${lines[0]}` };
+  const out: Record<string, string> = {};
+  for (const line of lines) {
+    const at = line.indexOf(":");
+    const name = line.slice(0, at).trim();
+    if (at < 1 || !/^[A-Za-z0-9-]+$/.test(name)) return { error: "Write each header on its own line, like Authorization: Bearer abc123" };
+    out[name] = line.slice(at + 1).trim();
+  }
+  return out;
+}
+
+/** The tools new chats get: those an admin took, never ones still waiting (pending_tools). */
 export const toolsOf = (s: Pick<McpServerRow, "tools">): McpTool[] => {
   try {
     return JSON.parse(s.tools) as McpTool[];
@@ -59,32 +116,62 @@ export const offToolsOf = (s: Pick<McpServerRow, "off_tools">): string[] => {
     return [];
   }
 };
+export const toolModesOf = (s: Pick<McpServerRow, "tool_modes">): Record<string, "run" | "ask"> => {
+  try {
+    const modes = JSON.parse(s.tool_modes);
+    return modes && typeof modes === "object" && !Array.isArray(modes) ? modes : {};
+  } catch {
+    return {};
+  }
+};
 
+/**
+ * Whether a tool runs as soon as the model calls it, unless an admin chose: when the server says
+ * it only reads, and doesn't say it reaches services beyond the server. One that does (fetching
+ * any address, say) could still carry what the chat holds somewhere else, so it asks.
+ */
+export const runsByDefault = (t: Pick<McpTool, "annotations"> | undefined) => t?.annotations?.readOnlyHint === true && t.annotations.openWorldHint !== true;
+
+/**
+ * Whether a tool runs without asking the person first: as an admin set it, else as runsByDefault
+ * says. Everything else (and every tool of a server that says nothing) asks.
+ */
+export function runsUnasked(s: Pick<McpServerRow, "tools" | "tool_modes">, tool: string): boolean {
+  const mode = toolModesOf(s)[tool];
+  return mode ? mode === "run" : runsByDefault(toolsOf(s).find((t) => t.name === tool));
+}
+
+/** Connections by server and person ("3:12"). */
 type Open = { client: Client; fingerprint: string; lastUsed: number };
-const open = new Map<number, Open>();
+const open = new Map<string, Open>();
+const openKey = (serverId: number, userId: number) => `${serverId}:${userId}`;
+
+function close(key: string) {
+  const known = open.get(key);
+  open.delete(key);
+  if (known) void known.client.close().catch(() => {});
+}
 
 setInterval(() => {
-  for (const [id, o] of open) {
-    if (Date.now() - o.lastUsed > IDLE_MS) {
-      open.delete(id);
-      void o.client.close().catch(() => {});
-    }
-  }
+  for (const [key, o] of open) if (Date.now() - o.lastUsed > IDLE_MS) close(key);
 }, 60_000).unref();
 
+/** How many connections are open now (for tests). */
+export const openConnections = () => open.size;
+
 /** Connects to a server: Streamable HTTP first, then the older SSE transport. */
-async function connect(url: string, headers: Record<string, string>): Promise<Client> {
-  // Every request carries the admin's headers (an Authorization token, say).
-  const withHeaders: typeof fetch = (input, init) => fetch(input, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers).entries()), ...headers } });
+async function connect(url: string, fetchFn: typeof fetch): Promise<Client> {
   const info = { name: env.appName, version: "1.0.0" };
   const client = new Client(info);
   try {
-    await client.connect(new StreamableHTTPClientTransport(new URL(url), { fetch: withHeaders }));
+    await client.connect(new StreamableHTTPClientTransport(new URL(url), { fetch: fetchFn }));
     return client;
   } catch (first) {
+    // Without the person's account, the other transport wouldn't get further.
+    if (accountErrorIn(first)) throw first;
     const fallback = new Client(info);
     try {
-      await fallback.connect(new SSEClientTransport(new URL(url), { fetch: withHeaders }));
+      await fallback.connect(new SSEClientTransport(new URL(url), { fetch: fetchFn }));
       return fallback;
     } catch {
       throw first;
@@ -92,25 +179,102 @@ async function connect(url: string, headers: Record<string, string>): Promise<Cl
   }
 }
 
-async function clientFor(s: McpServerRow): Promise<Client> {
-  const headers = headersOf(s);
-  const fingerprint = createHash("sha256").update(`${s.url}\n${JSON.stringify(headers)}`).digest("hex");
-  const known = open.get(s.id);
+/** The header naming the person, for a server set to say who's asking. An address that isn't plain ASCII goes percent-encoded. */
+function whoIsAsking(s: Pick<McpServerRow, "send_user">, userId: number): Record<string, string> {
+  if (!s.send_user) return {};
+  const row = db.prepare("SELECT email FROM users WHERE id = ?").get(userId) as { email: string } | undefined;
+  if (!row) return {};
+  return { [USER_HEADER]: /^[\x21-\x7e]+$/.test(row.email) ? row.email : encodeURIComponent(row.email) };
+}
+
+/**
+ * A request's headers: the credential's first, then the transport's own (its session and
+ * protocol), which a credential can't replace, then who's asking, which nothing can.
+ */
+function headersFor(credential: Record<string, string>, transport: RequestInit["headers"], who: Record<string, string>): Headers {
+  const headers = new Headers(credential);
+  for (const [name, value] of new Headers(transport)) headers.set(name, value);
+  for (const [name, value] of Object.entries(who)) headers.set(name, value);
+  return headers;
+}
+
+/** fetch whose every request carries these headers (an admin's, or ones being tried out). */
+export const fetchWithHeaders =
+  (headers: Record<string, string>, who: Record<string, string> = {}): typeof fetch =>
+  (input, init) =>
+    fetch(input, { ...init, headers: headersFor(headers, init?.headers, who) });
+
+/**
+ * fetch for a person's requests to a server: on a shared server, with the admin's headers; on the
+ * others, with the person's own account. A pasted token the server turns down, or a sign-in it
+ * still turns down once refreshed, is marked as needing connecting again.
+ */
+function fetchFor(s: McpServerRow, userId: number): typeof fetch {
+  const who = whoIsAsking(s, userId);
+  if (!personal(s)) return fetchWithHeaders(headersOf(s), who);
+  return async (input, init) => {
+    const own = await personalCredential(s, userId);
+    let res = await fetch(input, { ...init, headers: headersFor(own.headers, init?.headers, who) });
+    if (res.status !== 401) return res;
+    await res.body?.cancel();
+    if (!own.accessToken) throw rejected(s, userId, own.connectedAt);
+    const fresh = await refreshed(s, userId, own.accessToken);
+    res = await fetch(input, { ...init, headers: headersFor({ Authorization: `Bearer ${fresh}` }, init?.headers, who) });
+    if (res.status !== 401) return res;
+    await res.body?.cancel();
+    throw rejected(s, userId, own.connectedAt);
+  };
+}
+
+/** This person's connection to the server, opened when there's none (or the server's details changed). */
+async function clientFor(s: McpServerRow, userId: number): Promise<Client> {
+  // A server that wants the person's own account isn't even reached without it.
+  const own = personal(s) ? (db.prepare("SELECT status, connected_at FROM mcp_credentials WHERE server_id = ? AND user_id = ?").get(s.id, userId) as { status: string; connected_at: string } | undefined) : undefined;
+  if (personal(s) && own?.status !== "ok") throw new AccountError(own ? "expired" : "missing");
+  // A new sign-in or token makes a new connection, so a session never outlives the account it began on.
+  const credential = personal(s) ? `${s.auth_mode} ${own!.connected_at}` : JSON.stringify(headersOf(s));
+  const fingerprint = createHash("sha256").update(`${s.url}\n${credential}\n${JSON.stringify(whoIsAsking(s, userId))}`).digest("hex");
+  const key = openKey(s.id, userId);
+  const known = open.get(key);
   if (known && known.fingerprint === fingerprint) {
     known.lastUsed = Date.now();
     return known.client;
   }
-  if (known) void known.client.close().catch(() => {});
-  const client = await connect(s.url, headers);
-  open.set(s.id, { client, fingerprint, lastUsed: Date.now() });
+  if (known) close(key);
+  const client = await connect(s.url, fetchFor(s, userId));
+  // Room for it: the connection idle longest goes.
+  while (open.size >= MAX_OPEN) {
+    let oldest: string | null = null;
+    for (const [k, o] of open) if (!oldest || o.lastUsed < open.get(oldest)!.lastUsed) oldest = k;
+    close(oldest!);
+  }
+  open.set(key, { client, fingerprint, lastUsed: Date.now() });
   return client;
 }
 
-/** Drops a server's open connection (after it's changed or deleted). */
+/** Drops a server's open connections, everyone's (after it's changed or deleted). */
 export function forget(id: number) {
-  const known = open.get(id);
-  open.delete(id);
-  if (known) void known.client.close().catch(() => {});
+  for (const key of [...open.keys()]) if (key.startsWith(`${id}:`)) close(key);
+}
+
+/** Drops one person's connection to a server (their account on it changed). */
+export const forgetPerson = (serverId: number, userId: number) => close(openKey(serverId, userId));
+
+/** Forgets a person's own account on a server, and the connection it made. */
+export function disconnect(serverId: number, userId: number) {
+  dropCredentials({ server: serverId, user: userId });
+  forgetPerson(serverId, userId);
+}
+
+/** Forgets everyone's own accounts on a server (its address or way of signing in changed, or it's going). */
+export function disconnectEveryone(serverId: number) {
+  dropCredentials({ server: serverId });
+  forget(serverId);
+}
+
+/** Forgets the accounts nobody may use any more, after people, groups or servers change (mcp-auth.ts, dropCredentials). */
+export function sweepCredentials() {
+  for (const { serverId, userId } of dropCredentials("unusable")) forgetPerson(serverId, userId);
 }
 
 /** A sentence for a server that couldn't be reached or listed. */
@@ -123,16 +287,33 @@ export function mcpErrorMessage(err: unknown): string {
   return `The server answered with an error: ${message.slice(0, 200)}`;
 }
 
-/** Lists a server's tools, every page of them. */
-export async function listTools(url: string, headers: Record<string, string>): Promise<McpTool[]> {
-  const client = await connect(url, headers);
+/** The hints a server gave about a tool, the yes-or-no ones only. */
+function hintsOf(annotations: unknown): { annotations?: ToolHints } {
+  if (!annotations || typeof annotations !== "object") return {};
+  const hints: ToolHints = {};
+  for (const name of ["readOnlyHint", "destructiveHint", "openWorldHint"] as const) {
+    const value = (annotations as Record<string, unknown>)[name];
+    if (typeof value === "boolean") hints[name] = value;
+  }
+  return Object.keys(hints).length ? { annotations: hints } : {};
+}
+
+/** Lists a server's tools, every page of them, with these headers on every request (or through this fetch). */
+export async function listTools(url: string, headers: Record<string, string> | typeof fetch): Promise<McpTool[]> {
+  const client = await connect(url, typeof headers === "function" ? headers : fetchWithHeaders(headers));
   try {
     const tools: McpTool[] = [];
     let cursor: string | undefined;
     do {
       const page = await client.listTools(cursor ? { cursor } : undefined, { timeout: 30_000 });
       for (const t of page.tools) {
-        tools.push({ name: t.name, title: t.title, description: t.description, inputSchema: (t.inputSchema ?? { type: "object" }) as Record<string, unknown> });
+        tools.push({
+          name: t.name,
+          title: t.title,
+          description: t.description,
+          inputSchema: (t.inputSchema ?? { type: "object" }) as Record<string, unknown>,
+          ...hintsOf(t.annotations),
+        });
       }
       cursor = page.nextCursor;
     } while (cursor && tools.length < 500);
@@ -142,16 +323,100 @@ export async function listTools(url: string, headers: Record<string, string>): P
   }
 }
 
-/** Lists a saved server's tools again and keeps what it said (or why it couldn't). */
-export async function refreshServer(s: McpServerRow): Promise<McpServerRow> {
+/** The parts of a tool compared when a server lists it again: what a model reads of it, and what decides whether it asks. */
+export const TOOL_PARTS = ["title", "description", "input", "hints"] as const;
+export type ToolPart = (typeof TOOL_PARTS)[number];
+
+/** JSON with every object's keys in order, so two schemas that say the same thing read the same. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).filter(([, v]) => v !== undefined);
+    return `{${entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function partsOf(t: McpTool): Record<ToolPart, string> {
+  return { title: t.title ?? "", description: t.description ?? "", input: canonical(t.inputSchema ?? {}), hints: canonical(t.annotations ?? {}) };
+}
+
+/** A tool that's new in a listing, reads differently (and in which parts), or is gone from it. */
+export type ToolChange = { name: string; change: "new" | "changed" | "gone"; parts: ToolPart[]; before: McpTool | null; after: McpTool | null };
+
+/** How a server's listing differs from the tools kept: the new ones and changed ones in its order, then the ones gone. */
+export function listingChanges(kept: McpTool[], listed: McpTool[]): ToolChange[] {
+  const before = new Map(kept.map((t) => [t.name, t]));
+  const names = new Set(listed.map((t) => t.name));
+  const changes: ToolChange[] = [];
+  for (const t of listed) {
+    const old = before.get(t.name);
+    if (!old) {
+      changes.push({ name: t.name, change: "new", parts: [...TOOL_PARTS], before: null, after: t });
+      continue;
+    }
+    const [was, is] = [partsOf(old), partsOf(t)];
+    const parts = TOOL_PARTS.filter((p) => was[p] !== is[p]);
+    if (parts.length) changes.push({ name: t.name, change: "changed", parts, before: old, after: t });
+  }
+  for (const t of kept) if (!names.has(t.name)) changes.push({ name: t.name, change: "gone", parts: [], before: t, after: null });
+  return changes;
+}
+
+/**
+ * What a fresh listing leaves in a server's row. One that adds a tool or changes what one says
+ * waits for an admin (pending_tools) while new chats keep getting the old tools; one that's the
+ * same, or only has fewer tools, brings nothing new to a model and is kept straight away.
+ */
+export function keptListing(s: Pick<McpServerRow, "tools">, listed: McpTool[]): Pick<McpServerRow, "tools" | "pending_tools"> {
+  const review = listingChanges(toolsOf(s), listed).some((c) => c.change !== "gone");
+  return review ? { tools: s.tools, pending_tools: JSON.stringify(listed) } : { tools: JSON.stringify(listed), pending_tools: null };
+}
+
+/** Names the waiting listing an admin saw, so taking it can't take a different one listed since. */
+export const listingVersion = (pending: string) => createHash("sha256").update(pending).digest("hex").slice(0, 16);
+
+/**
+ * Takes the tools waiting on a server (use), or keeps the old ones and lets them go. Only when the
+ * waiting listing is still the one the admin looked over (version): "none" when nothing waits,
+ * "moved" when the server was listed again since.
+ */
+export function settleListing(id: number, version: string, use: boolean): "done" | "none" | "moved" {
+  const s = getServer(id);
+  if (!s?.pending_tools) return "none";
+  if (listingVersion(s.pending_tools) !== version) return "moved";
+  db.prepare(`UPDATE mcp_servers SET ${use ? "tools = pending_tools, " : ""}pending_tools = NULL WHERE id = ?`).run(id);
+  return "done";
+}
+
+/**
+ * Lists a saved server's tools again and keeps what it said (or why it couldn't), new or changed
+ * tools waiting for an admin. A shared server is asked with the admin's headers; the others with
+ * the asking admin's own account. `asAdded`: this listing finishes adding the server (an admin's
+ * first sign-in to one on people's own accounts), so it's taken as it is, as when adding one.
+ */
+export async function refreshServer(s: McpServerRow, adminId: number, asAdded = false): Promise<McpServerRow | undefined> {
   try {
-    const tools = await listTools(s.url, headersOf(s));
-    db.prepare("UPDATE mcp_servers SET tools = ?, checked_at = ?, error = NULL WHERE id = ?").run(JSON.stringify(tools), nowIso(), s.id);
+    const listed = await listTools(s.url, fetchFor(s, adminId));
+    // Compared with the row as it is now: an admin may have taken waiting tools meanwhile.
+    const now = getServer(s.id);
+    if (now) {
+      const kept = asAdded ? { tools: JSON.stringify(listed), pending_tools: null } : keptListing(now, listed);
+      db.prepare("UPDATE mcp_servers SET tools = ?, pending_tools = ?, checked_at = ?, error = NULL WHERE id = ?").run(kept.tools, kept.pending_tools, nowIso(), s.id);
+    }
   } catch (err) {
-    db.prepare("UPDATE mcp_servers SET checked_at = ?, error = ? WHERE id = ?").run(nowIso(), mcpErrorMessage(err), s.id);
+    const account = accountErrorIn(err);
+    const error = !account
+      ? mcpErrorMessage(err)
+      : s.auth_mode === "oauth"
+        ? "Sign in to it with your own account first, so it can list its tools"
+        : account.reason === "missing"
+          ? "Add a token of your own first, so it can list its tools"
+          : "The server turned your token down. Add a new one, so it can list its tools";
+    db.prepare("UPDATE mcp_servers SET checked_at = ?, error = ? WHERE id = ?").run(nowIso(), error, s.id);
   }
   forget(s.id);
-  return getServer(s.id)!;
+  return getServer(s.id);
 }
 
 /** The servers whose tools this person's new chats get: on, and open to everyone or to a group they're in. */
@@ -221,24 +486,44 @@ function resultText(result: { content?: unknown; structuredContent?: unknown }):
   return text.length > MAX_RESULT_CHARS ? `${text.slice(0, MAX_RESULT_CHARS)}\n\n(The result goes on; this is its first part.)` : text;
 }
 
-/** Calls a server's tool. Never throws: a failure comes back as an error for the model. */
-export async function callTool(s: McpServerRow, tool: string, input: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutcome> {
+/** What the model is told when a call needs the person's own account first. */
+export function accountMessage(s: Pick<McpServerRow, "name" | "auth_mode">, state: AccountState): string {
+  const how = "They can connect it in Account, under Connected services, and then ask you again";
+  if (state === "missing") return `${s.name} acts with each person's own account, and this person hasn't connected theirs, so this didn't run. ${how}`;
+  return `This person's ${s.auth_mode === "token" ? "token" : "sign-in"} for ${s.name} has stopped working (it ran out or was withdrawn), so this didn't run. ${how}`;
+}
+
+/**
+ * Calls a server's tool for this person, on their connection. Never throws: a failure comes back
+ * as an error for the model, and `account` says when it was the person's own account that's missing.
+ */
+export async function callTool(
+  s: McpServerRow,
+  userId: number,
+  tool: string,
+  input: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<ToolOutcome & { account?: AccountState }> {
+  const key = openKey(s.id, userId);
   for (let attempt = 0; attempt < 2; attempt++) {
-    const reused = open.has(s.id);
+    const reused = open.has(key);
     try {
-      const client = await clientFor(s);
+      const client = await clientFor(s, userId);
       const result = (await client.callTool({ name: tool, arguments: input }, undefined, { signal, timeout: CALL_TIMEOUT_MS })) as {
         content?: unknown;
         structuredContent?: unknown;
         toolResult?: unknown;
         isError?: boolean;
       };
+      if (personal(s)) markUsed(s.id, userId);
       // Servers from before structured results answer with toolResult.
       if (result.content === undefined && result.toolResult !== undefined) return { content: JSON.stringify(result.toolResult, null, 2) };
       return { content: resultText(result), isError: !!result.isError };
     } catch (err) {
-      forget(s.id);
+      close(key);
       if (signal.aborted) return { content: "Stopped", isError: true };
+      const account = accountErrorIn(err);
+      if (account) return { content: accountMessage(s, account.reason), isError: true, account: account.reason };
       // A connection kept from earlier that the server has since dropped (it restarted, say) is
       // opened again once. The call never reached the tool, so nothing runs twice.
       if (attempt === 0 && reused && /session|not connected|closed|404/i.test(String((err as Error)?.message))) continue;

@@ -26,9 +26,11 @@ function publicUrl(): string | null {
 export const env = {
   port: Number(process.env.PORT ?? 8787),
   /**
-   * The address people reach the site at, which links in emails start with. Password reset links
-   * are sent only when it's set: a request's own address can't be trusted for them, since anyone
-   * can send one naming another host, and the link would lead there.
+   * The address people reach the site at, for links that leave it and come back. An MCP server's
+   * sign-in page returns to it; unset, that's taken from the request, which works unless a proxy
+   * in front changes the address. Emails link to it too, and password reset links are sent only
+   * when it's set: a request's own address can't be trusted for them, since anyone can send one
+   * naming another host, and the link would lead there.
    */
   publicUrl: publicUrl(),
   isProd: process.env.NODE_ENV === "production",

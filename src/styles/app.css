@@ -29,6 +29,7 @@ h1, h2, h3, p { margin: 0; }
 .section-title { font-size: 15px; line-height: 22px; font-weight: 600; margin-bottom: 8px; }
 .footnote { margin-top: 16px; font-size: 12px; line-height: 16px; color: var(--text-muted); }
 .text-danger { color: var(--danger); }
+.text-warning { color: var(--warning); }
 /* House rule: no "…" on titles. Long one-line text fades out at the end instead of being dotted,
    and page titles wrap. */
 .truncate {
@@ -270,6 +271,20 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 @media (prefers-reduced-motion: reduce) {
   .line-field label, .line-field-rule .ink { transition: none; }
 }
+/* A search on the same line: no label to float, a magnifier on the line at its start and a cross
+   that clears it at its end. */
+.search-line .line-field-box { display: flex; align-items: center; gap: 10px; padding-top: 0; }
+.search-line input { flex: 1; min-width: 0; }
+.search-line input::placeholder { color: var(--text-muted); opacity: 1; }
+.search-line input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.search-line-icon { flex: none; color: var(--text-muted); }
+.search-line-clear {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; margin-inline-end: -6px;
+  border-radius: var(--radius-full); color: var(--text-muted);
+}
+.search-line-clear:hover { color: var(--text); background: var(--surface-hover); }
+/* Where a search's words were found: a soft stroke of highlighter. */
+.search-hit { color: var(--text); background: var(--accent-subtle-hover); border-radius: 3px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 
 /* ── feedback ──────────────────────────────────────────────────── */
 .callout-row { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0; }
@@ -981,6 +996,18 @@ html[data-slide="back"]::view-transition-new(root) { animation-name: slide-in-le
 .sidebar-group { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
 /* On the Chats page, Projects and Knowledge lead the list. */
 .chats-places { margin-bottom: 20px; }
+.chats-search { margin-bottom: 20px; }
+/* A found chat's matching message, three lines at most. */
+.chat-snippet { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
+/* In the sidebar the search sits over the list, its line in step with the rows' text. */
+.sidebar-search { padding: 10px 24px 2px; }
+.sidebar-search input { padding: 6px 0 7px; font-size: 14px; line-height: 20px; }
+/* A tablet zooms into a field under 16px (see above), and shows the sidebar. */
+@media (pointer: coarse) { .sidebar-search input { font-size: 16px; } }
+.sidebar-chat.sidebar-hit { height: auto; min-height: 36px; flex-direction: column; align-items: stretch; justify-content: center; gap: 0; padding-top: 7px; padding-bottom: 7px; }
+.sidebar-hit .truncate { flex: none; line-height: 20px; }
+.sidebar-hit .sidebar-hit-snippet { font-size: 12px; line-height: 16px; color: var(--text-muted); }
+.sidebar-results { padding-top: 10px; }
 
 /* ── projects and knowledge ────────────────────────────────────── */
 .project-instructions {
@@ -1018,6 +1045,26 @@ a.doc-link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .oy-row.is-confirming > :not(.inline-confirm) { visibility: hidden; }
 .inline-confirm.is-overlay { position: absolute; inset: 0; z-index: 1; flex-wrap: nowrap; padding: 0; border-top: 0; background: var(--bg); }
 .mcp-check { align-self: flex-start; margin: -8px 0 0 -10px; }
+/* Tools a server listed that are new or read differently, above the form: each part that changed,
+   before and now, with the words only one of them has marked. */
+.mcp-review { margin-bottom: 32px; }
+.mcp-changes { display: flex; flex-direction: column; margin-bottom: 16px; }
+.mcp-change { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-top: 1px solid var(--border); }
+.mcp-change:last-child { border-bottom: 1px solid var(--border); }
+.mcp-change-name { margin: 0; font-size: 15px; line-height: 22px; font-weight: 500; overflow-wrap: anywhere; }
+.mcp-change-note { margin: -6px 0 0; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.mcp-part { display: flex; flex-direction: column; gap: 4px; }
+.mcp-part-label { margin: 0; font-size: 13px; line-height: 18px; font-weight: 500; color: var(--text-muted); }
+.mcp-pair { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: baseline; }
+.mcp-when { font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.mcp-text { margin: 0; font-size: 14px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.mcp-text {
+  max-height: 240px; overflow: auto; padding: 8px 10px; border-radius: var(--radius-xs);
+  background: var(--surface-muted); font-family: var(--font-mono); font-size: 13px; line-height: 18px;
+}
+.mcp-text ins { text-decoration: none; color: var(--text); background: color-mix(in oklch, var(--warning) 24%, transparent); border-radius: 3px; }
+.mcp-text del { color: var(--text-muted); text-decoration-color: color-mix(in oklch, var(--danger) 70%, transparent); background: color-mix(in oklch, var(--danger) 10%, transparent); border-radius: 3px; }
+.mcp-none { color: var(--text-muted); }
 
 /* ── a reply's tools ───────────────────────────────────────────── */
 /* What a reply did with the app's tools: a quiet line each, with a small mark for the kind. */
@@ -1026,6 +1073,23 @@ a.doc-link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .tool-uses li { display: flex; align-items: flex-start; gap: 6px; font-size: 13px; line-height: 18px; color: var(--text-muted); overflow-wrap: anywhere; }
 .tool-uses li .oy-icon { flex: none; margin-top: 2px; }
 .tool-uses li.is-error { color: var(--warning); }
+/* A question a reply waits on before a tool runs: a line in the reply, with its answers beside it. */
+.tool-asks { display: flex; flex-direction: column; margin-top: 8px; }
+.tool-ask {
+  display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px 10px; padding: 10px 0;
+  border-top: 1px solid var(--border); animation: fade-in var(--duration-base) var(--ease-standard);
+}
+.tool-ask:last-child { border-bottom: 1px solid var(--border); }
+.tool-ask > .oy-icon { flex: none; margin-top: 3px; color: var(--text-muted); }
+.tool-ask-body { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.tool-ask-question { font-size: 15px; line-height: 22px; font-weight: 500; overflow-wrap: anywhere; }
+.tool-ask-detail { margin: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
+pre.tool-ask-detail {
+  max-height: 160px; overflow: auto; padding: 8px 10px; border-radius: var(--radius-xs);
+  background: var(--surface-muted); font-family: var(--font-mono); white-space: pre-wrap;
+}
+.tool-ask-reason { font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.tool-ask .inline-confirm-actions { align-self: center; }
 
 /* ── context meter ─────────────────────────────────────────────── */
 /* Model on the left; the context meter and thinking together on the right. */

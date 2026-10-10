@@ -3,7 +3,7 @@
 # To update: docker compose pull && docker compose up -d
 services:
   parley:
-    # The newest release. Put a version in place of latest (like 0.1.0) to stay on it.
+    # The newest release. Put a version in place of latest (like 0.2.0) to stay on it.
     image: ghcr.io/smirnovaoyama/parley:latest
     # To build from this folder's source instead, swap the image line above for this one and run
     # docker compose up -d --build.
@@ -15,6 +15,7 @@ services:
       VITE_APP_NAME: ${VITE_APP_NAME:-Parley}
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
       ALLOW_FAKE_IP: ${ALLOW_FAKE_IP:-}
     volumes:
       - parley-data:/data

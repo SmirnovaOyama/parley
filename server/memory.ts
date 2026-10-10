@@ -28,13 +28,23 @@ export function memoriesOf(userId: number): MemoryRow[] {
 /** One line, trimmed, within the limit; empty when there's nothing to keep. */
 export const cleanMemory = (text: unknown) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_MEMORY_CHARS);
 
-/** Saves a note, or finds the same one already kept. A sentence comes back when there's no room. */
-export function saveMemory(userId: number, text: string, conversationId: string | null): MemoryRow | { error: string } {
-  const same = db.prepare("SELECT * FROM memories WHERE user_id = ? AND lower(text) = lower(?)").get(userId, text) as MemoryRow | undefined;
-  if (same) return same;
+/** The note already kept with these words, whatever their case. */
+export const keptMemory = (userId: number, text: string) =>
+  db.prepare("SELECT * FROM memories WHERE user_id = ? AND lower(text) = lower(?)").get(userId, text) as MemoryRow | undefined;
+
+/** A sentence for the model when this person's memory has no room for another note. */
+export function memoryFull(userId: number): string | null {
   const { n } = db.prepare("SELECT COUNT(*) AS n FROM memories WHERE user_id = ?").get(userId) as { n: number };
   const max = memoryLimit(userId);
-  if (n >= max) return { error: `Memory is full (${max} notes). Ask the person to delete some under Account first` };
+  return n >= max ? `Memory is full (${max} notes). Ask the person to delete some under Account first` : null;
+}
+
+/** Saves a note, or finds the same one already kept. A sentence comes back when there's no room. */
+export function saveMemory(userId: number, text: string, conversationId: string | null): MemoryRow | { error: string } {
+  const same = keptMemory(userId, text);
+  if (same) return same;
+  const full = memoryFull(userId);
+  if (full) return { error: full };
   const now = nowIso();
   const id = Number(
     db.prepare("INSERT INTO memories (user_id, text, conversation_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(userId, text, conversationId, now, now)

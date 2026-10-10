@@ -457,6 +457,42 @@ CREATE TABLE IF NOT EXISTS group_mcp (
   PRIMARY KEY (group_id, server_id)
 );
 `);
+// Which of a server's tools run as soon as the model calls them and which ask the person first:
+// tool_modes holds an admin's choice where it differs from what the server says (mcp.ts,
+// runsUnasked). send_user: requests name the person asking, for servers that tell people apart.
+addColumn("mcp_servers", "tool_modes", "TEXT NOT NULL DEFAULT '{}'");
+addColumn("mcp_servers", "send_user", "INTEGER NOT NULL DEFAULT 0");
+// A server's tools as it listed them last, when they differ from the ones kept (tools) in what a
+// model reads or whether a tool asks: they wait here, unused, until an admin takes them or keeps the
+// old ones (mcp.ts, keptListing). JSON like tools; null when nothing waits.
+addColumn("mcp_servers", "pending_tools", "TEXT");
+// Whose account a server's tools act with (mcp-auth.ts): 'shared', the headers above for everyone;
+// 'oauth', each person signs in on the server's own sign-in page; 'token', each person pastes a
+// token. token_hint tells people what to paste. oauth_client (encrypted) is a client an admin
+// registered with the server's sign-in service; oauth_registration (encrypted), the one Parley
+// registered itself, for services that let it.
+addColumn("mcp_servers", "auth_mode", "TEXT NOT NULL DEFAULT 'shared'");
+addColumn("mcp_servers", "token_hint", "TEXT");
+addColumn("mcp_servers", "oauth_client", "TEXT");
+addColumn("mcp_servers", "oauth_registration", "TEXT");
+// Each person's own credential for a server that isn't shared: encrypted JSON (a pasted token's
+// headers, or OAuth tokens with what refreshing them needs). status 'expired': it stopped working
+// (secret is cleared then), so the person is asked to connect again.
+db.exec(`
+CREATE TABLE IF NOT EXISTS mcp_credentials (
+  server_id    INTEGER NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  secret       TEXT,
+  status       TEXT NOT NULL DEFAULT 'ok',
+  connected_at TEXT NOT NULL,
+  used_at      TEXT,
+  PRIMARY KEY (server_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS mcp_credentials_user ON mcp_credentials(user_id);
+`);
+// On a reply: addresses later replies may read without asking (JSON string[], see tools.ts): what
+// its searches through the site's service returned, and pages the person let it read.
+addColumn("messages", "page_urls", "TEXT");
 
 // Personas: up to five ways a person can present themselves to the AI, each a name with what the
 // AI should know about them and how it should answer. users.persona_id is the one new chats start

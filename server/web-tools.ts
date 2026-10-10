@@ -123,6 +123,66 @@ export function searchResultsText(query: string, results: Found[]): string {
 
 export const asSources = (results: Found[]): Source[] => results.map((r) => ({ url: r.url, title: r.title }));
 
+// ── Which pages a reply may read without asking ─────────────────────
+
+/**
+ * An address as pages are compared: its host, path and query, without the scheme or #fragment
+ * (which never reaches the site). Null for anything the page reader wouldn't open, including an
+ * address with a name or password in it. Written without https://, it's taken as https.
+ */
+export function addressKey(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch {
+    return null;
+  }
+  if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password || !HOST.test(url.hostname)) return null;
+  return `${url.host}${url.pathname}${url.search}`;
+}
+
+/** A name with a dot in it and no empty parts, as the URL parser leaves it (lower case, punycode). */
+const HOST = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+
+/** What can't end an address in running text: closing brackets, quotes and punctuation, Chinese ones too. */
+const TRAILING = new Set([..."()[]{}<>.,;:!?'\"`’”）】」』。，、；：！？…"]);
+
+/**
+ * The web addresses someone wrote, with or without https://, as addressKeys. Each is kept as
+ * written and without the punctuation after it, since "(see a.com/x)." could mean either.
+ * Linear in the length of the text: words split on spaces, then before each "http".
+ */
+export function addressesIn(text: string): string[] {
+  const keys = new Set<string>();
+  for (const word of text.split(/\s+/)) {
+    if (!word.includes(".")) continue;
+    for (const piece of word.split(/(?=https?:\/\/)/i)) {
+      // Text running into it ("（a.com", "见a.com") is left behind.
+      const start = piece.search(/[a-z0-9]/i);
+      if (start < 0) continue;
+      let end = piece.length;
+      while (end > start && TRAILING.has(piece[end - 1])) end--;
+      for (const candidate of [piece.slice(start), piece.slice(start, end)]) {
+        const key = addressKey(candidate);
+        if (key) keys.add(key);
+      }
+    }
+  }
+  return [...keys];
+}
+
+/**
+ * Whether a page may be read without asking: its address is one of these, or the start of one
+ * (a.com/docs from a.com/docs/intro). Either way every character of it came from somewhere the
+ * model didn't write, so it can't carry what the chat holds to a site of someone's choosing.
+ */
+export function knownAddress(url: string, keys: Iterable<string>): boolean {
+  const key = addressKey(url);
+  if (!key) return false;
+  for (const k of keys) if (k.startsWith(key)) return true;
+  return false;
+}
+
 // ── Reading pages, safely ───────────────────────────────────────────
 
 /**
@@ -210,12 +270,23 @@ function checkUrl(raw: string): URL {
     throw new Error("That isn't a web address");
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("Only http and https pages can be read");
+  // A name and password would go to the site as a login, a way to carry anything there.
+  if (url.username || url.password) throw new Error("Addresses with a name or password in them can't be read");
   const host = url.hostname.replace(/^\[|\]$/g, "");
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) {
     throw new Error("Pages inside this server's network can't be read");
   }
   if (isIP(host) && blockedAddress(host)) throw new Error("Pages inside this server's network can't be read");
   return url;
+}
+
+/**
+ * fetch for an address a remote service handed this server, rather than one an admin chose (an
+ * MCP server's sign-in service, say): http or https on the public web only, checked again at
+ * every connection, as pages are.
+ */
+export async function fetchOutside(url: string | URL, init?: RequestInit): Promise<Response> {
+  return (await fetch(checkUrl(String(url)), { ...(init as object), dispatcher: pageAgent })) as unknown as Response;
 }
 
 /** The words of a page's <title>, found by scanning forward only (see htmlText). */

@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "../icons/Icon.tsx";
-import type { Attachment, Message, ToolUse } from "../lib/api.ts";
+import type { Ask, Attachment, Message, ToolUse } from "../lib/api.ts";
 import { dateTime, fileSize } from "../lib/format.ts";
 import { EditFiles, MessageFiles } from "./Attachments.tsx";
 import { Advisory, BusyMark } from "./Feedback.tsx";
+import { SlideLink } from "./SlideLink.tsx";
 // The renderer brings code highlighting and math typesetting, so it loads on first use; until then
 // a reply shows as plain text.
 const Markdown = lazy(() => import("./Markdown.tsx").then((m) => ({ default: m.Markdown })));
@@ -15,6 +16,8 @@ export type UiMessage = Message & {
   /** While searching: what for; while using a tool, what it's doing. */
   searchQuery?: string;
   notice?: string;
+  /** Questions it's waiting on before a tool runs. */
+  asks?: Ask[];
 };
 
 type Props = {
@@ -31,9 +34,11 @@ type Props = {
   onSwitch?: (messageId: number) => void;
   /** Where a file downloads from (made or attached); a shared page goes through its link. */
   fileUrl?: (fileId: string) => string;
+  /** Answers a question the reply being written is waiting on. */
+  onAnswer?: (ask: Ask, allow: boolean) => void;
 };
 
-export function Transcript({ messages, readOnly, busy, onEdit, onRegenerate, onSwitch, fileUrl = (id) => `/api/files/${id}` }: Props) {
+export function Transcript({ messages, readOnly, busy, onEdit, onRegenerate, onSwitch, onAnswer, fileUrl = (id) => `/api/files/${id}` }: Props) {
   const switcher = (m: UiMessage) =>
     onSwitch && m.siblingIds.length > 1 ? <VersionSwitcher message={m} onSwitch={onSwitch} disabled={busy} /> : null;
 
@@ -61,6 +66,7 @@ export function Transcript({ messages, readOnly, busy, onEdit, onRegenerate, onS
             fileUrl={fileUrl}
             busy={busy}
             onRegenerate={!readOnly && onRegenerate && m.id > 0 && m.parentId ? () => onRegenerate(m) : undefined}
+            onAnswer={readOnly ? undefined : onAnswer}
           />
         ),
       )}
@@ -228,15 +234,17 @@ type AssistantProps = {
   /** A reply is on its way: Regenerate stays where it is but rests. */
   busy?: boolean;
   onRegenerate?: () => void;
+  onAnswer?: (ask: Ask, allow: boolean) => void;
 };
 
 /** Phases that get their own status line under the text while the reply is still coming. */
 const BUSY_PHASES = new Set(["searching", "coding", "saving", "tool"]);
 
-function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegenerate }: AssistantProps) {
+function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegenerate, onAnswer }: AssistantProps) {
   const [copied, setCopied] = useState(false);
   const failed = message.status === "failed" || message.status === "declined";
   const waiting = message.streaming && !message.text;
+  const asks = message.streaming ? (message.asks ?? []) : [];
 
   const copy = () =>
     void navigator.clipboard.writeText(message.text).then(() => {
@@ -246,7 +254,7 @@ function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegene
 
   return (
     <div className="msg msg-assistant" data-message-id={message.id} aria-busy={message.streaming || undefined}>
-      {waiting && !message.thinking && !BUSY_PHASES.has(message.phase ?? "") && <Thinking phase={message.phase} />}
+      {waiting && !message.thinking && !asks.length && !BUSY_PHASES.has(message.phase ?? "") && <Thinking phase={message.phase} />}
       {message.thinking && (
         <ThinkingFold text={message.thinking} ms={message.thinkingMs} live={!!message.streaming && !message.text} />
       )}
@@ -255,9 +263,10 @@ function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegene
           <Markdown text={message.text} streaming={message.streaming} />
         </Suspense>
       )}
-      {message.streaming && BUSY_PHASES.has(message.phase ?? "") && <Thinking phase={message.phase} detail={message.searchQuery} />}
+      {asks.length > 0 && <AskLines asks={asks} onAnswer={onAnswer} />}
+      {message.streaming && !asks.length && BUSY_PHASES.has(message.phase ?? "") && <Thinking phase={message.phase} detail={message.searchQuery} />}
       {message.files && message.files.length > 0 && <FileCards files={message.files} url={fileUrl} />}
-      {!message.streaming && message.tools && message.tools.length > 0 && <ToolUses uses={message.tools} />}
+      {!message.streaming && message.tools && message.tools.length > 0 && <ToolUses uses={message.tools} own={!!onAnswer} />}
       {!message.streaming && (message.sources?.length || message.searches?.length) ? (
         <SourcesFold sources={message.sources ?? []} found={message.found ?? []} searches={message.searches ?? []} />
       ) : null}
@@ -385,15 +394,58 @@ function Thinking({ phase, detail }: { phase?: UiMessage["phase"]; detail?: stri
 const TOOL_ICONS: Record<ToolUse["kind"], IconName> = { memory: "note", knowledge: "book", page: "file", mcp: "plug" };
 
 /**
- * What a reply did with the app's tools: a quiet line when it was one thing ("Remembered “…”"),
- * otherwise "Used 3 tools", unfolding to a line each.
+ * The questions a reply is waiting on before a tool runs, each a line in the reply (never a
+ * pop-up): what it wants to do, exactly what (the address, the note, the tool's input), why
+ * you're asked, then Don't allow or Allow.
  */
-function ToolUses({ uses }: { uses: ToolUse[] }) {
+function AskLines({ asks, onAnswer }: { asks: Ask[]; onAnswer?: (ask: Ask, allow: boolean) => void }) {
+  return (
+    <div className="tool-asks">
+      {asks.map((a) => (
+        <div key={a.id} className="tool-ask" role="group" aria-label={a.question}>
+          <Icon name={TOOL_ICONS[a.kind] ?? "plug"} size={16} />
+          <div className="tool-ask-body">
+            <p className="tool-ask-question">{a.question}</p>
+            {a.detail && (a.kind === "memory" ? <p className="tool-ask-detail">{a.detail}</p> : <pre className="tool-ask-detail">{a.detail}</pre>)}
+            <p className="tool-ask-reason">{a.reason}</p>
+          </div>
+          {onAnswer && (
+            <span className="inline-confirm-actions">
+              <button type="button" className="btn-secondary btn-sm" onClick={() => onAnswer(a, false)}>
+                Don't allow
+              </button>
+              <button type="button" className="btn-tonal btn-sm" onClick={() => onAnswer(a, true)}>
+                Allow
+              </button>
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * What a reply did with the app's tools: a quiet line when it was one thing ("Remembered “…”"),
+ * otherwise "Used 3 tools", unfolding to a line each. In your own chat, a tool that needed your
+ * account on its server links to where you connect it.
+ */
+function ToolUses({ uses, own }: { uses: ToolUse[]; own: boolean }) {
   const [open, setOpen] = useState(false);
   const line = (u: ToolUse, i: number) => (
     <li key={i} className={u.error ? "is-error" : undefined}>
       <Icon name={TOOL_ICONS[u.kind] ?? "plug"} size={14} />
-      <span>{u.text}</span>
+      <span>
+        {u.text}
+        {u.connect && own && (
+          <>
+            {". "}
+            <SlideLink to="/account/connections" direction="forward">
+              Connect it
+            </SlideLink>
+          </>
+        )}
+      </span>
     </li>
   );
   if (uses.length === 1) return <ul className="tool-uses">{uses.map(line)}</ul>;

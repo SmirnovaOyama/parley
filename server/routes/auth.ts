@@ -36,6 +36,11 @@ function noteFailure(email: string, lock: { count: number; until: number } | und
   }
 }
 
+/** Forgets the failed sign-ins for `email`, once its account has a new password. */
+export function clearFailures(email: string) {
+  failures.delete(email);
+}
+
 function userCount(): number {
   return (db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n;
 }
@@ -158,7 +163,7 @@ authRoutes.post("/reset", async (c) => {
   db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(await hashPassword(password), reset.userId);
   // Whoever had the old password is signed out everywhere; the person who set the new one is in.
   db.prepare("DELETE FROM sessions WHERE user_id = ?").run(reset.userId);
-  failures.delete(reset.email);
+  clearFailures(reset.email);
   startSession(c, reset.userId);
   return c.json({ ok: true });
 });

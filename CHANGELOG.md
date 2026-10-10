@@ -4,6 +4,10 @@ What changed in each version of Parley. The format follows [Keep a Changelog](ht
 
 ## [Unreleased]
 
+### Added
+
+- Search your own chats from the Chats page and the sidebar, by title and by what was said in them. Each word matches anywhere in the text, so Chinese and Japanese need no spaces, and each result shows the line that matched.
+
 ## [0.1.1] - 2026-10-10
 
 ### Fixed

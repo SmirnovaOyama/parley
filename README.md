@@ -40,6 +40,7 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - See how full the model's context is above the message box, with a nudge to start afresh when it's nearly full.
 - Preview HTML pages, SVG, React components, Mermaid diagrams and JavaScript from a reply, run in a sandbox.
 - Pin chats, and find the rest grouped by when they were last active.
+- Search your own chats by title and by what was said in them, Chinese and Japanese included, with the line that matched.
 - Export everything as one file, and import chats from Parley, ChatGPT or Claude exports.
 - Share a read-only link to a chat.
 

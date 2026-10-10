@@ -1,24 +1,29 @@
 // Admin: groups of people, MCP servers, and the search service behind web search for models
 // without their own.
-import { Hono } from "hono";
-import { requireAdmin, type AppEnv } from "../auth.ts";
+import { Hono, type Context } from "hono";
+import { originOf, requireAdmin, type AppEnv } from "../auth.ts";
 import { MAX_DOLLARS } from "../allowance.ts";
 import { tx } from "../chat-store.ts";
 import { encryptSecret } from "../crypto.ts";
 import { audit, db, getSettings, nowIso, saveSearchKey, saveSettings, searchKeySealed, SEARCH_PROVIDERS } from "../db.ts";
 import {
+  disconnectEveryone,
+  fetchWithHeaders,
   forget,
   getServer,
   headersOf,
   listTools,
   mcpErrorMessage,
   offToolsOf,
+  parseHeaders,
   refreshServer,
   runsByDefault,
   runsUnasked,
+  sweepCredentials,
   toolsOf,
   type McpServerRow,
 } from "../mcp.ts";
+import { accountState, adminClient, AUTH_MODES, callbackUrl, ownHeaders, personal, saveCredential, type AuthMode } from "../mcp-auth.ts";
 import { SEARCH_SERVICES, webSearch } from "../web-tools.ts";
 
 export const adminToolRoutes = new Hono<AppEnv>();
@@ -94,6 +99,8 @@ function saveGroup(id: number | null, body: Record<string, unknown>, adminId: nu
     replace("group_mcp", "server_id", servers, body.serverIds);
     return gid!;
   });
+  // Someone who left a group may have lost a server their own account was connected to.
+  sweepCredentials();
   audit(adminId, id == null ? "add_group" : "edit_group", name);
   return { group: groupOut(db.prepare("SELECT * FROM user_groups WHERE id = ?").get(groupId) as GroupRow) };
 }
@@ -112,14 +119,28 @@ adminToolRoutes.delete("/groups/:id", (c) => {
   const g = db.prepare("SELECT * FROM user_groups WHERE id = ?").get(Number(c.req.param("id"))) as GroupRow | undefined;
   if (!g) return c.json({ error: "This group doesn't exist" }, 404);
   db.prepare("DELETE FROM user_groups WHERE id = ?").run(g.id);
+  sweepCredentials();
   audit(c.var.user!.id, "delete_group", g.name);
   return c.json({ ok: true });
 });
 
 // ── MCP servers ─────────────────────────────────────────────────────
 
-function serverOut(s: McpServerRow) {
+/** Who has connected their own account to a server, and how it stands: never what with. */
+function peopleOn(serverId: number) {
+  const rows = db
+    .prepare(
+      `SELECT u.email, c.status, c.connected_at, c.used_at FROM mcp_credentials c JOIN users u ON u.id = c.user_id
+       WHERE c.server_id = ? ORDER BY lower(u.email)`,
+    )
+    .all(serverId) as { email: string; status: string; connected_at: string; used_at: string | null }[];
+  return rows.map((r) => ({ email: r.email, status: r.status === "ok" ? "connected" : "expired", connectedAt: r.connected_at, usedAt: r.used_at }));
+}
+
+/** A server as the admin pages show it, to this admin, who reached the site at `origin`. */
+function serverOut(s: McpServerRow, viewer: { id: number; origin: string }) {
   const headers = headersOf(s);
+  const client = adminClient(s);
   return {
     id: s.id,
     name: s.name,
@@ -140,26 +161,54 @@ function serverOut(s: McpServerRow) {
     /** The tools that run as soon as the model calls them; the rest ask the person first. */
     runTools: toolsOf(s).filter((t) => runsUnasked(s, t.name)).map((t) => t.name),
     sendUser: !!s.send_user,
+    /** Whose account calls act with: shared (the headers), or each person's own, signed in (oauth) or pasted (token). */
+    authMode: s.auth_mode as AuthMode,
+    tokenHint: s.token_hint ?? "",
+    /** A client an admin registered with the server's sign-in service: its ID, and whether it has a secret (never shown). */
+    clientId: client?.client_id ?? "",
+    hasClientSecret: !!client?.client_secret,
+    /** The address to register as its callback, where the sign-in service needs one registering. */
+    callbackUrl: callbackUrl(viewer.origin),
+    /** On each person's own account: who has connected theirs. */
+    people: personal(s) ? peopleOn(s.id) : [],
+    /** On each person's own account: where this admin's own stands (it's what lists the tools). */
+    yours: personal(s) ? (accountState(s, viewer.id) ?? "connected") : null,
     groupIds: idsOf("SELECT group_id AS v FROM group_mcp WHERE server_id = ?", s.id),
     checkedAt: s.checked_at,
     error: s.error,
   };
 }
 
-/** "Authorization: Bearer abc" lines, or a token alone (sent as a bearer token). */
-function parseHeaders(raw: unknown): Record<string, string> | { error: string } {
-  const text = String(raw ?? "").trim();
-  if (!text) return {};
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.length === 1 && !lines[0].includes(":")) return { Authorization: `Bearer ${lines[0]}` };
-  const out: Record<string, string> = {};
-  for (const line of lines) {
-    const at = line.indexOf(":");
-    const name = line.slice(0, at).trim();
-    if (at < 1 || !/^[A-Za-z0-9-]+$/.test(name)) return { error: "Write each header on its own line, like Authorization: Bearer abc123" };
-    out[name] = line.slice(at + 1).trim();
-  }
-  return out;
+const viewerOf = (c: Context<AppEnv>) => ({ id: c.var.user!.id, origin: originOf(c) });
+
+/** The way of signing in a form chose (undefined: it didn't say; null: not one there is). */
+function modeOf(raw: unknown): AuthMode | null | undefined {
+  if (raw === undefined) return undefined;
+  return AUTH_MODES.find((m) => m === raw) ?? null;
+}
+
+/**
+ * The client an admin registered with a server's sign-in service, sealed for keeping: a new ID
+ * (with its secret), the one kept (an empty secret keeps the saved one while the ID stays), or none.
+ */
+function clientFrom(body: Record<string, unknown>, before: McpServerRow | null): string | null | { error: string } {
+  if (body.clientId === undefined) return before?.oauth_client ?? null;
+  const id = String(body.clientId ?? "").trim();
+  if (!id) return null;
+  if (id.length > 500) return { error: "That client ID is too long" };
+  const kept = before ? adminClient(before) : null;
+  const secret = String(body.clientSecret ?? "").trim() || (kept?.client_id === id ? kept.client_secret : undefined);
+  if (secret && secret.length > 2000) return { error: "That client secret is too long" };
+  return encryptSecret(JSON.stringify(secret ? { client_id: id, client_secret: secret } : { client_id: id }));
+}
+
+const hintFrom = (raw: unknown) => String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, 300) || null;
+
+/** The admin's own token for a server on pasted tokens, from a form: null when none was given. */
+function ownTokenFrom(raw: unknown): Record<string, string> | null | { error: string } {
+  const headers = parseHeaders(raw);
+  if ("error" in headers) return { error: headers.error as string };
+  return Object.keys(ownHeaders(headers)).length ? ownHeaders(headers) : null;
 }
 
 function parseServerUrl(raw: unknown): string | null {
@@ -173,39 +222,54 @@ function parseServerUrl(raw: unknown): string | null {
 
 adminToolRoutes.get("/mcp", (c) => {
   const rows = db.prepare("SELECT * FROM mcp_servers ORDER BY id").all() as McpServerRow[];
-  return c.json({ servers: rows.map(serverOut) });
+  return c.json({ servers: rows.map((s) => serverOut(s, viewerOf(c))) });
 });
 
-/** Adds a server once it answers: its tools are listed and kept. */
+/**
+ * Adds a server once it answers: its tools are listed and kept. A shared one is asked with its
+ * headers, one on pasted tokens with the admin's own token. One people sign in to waits for the
+ * admin to sign in (the form goes on to the server's sign-in page), which lists them then.
+ */
 adminToolRoutes.post("/mcp", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const name = String(body.name ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
   if (!name) return c.json({ error: "Give the server a name, like GitHub" }, 400);
   const url = parseServerUrl(body.url);
   if (!url) return c.json({ error: "Type the server's address, starting with https://" }, 400);
-  const headers = parseHeaders(body.headers);
+  const mode = modeOf(body.authMode) ?? (body.authMode === undefined ? "shared" : null);
+  if (!mode) return c.json({ error: "Choose whose account it uses" }, 400);
+  const headers = mode === "shared" ? parseHeaders(body.headers) : {};
   if ("error" in headers) return c.json(headers, 400);
-  let tools;
-  try {
-    tools = await listTools(url, headers);
-  } catch (err) {
-    return c.json({ error: mcpErrorMessage(err) }, 400);
+  const own = mode === "token" ? ownTokenFrom(body.ownToken) : null;
+  if (own && "error" in own) return c.json(own, 400);
+  if (mode === "token" && !own) return c.json({ error: "Paste a token of your own, so it can list its tools" }, 400);
+  const client = mode === "oauth" ? clientFrom(body, null) : null;
+  if (client && typeof client === "object") return c.json(client, 400);
+  let tools: Awaited<ReturnType<typeof listTools>> = [];
+  if (mode !== "oauth") {
+    try {
+      tools = await listTools(url, own ? fetchWithHeaders(own as Record<string, string>) : (headers as Record<string, string>));
+    } catch (err) {
+      return c.json({ error: mcpErrorMessage(err) }, 400);
+    }
   }
   const groups: number[] = Array.isArray(body.groupIds) ? body.groupIds.map(Number) : [];
   const id = Number(
     db
       .prepare(
-        "INSERT INTO mcp_servers (name, url, encrypted_headers, enabled, shared, tools, off_tools, send_user, checked_at, created_at) VALUES (?, ?, ?, 1, ?, ?, '[]', ?, ?, ?)",
+        `INSERT INTO mcp_servers (name, url, encrypted_headers, enabled, shared, tools, off_tools, send_user, auth_mode, token_hint, oauth_client, checked_at, created_at)
+         VALUES (?, ?, ?, 1, ?, ?, '[]', ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         name, url, Object.keys(headers).length ? encryptSecret(JSON.stringify(headers)) : null, body.shared === false ? 0 : 1, JSON.stringify(tools),
-        body.sendUser ? 1 : 0, nowIso(), nowIso(),
+        body.sendUser ? 1 : 0, mode, mode === "token" ? hintFrom(body.tokenHint) : null, client, mode === "oauth" ? null : nowIso(), nowIso(),
       )
       .lastInsertRowid,
   );
+  if (own) saveCredential(id, c.var.user!.id, { kind: "token", headers: own as Record<string, string> });
   setServerGroups(id, groups);
   audit(c.var.user!.id, "add_mcp", name);
-  return c.json({ server: serverOut(getServer(id)!) });
+  return c.json({ server: serverOut(getServer(id)!, viewerOf(c)) });
 });
 
 function setServerGroups(id: number, groups: number[]) {
@@ -227,7 +291,11 @@ function modesFor(tools: ReturnType<typeof toolsOf>, runTools: string[]): Record
   return modes;
 }
 
-/** Changes a server. A new address or headers is checked before it's kept. */
+/**
+ * Changes a server. A new address, headers or own token is checked before it's kept. A new
+ * address, or a new way of signing in, forgets everyone's own accounts on it: they were for what
+ * it was before, so people connect again.
+ */
 adminToolRoutes.patch("/mcp/:id", async (c) => {
   const s = getServer(Number(c.req.param("id")));
   if (!s) return c.json({ error: "This server doesn't exist" }, 404);
@@ -236,18 +304,29 @@ adminToolRoutes.patch("/mcp/:id", async (c) => {
   if (!name) return c.json({ error: "Give the server a name" }, 400);
   const url = body.url === undefined ? s.url : parseServerUrl(body.url);
   if (!url) return c.json({ error: "Type the server's address, starting with https://" }, 400);
-  // Headers left out (or empty with keepHeaders) stay as they are.
-  let sealed = s.encrypted_headers;
-  if (body.headers !== undefined && !(body.keepHeaders && !String(body.headers).trim())) {
+  const mode = modeOf(body.authMode) ?? (body.authMode === undefined ? (s.auth_mode as AuthMode) : null);
+  if (!mode) return c.json({ error: "Choose whose account it uses" }, 400);
+  const reconnect = personal(s) && (mode !== s.auth_mode || url !== s.url);
+  // Headers left out (or empty with keepHeaders) stay as they are. Only a shared server keeps any.
+  let sealed = mode === "shared" ? s.encrypted_headers : null;
+  if (mode === "shared" && body.headers !== undefined && !(body.keepHeaders && !String(body.headers).trim())) {
     const headers = parseHeaders(body.headers);
     if ("error" in headers) return c.json(headers, 400);
     sealed = Object.keys(headers).length ? encryptSecret(JSON.stringify(headers)) : null;
   }
+  const own = mode === "token" ? ownTokenFrom(body.ownToken) : null;
+  if (own && "error" in own) return c.json(own, 400);
+  if (mode === "token" && !own && url !== s.url) return c.json({ error: "Paste a token of your own for the new address, so it can list its tools" }, 400);
+  const client = mode === "oauth" ? clientFrom(body, s) : null;
+  if (client && typeof client === "object") return c.json(client, 400);
   let tools = s.tools;
   let error = s.error;
-  if (url !== s.url || sealed !== s.encrypted_headers) {
+  const sharedChanged = mode === "shared" && (s.auth_mode !== "shared" || url !== s.url || sealed !== s.encrypted_headers);
+  if (sharedChanged || own) {
     try {
-      tools = JSON.stringify(await listTools(url, sealed ? headersOf({ encrypted_headers: sealed }) : {}));
+      tools = JSON.stringify(
+        await listTools(url, own ? fetchWithHeaders(own as Record<string, string>) : sealed ? headersOf({ encrypted_headers: sealed }) : {}),
+      );
       error = null;
     } catch (err) {
       return c.json({ error: mcpErrorMessage(err) }, 400);
@@ -258,25 +337,44 @@ adminToolRoutes.patch("/mcp/:id", async (c) => {
   const enabled = body.enabled === undefined ? s.enabled : body.enabled ? 1 : 0;
   const shared = body.shared === undefined ? s.shared : body.shared ? 1 : 0;
   const sendUser = body.sendUser === undefined ? s.send_user : body.sendUser ? 1 : 0;
+  const hint = mode !== "token" ? null : body.tokenHint === undefined ? s.token_hint : hintFrom(body.tokenHint);
+  // Parley's own registration was made for the server's sign-in service as it was.
+  const registration = mode === "oauth" && s.auth_mode === "oauth" && url === s.url ? s.oauth_registration : null;
+  if (reconnect) disconnectEveryone(s.id);
   db.prepare(
-    "UPDATE mcp_servers SET name = ?, url = ?, encrypted_headers = ?, tools = ?, off_tools = ?, tool_modes = ?, enabled = ?, shared = ?, send_user = ?, error = ?, checked_at = ? WHERE id = ?",
-  ).run(name, url, sealed, tools, offTools, toolModes, enabled, shared, sendUser, error, nowIso(), s.id);
+    `UPDATE mcp_servers SET name = ?, url = ?, encrypted_headers = ?, tools = ?, off_tools = ?, tool_modes = ?, enabled = ?, shared = ?, send_user = ?,
+       auth_mode = ?, token_hint = ?, oauth_client = ?, oauth_registration = ?, error = ?, checked_at = ? WHERE id = ?`,
+  ).run(name, url, sealed, tools, offTools, toolModes, enabled, shared, sendUser, mode, hint, client, registration, error, nowIso(), s.id);
+  if (own) saveCredential(s.id, c.var.user!.id, { kind: "token", headers: own as Record<string, string> });
   if (Array.isArray(body.groupIds)) setServerGroups(s.id, body.groupIds.map(Number));
   forget(s.id);
+  // Shared again, or open to fewer people: accounts nobody may use now are forgotten.
+  sweepCredentials();
   audit(c.var.user!.id, "edit_mcp", name);
-  return c.json({ server: serverOut(getServer(s.id)!) });
+  return c.json({ server: serverOut(getServer(s.id)!, viewerOf(c)) });
 });
 
 /** Asks the server for its tools again (new ones join new chats). */
 adminToolRoutes.post("/mcp/:id/refresh", async (c) => {
   const s = getServer(Number(c.req.param("id")));
   if (!s) return c.json({ error: "This server doesn't exist" }, 404);
-  return c.json({ server: serverOut(await refreshServer(s)) });
+  return c.json({ server: serverOut(await refreshServer(s, c.var.user!.id), viewerOf(c)) });
+});
+
+/** Forgets everyone's own accounts on a server, so each person connects again. */
+adminToolRoutes.post("/mcp/:id/disconnect", (c) => {
+  const s = getServer(Number(c.req.param("id")));
+  if (!s) return c.json({ error: "This server doesn't exist" }, 404);
+  disconnectEveryone(s.id);
+  audit(c.var.user!.id, "disconnect_mcp", s.name);
+  return c.json({ server: serverOut(getServer(s.id)!, viewerOf(c)) });
 });
 
 adminToolRoutes.delete("/mcp/:id", (c) => {
   const s = getServer(Number(c.req.param("id")));
   if (!s) return c.json({ error: "This server doesn't exist" }, 404);
+  // First, so each sign-in service hears its tokens are done with.
+  disconnectEveryone(s.id);
   db.prepare("DELETE FROM mcp_servers WHERE id = ?").run(s.id);
   forget(s.id);
   audit(c.var.user!.id, "delete_mcp", s.name);

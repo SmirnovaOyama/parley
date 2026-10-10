@@ -13,6 +13,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { deflateRawSync } from "node:zlib";
 import { Agent, fetch as undiciFetch } from "undici";
+import { mcpServer } from "./helpers/mcp-server.ts";
 import { chunk, completionStream, json, mockServer, modelList, usageChunk, type MockServer } from "./helpers/mock-server.ts";
 import { zipOf } from "./helpers/zip.ts";
 
@@ -410,5 +411,99 @@ describe("api", () => {
     const bomb = zipOf("conversations.json", deflateRawSync(Buffer.alloc(1024 * 1024)), 8, 0xffffffff);
     const res = await admin.request("PUT", "/api/import", bomb);
     assert.deepEqual({ status: res.status, body: await res.json() }, { status: 400, body: { error: "That export is over 200 MB unpacked" } });
+  });
+
+  describe("MCP servers on each person's own account", () => {
+    let tokens: Awaited<ReturnType<typeof mcpServer>>;
+    let signIns: Awaited<ReturnType<typeof mcpServer>>;
+
+    before(async () => {
+      tokens = await mcpServer({ auth: "token" });
+      tokens.accept("admins-token");
+      tokens.accept("members-token");
+      signIns = await mcpServer({ auth: "oauth" });
+    });
+    after(async () => {
+      await tokens?.close();
+      await signIns?.close();
+    });
+
+    /** A GET as this person whose redirect isn't followed: where it pointed. */
+    async function redirectFor(visitor: Visitor, path: string) {
+      const res = await fetch(server.url + path, { headers: visitor.cookie ? { cookie: visitor.cookie } : {}, redirect: "manual" });
+      assert.equal(res.status, 302, await res.text());
+      return res.headers.get("location");
+    }
+
+    /** Signs in through the server's sign-in page as the browser would, and says where Parley sent the person back to. */
+    async function signIn(visitor: Visitor, serverId: number, body: Record<string, unknown> = {}) {
+      const start = await visitor.json("POST", `/api/mcp/connections/${serverId}/sign-in`, body);
+      assert.equal(start.status, 200, JSON.stringify(start.body));
+      const back = new URL((await fetch(start.body.url, { redirect: "manual" })).headers.get("location")!);
+      assert.equal(back.origin, server.url, "it comes back to the address the person used");
+      return redirectFor(visitor, back.pathname + back.search);
+    }
+
+    test("on pasted tokens, the admin's own lists the tools, each person adds theirs, and nobody sees any", async () => {
+      const draft = { name: "Notes", url: tokens.url, authMode: "token", tokenHint: "Make one under Settings, then Tokens" };
+      assert.deepEqual(await admin.json("POST", "/api/admin/mcp", draft), { status: 400, body: { error: "Paste a token of your own, so it can list its tools" } });
+      const added = await admin.json("POST", "/api/admin/mcp", { ...draft, ownToken: "admins-token" });
+      assert.equal(added.status, 200, JSON.stringify(added.body));
+      const id = added.body.server.id;
+      const { authMode, tools, yours, headerNames, people } = added.body.server;
+      assert.deepEqual([authMode, tools.length, yours, headerNames, people.map((p: { email: string }) => p.email)], ["token", 4, "connected", [], ["admin@example.com"]]);
+
+      assert.deepEqual((await member.json("GET", "/api/mcp/connections")).body.connections, [
+        { id, name: "Notes", mode: "token", host: new URL(tokens.url).host, hint: draft.tokenHint, status: "missing", connectedAt: null, usedAt: null },
+      ]);
+      assert.deepEqual(await member.json("PUT", `/api/mcp/connections/${id}`, { token: "not-a-token" }), { status: 400, body: { error: "The server turned that token down" } });
+      assert.equal((await member.json("PUT", `/api/mcp/connections/${id}`, { token: "members-token" })).body.connection.status, "connected");
+
+      const listed = (await admin.json("GET", "/api/admin/mcp")).body;
+      const seen = listed.servers.find((x: { id: number }) => x.id === id);
+      assert.deepEqual(seen.people.map((p: { email: string; status: string }) => [p.email, p.status]), [["admin@example.com", "connected"], ["member@example.com", "connected"]]);
+      assert.doesNotMatch(JSON.stringify(listed), /admins-token|members-token/);
+
+      assert.equal((await member.json("DELETE", `/api/mcp/connections/${id}`)).body.connection.status, "missing");
+      await member.json("PUT", `/api/mcp/connections/${id}`, { token: "members-token" });
+      assert.deepEqual((await admin.json("POST", `/api/admin/mcp/${id}/disconnect`, {})).body.server.people, []);
+      assert.equal((await member.json("GET", "/api/mcp/connections")).body.connections[0].status, "missing");
+      // Nobody signs in to a server on pasted tokens.
+      assert.equal((await member.json("POST", `/api/mcp/connections/${id}/sign-in`, {})).status, 404);
+      assert.equal((await admin.json("DELETE", `/api/admin/mcp/${id}`)).status, 200);
+    });
+
+    test("signing in, the admin's own lists the tools, and each person comes back to where they started", async () => {
+      const added = await admin.json("POST", "/api/admin/mcp", { name: "Signed", url: signIns.url, authMode: "oauth" });
+      assert.equal(added.status, 200, JSON.stringify(added.body));
+      const id = added.body.server.id;
+      assert.deepEqual([added.body.server.tools, added.body.server.yours, added.body.server.callbackUrl], [[], "missing", `${server.url}/api/mcp/callback`]);
+
+      signIns.auth.signInAs = "the admin";
+      assert.equal(await signIn(admin, id, { from: "admin" }), `/admin/mcp/${id}?result=connected`);
+      const listed = (await admin.json("GET", "/api/admin/mcp")).body.servers.find((x: { id: number }) => x.id === id);
+      assert.deepEqual([listed.tools.length, listed.yours, listed.error], [4, "connected", null]);
+
+      // Only an admin comes back to the server's page.
+      signIns.auth.signInAs = "the member";
+      assert.equal(await signIn(member, id, { from: "admin" }), `/account/connections?server=${id}&result=connected`);
+      assert.equal((await member.json("GET", "/api/mcp/connections")).body.connections.find((x: { id: number }) => x.id === id).status, "connected");
+
+      signIns.auth.deny = true;
+      assert.equal(await signIn(member, id), `/account/connections?server=${id}&result=denied`);
+      signIns.auth.deny = false;
+
+      // A sign-in nobody started (or someone else did), or without an account, goes nowhere.
+      assert.equal(await redirectFor(member, "/api/mcp/callback?state=made-up&code=x"), "/account/connections?result=expired");
+      assert.equal(await redirectFor(new Visitor(), "/api/mcp/callback?state=made-up&code=x"), "/login");
+      const theirs = await admin.json("POST", `/api/mcp/connections/${id}/sign-in`, { from: "admin" });
+      const back = new URL((await fetch(theirs.body.url, { redirect: "manual" })).headers.get("location")!);
+      assert.equal(await redirectFor(member, back.pathname + back.search), "/account/connections?result=expired");
+
+      // A new address forgets everyone's sign-in: they were for the old one.
+      const moved = await admin.json("PATCH", `/api/admin/mcp/${id}`, { url: `${signIns.url}?v=2` });
+      assert.deepEqual([moved.body.server.people, moved.body.server.yours], [[], "missing"]);
+      assert.equal((await admin.json("DELETE", `/api/admin/mcp/${id}`)).status, 200);
+    });
   });
 });

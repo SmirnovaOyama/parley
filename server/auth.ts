@@ -75,6 +75,19 @@ export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
 };
 
 /**
+ * The address the person reached the site at: what their browser said it sent from (the guard
+ * below has checked it), else what the request was for, as a proxy in front passed it on.
+ */
+export function originOf(c: Context): string {
+  const origin = c.req.header("origin");
+  if (origin && origin !== "null") return origin;
+  const url = new URL(c.req.url);
+  const host = c.req.header("x-forwarded-host")?.split(",")[0].trim() || c.req.header("host") || url.host;
+  const proto = c.req.header("x-forwarded-proto")?.split(",")[0].trim() || url.protocol.replace(/:$/, "");
+  return `${proto}://${host}`;
+}
+
+/**
  * Cross-site request guard. Session cookies are SameSite=Lax, and every state-changing request
  * must be JSON (which a cross-site form can't send without a CORS preflight we never allow).
  * A mismatched Origin is rejected outright.

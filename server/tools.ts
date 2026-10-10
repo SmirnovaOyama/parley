@@ -11,7 +11,8 @@
 import type { Answer, Ask } from "./asks.ts";
 import type { MessageRow } from "./chat-store.ts";
 import { chatBases, searchKnowledge, usableBases } from "./knowledge.ts";
-import { callTool, canUseServer, declareTools, getServer, offToolsOf, runsUnasked, serversFor } from "./mcp.ts";
+import { accountMessage, callTool, canUseServer, declareTools, getServer, offToolsOf, runsUnasked, serversFor, type McpServerRow } from "./mcp.ts";
+import { accountState, type AccountState } from "./mcp-auth.ts";
 import { cleanMemory, deleteMemory, keptMemory, memoryFull, memoryOn, saveMemory } from "./memory.ts";
 import type { Source, ToolCall, ToolOutcome, ToolSpec } from "./providers/types.ts";
 import { db } from "./db.ts";
@@ -49,7 +50,13 @@ export function codeOnSite(): boolean {
 export type DeclaredTool = ToolSpec & { mcp?: { server: number; tool: string } };
 
 /** One use of a tool in a reply, shown under it: what happened, in words. */
-export type ToolUse = { kind: "memory" | "knowledge" | "page" | "mcp"; text: string; error?: boolean };
+export type ToolUse = {
+  kind: "memory" | "knowledge" | "page" | "mcp";
+  text: string;
+  error?: boolean;
+  /** An MCP tool that needed the person's own account on its server connected first: the line links to where they connect it. */
+  connect?: boolean;
+};
 
 export const MEMORY_TOOL: ToolSpec = {
   name: "memory",
@@ -162,7 +169,8 @@ export function chatContext(branch: MessageRow[]): ChatContext {
     }
     webAddresses(m.web).forEach(keep);
     listOf(m.page_urls).forEach(keep);
-    if (m.web || (listOf(m.tools) as ToolUse[]).some((u) => u.kind !== "memory")) outside = true;
+    // (A tool that didn't run for want of the person's account brought nothing in.)
+    if (m.web || (listOf(m.tools) as ToolUse[]).some((u) => u.kind !== "memory" && !u.connect)) outside = true;
   }
   const asked = branch.filter((m) => m.role === "user").map((m) => m.id);
   if (!outside && asked.length) {
@@ -275,8 +283,21 @@ export function chatToolkit(opts: ToolkitOptions) {
         content: `${tool} on ${getServer(serverId)?.name ?? "a connected service"} isn't available any more. Tell the person if they were counting on it`,
         isError: true,
       });
+      /** The tool didn't run for want of the person's own account on the server: the reply's line says where to connect it. */
+      const needsAccount = (s: McpServerRow, state: AccountState): ToolOutcome => {
+        uses.push({
+          kind: "mcp",
+          text: state === "missing" ? `Couldn't use ${tool} on ${s.name} without your own account there` : `Couldn't use ${tool} on ${s.name}, as your account there stopped working`,
+          error: true,
+          connect: true,
+        });
+        return { content: accountMessage(s, state), isError: true };
+      };
       let server = available();
       if (!server) return gone();
+      // Before asking anything: a call that can't go ahead isn't worth an OK.
+      const account = accountState(server, opts.userId);
+      if (account) return needsAccount(server, account);
       if (!runsUnasked(server, tool)) {
         const no = await askFirst(
           call,
@@ -288,8 +309,9 @@ export function chatToolkit(opts: ToolkitOptions) {
         if (!server) return gone();
       }
       opts.onStatus("tool", `Using ${server.name}`);
-      const outcome = await callTool(server, opts.userId, tool, input, opts.signal);
+      const { account: lost, ...outcome } = await callTool(server, opts.userId, tool, input, opts.signal);
       if (opts.signal.aborted) return outcome;
+      if (lost) return needsAccount(server, lost);
       tookIn();
       uses.push({ kind: "mcp", text: `Used ${tool} on ${server.name}`, ...(outcome.isError ? { error: true } : {}) });
       return { ...outcome, content: fromOutside(`${tool} on ${server.name}`, outcome.content) };

@@ -280,6 +280,15 @@ function checkUrl(raw: string): URL {
   return url;
 }
 
+/**
+ * fetch for an address a remote service handed this server, rather than one an admin chose (an
+ * MCP server's sign-in service, say): http or https on the public web only, checked again at
+ * every connection, as pages are.
+ */
+export async function fetchOutside(url: string | URL, init?: RequestInit): Promise<Response> {
+  return (await fetch(checkUrl(String(url)), { ...(init as object), dispatcher: pageAgent })) as unknown as Response;
+}
+
 /** The words of a page's <title>, found by scanning forward only (see htmlText). */
 function titleOf(html: string): string {
   const open = /<title[^<>]*>/i.exec(html);

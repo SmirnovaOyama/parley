@@ -1,14 +1,25 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
 import { BusyButton } from "../components/BusyButton.tsx";
-import { Callout, Spinner } from "../components/Feedback.tsx";
+import { Advisory, Callout, Spinner } from "../components/Feedback.tsx";
 import { LineField } from "../components/LineField.tsx";
 import { HAND_LETTERED, ParleyFlag, Wordmark } from "../icons/Brand.tsx";
-import { api } from "../lib/api.ts";
+import { Icon } from "../icons/Icon.tsx";
+import { api, ApiError } from "../lib/api.ts";
 import { APP_NAME } from "../lib/brand.ts";
 import { useSession } from "../lib/session.tsx";
 
-type AuthState = { needsSetup: boolean; allowSignup: boolean };
+/** passwordReset: the server can email a link to set a new password. */
+type AuthState = { needsSetup: boolean; allowSignup: boolean; passwordReset: boolean };
+const CLOSED: AuthState = { needsSetup: false, allowSignup: false, passwordReset: false };
+
+function useAuthState(): AuthState | null {
+  const [state, setState] = useState<AuthState | null>(null);
+  useEffect(() => {
+    api.get<AuthState>("/auth/state").then(setState, () => setState(CLOSED));
+  }, []);
+  return state;
+}
 
 /** Where to go after signing in: a page on this site only (never another origin). */
 function safeNext(next: string | null): string | null {
@@ -21,24 +32,14 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const [params] = useSearchParams();
   const next = safeNext(params.get("next"));
   const keepNext = next ? `?next=${encodeURIComponent(next)}` : "";
-  const [state, setState] = useState<AuthState | null>(null);
+  const state = useAuthState();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    api.get<AuthState>("/auth/state").then(setState, () => setState({ needsSetup: false, allowSignup: false }));
-  }, []);
-
   if (!loading && user) return <Navigate to={next ?? "/chat"} replace />;
-  if (!state) {
-    return (
-      <div className="boot">
-        <Spinner />
-      </div>
-    );
-  }
+  if (!state) return <Booting />;
 
   const signup = mode === "signup" || state.needsSetup;
   if (signup && !state.needsSetup && !state.allowSignup) {
@@ -104,19 +105,258 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
         </BusyButton>
       </form>
       {!state.needsSetup && (
-        <p className="auth-switch text-muted">
+        <div className="auth-links text-muted">
+          {!signup && (
+            <p>
+              {state.passwordReset ? (
+                // The address typed so far comes along, so it needn't be typed again.
+                <Link to="/forgot-password" state={{ email: email.trim() }}>
+                  Forgot your password?
+                </Link>
+              ) : (
+                "Forgot your password? Ask an admin of this site"
+              )}
+            </p>
+          )}
           {signup ? (
-            <>
+            <p>
               Already have an account? <Link to={`/login${keepNext}`}>Sign in</Link>
-            </>
+            </p>
           ) : state.allowSignup ? (
-            <>
+            <p>
               New here? <Link to={`/signup${keepNext}`}>Create an account</Link>
-            </>
+            </p>
           ) : null}
-        </p>
+        </div>
       )}
     </AuthFrame>
+  );
+}
+
+/**
+ * Asking for a link to set a new password (/forgot-password). The answer is the same whether or
+ * not an account uses the address, so the page says what happens if one does.
+ */
+export function ForgotPasswordPage() {
+  const { user, loading } = useSession();
+  const location = useLocation();
+  const state = useAuthState();
+  const [email, setEmail] = useState(() => (location.state as { email?: string } | null)?.email ?? "");
+  const [sent, setSent] = useState<{ to: string; inLog: boolean } | null>(null);
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // The "Send again" countdown.
+  useEffect(() => {
+    if (!sent || resendAt <= Date.now()) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [sent, resendAt]);
+
+  if (!loading && user) return <Navigate to="/chat" replace />;
+  if (!state) return <Booting />;
+
+  const send = async (to: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ resendIn: number; mail: "smtp" | "dev" }>("/auth/forgot", { email: to });
+      setSent({ to: to.trim(), inLog: r.mail === "dev" });
+      setResendAt(Date.now() + r.resendIn * 1000);
+      setNow(Date.now());
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const wait = Math.max(0, Math.ceil((resendAt - now) / 1000));
+  const backToSignIn = (
+    <p className="auth-links text-muted">
+      <Link to="/login">Back to sign in</Link>
+    </p>
+  );
+
+  if (!state.passwordReset) {
+    return (
+      <AuthFrame title="Forgot your password?">
+        <p className="text-muted">This site can't send email, so ask an admin of this site to reset it</p>
+        {backToSignIn}
+      </AuthFrame>
+    );
+  }
+
+  return (
+    <AuthFrame title="Forgot your password?">
+      {sent ? (
+        <>
+          <p className="auth-sent">
+            <Icon name="mail" size={18} />
+            <span>
+              If an account uses <strong>{sent.to}</strong>, we've emailed it a link to set a new password. The link works for 30 minutes
+              {sent.inLog && " (no email server is set up, so it's in the server log)"}
+            </span>
+          </p>
+          {error && <Advisory>{error}</Advisory>}
+          <div className="form-page-actions">
+            <button type="button" className="btn-secondary" disabled={busy || wait > 0} onClick={() => void send(sent.to)}>
+              {/* As wide as its longest wording all along, so the countdown never moves it. */}
+              <span className="swap tabular">
+                <span className="reserve" aria-hidden="true">
+                  Send again in 00s
+                </span>
+                <span>{wait > 0 ? `Send again in ${wait}s` : "Send again"}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => {
+                setEmail(sent.to);
+                setError(null);
+                setSent(null);
+              }}
+            >
+              Use another address
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-muted">Type the email you sign in with, and we'll send you a link to set a new password</p>
+          <form
+            className="auth-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void send(email);
+            }}
+            noValidate
+          >
+            <LineField
+              id="email"
+              label="Email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              error={error}
+              required
+            />
+            <BusyButton className="btn-primary btn-block" type="submit" busy={busy} disabled={!email.trim()}>
+              Send link
+            </BusyButton>
+          </form>
+        </>
+      )}
+      {backToSignIn}
+    </AuthFrame>
+  );
+}
+
+type ResetLink = { email: string } | { dead: string } | { off: true };
+const DEAD_LINK = "It has expired, been used, or been replaced by a newer one. Each link works once, for 30 minutes";
+
+/**
+ * Setting a new password from an emailed link (/reset-password#token). The token is after the #,
+ * so it never reaches the server's logs; the page checks it first, to say straight away when the
+ * link no longer works. Setting the password signs out every other device and signs in this one.
+ */
+export function ResetPasswordPage() {
+  const { refreshUser } = useSession();
+  const navigate = useNavigate();
+  const token = useLocation().hash.slice(1);
+  const [link, setLink] = useState<ResetLink | null>(null);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // A link that's used up, replaced or expired answers 410, and an account that's off 403.
+  const linkGone = (err: unknown): ResetLink | null =>
+    !(err instanceof ApiError) ? null : err.status === 410 ? { dead: DEAD_LINK } : err.status === 403 ? { off: true } : null;
+
+  useEffect(() => {
+    api.post<{ email: string }>("/auth/reset/check", { token }).then(setLink, (err) => setLink(linkGone(err) ?? { dead: (err as Error).message }));
+  }, [token]);
+
+  if (!link) return <Booting />;
+
+  if ("off" in link) {
+    return (
+      <AuthFrame title="This account is turned off">
+        <p className="text-muted">Its password can't be reset while it's off. Ask an admin of this site</p>
+        <p className="auth-links text-muted">
+          <Link to="/login">Back to sign in</Link>
+        </p>
+      </AuthFrame>
+    );
+  }
+  if ("dead" in link) {
+    return (
+      <AuthFrame title="This link doesn't work">
+        <p className="text-muted">{link.dead}</p>
+        <Link className="btn-primary btn-block" to="/forgot-password">
+          Ask for a new link
+        </Link>
+        <p className="auth-links text-muted">
+          <Link to="/login">Back to sign in</Link>
+        </p>
+      </AuthFrame>
+    );
+  }
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post("/auth/reset", { token, password });
+      await refreshUser();
+      navigate("/chat", { replace: true });
+    } catch (err) {
+      const gone = linkGone(err);
+      if (gone) setLink(gone);
+      else setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AuthFrame title="Set a new password">
+      <p className="text-muted">
+        For <strong>{link.email}</strong>. Setting it signs you out on your other devices
+      </p>
+      <form className="auth-form" onSubmit={save} noValidate>
+        {/* Tells a password manager which account the new password is for. */}
+        <input className="visually-hidden" type="email" name="username" autoComplete="username" value={link.email} readOnly tabIndex={-1} aria-hidden="true" />
+        <LineField
+          id="password"
+          label="New password"
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          hint="At least 8 characters"
+          error={error}
+          autoFocus
+          required
+        />
+        <BusyButton className="btn-primary btn-block" type="submit" busy={busy} disabled={!password}>
+          Set password
+        </BusyButton>
+      </form>
+    </AuthFrame>
+  );
+}
+
+function Booting() {
+  return (
+    <div className="boot">
+      <Spinner />
+    </div>
   );
 }
 

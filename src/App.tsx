@@ -2,7 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { AppShell, RequireAdmin } from "./components/AppShell.tsx";
 import { SessionProvider } from "./lib/session.tsx";
 import { AccountPage } from "./pages/AccountPage.tsx";
-import { AuthPage } from "./pages/AuthPage.tsx";
+import { AuthPage, ForgotPasswordPage, ResetPasswordPage } from "./pages/AuthPage.tsx";
 import { BonusPage } from "./pages/BonusPage.tsx";
 import { ChatPage } from "./pages/ChatPage.tsx";
 import { ChatSettingsPage } from "./pages/ChatSettingsPage.tsx";
@@ -34,6 +34,8 @@ export function App() {
         <Routes>
           <Route path="/login" element={<AuthPage mode="login" />} />
           <Route path="/signup" element={<AuthPage mode="signup" />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           {/* Shared chats open on their own page, outside the app, for people without an account too. */}
           <Route path="/share/:token" element={<SharePage />} />
           <Route element={<AppShell />}>

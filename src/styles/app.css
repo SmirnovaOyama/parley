@@ -226,6 +226,10 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
   .is-drawing .brand-stroke, .is-drawing .brand-dot, .is-drawing .brand-wash { animation: none; stroke-dasharray: none; opacity: 1; transform: none; }
 }
 .auth-switch { font-size: 13px; line-height: 18px; }
+.auth-links { display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 18px; }
+.auth-sent { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 22px; }
+.auth-sent .oy-icon { flex: none; margin-top: 2px; color: var(--text-muted); }
+:is(.auth-sent, .auth) strong { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
 .auth-form { display: flex; flex-direction: column; gap: 22px; }
 .auth-form .btn-primary { margin-top: 10px; }
 

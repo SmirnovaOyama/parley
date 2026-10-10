@@ -209,6 +209,37 @@ describe("responses: OpenAI", () => {
     ]);
   });
 
+  test("makes a cited link a marker after the words, however many spaces came before them", async () => {
+    // 200 KB of spaces that words follow took 25 seconds with /[ \t]+$/.
+    const words = `Blue${" ".repeat(200_000)}it is `;
+    const link = "([example.com](https://example.com/?utm_source=openai))";
+    const annotation = { type: "url_citation", start_index: words.length, end_index: words.length + link.length, url: "https://example.com/?utm_source=openai", title: "Example" };
+    answer = () =>
+      responseStream([
+        created,
+        messageItem,
+        textDelta(`${words}${link}.`),
+        { type: "response.output_text.annotation.added", item_id: "msg_1", output_index: 1, content_index: 0, annotation_index: 0, annotation },
+        textDone(`${words}${link}.`),
+        completed(),
+      ]);
+    const started = Date.now();
+    const { result } = await chat(openaiProvider, {});
+    assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+    assert.equal(result.text, `Blue${" ".repeat(200_000)}it is[1](https://example.com/).`);
+    assert.deepEqual(result.sources, [{ url: "https://example.com/", title: "Example" }]);
+  });
+
+  test("keeps a sandbox link's words, and isn't slowed by brackets that never close", async () => {
+    // 200 KB of "[" that nothing closes took 25 seconds when the link's pattern looked past them.
+    const text = `See [the chart](sandbox:/mnt/data/chart.png). ${"[".repeat(200_000)}`;
+    answer = () => responseStream([created, messageItem, textDelta(text), textDone(text), completed()]);
+    const started = Date.now();
+    const { result } = await chat(openaiProvider, {});
+    assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+    assert.equal(result.text, `See the chart. ${"[".repeat(200_000)}`);
+  });
+
   test("names a chat at the model's lowest thinking level", async () => {
     answer = () =>
       json({

@@ -98,8 +98,11 @@ const MAX_FOUND = 10;
 const MAX_HELD = 1000;
 /** OpenAI ends a sandbox after 20 minutes unused. */
 const SANDBOX_IDLE_MS = 20 * 60_000;
-/** A link to a file in the sandbox, which has no address here: the files show as cards under the reply. */
-const SANDBOX_LINK = /!?\[([^\]\n]*)\]\(sandbox:[^)\s]*\)/g;
+/**
+ * A link to a file in the sandbox, which has no address here: the files show as cards under the
+ * reply. Neither part looks past the next "[", so a long run of them takes no longer than its length.
+ */
+const SANDBOX_LINK = /!?\[([^[\]\n]*)\]\(sandbox:[^)\s[]*\)/g;
 
 /** OpenAI tags the pages it links with ?utm_source=openai; the address is kept without it. */
 function cleanUrl(url: string): string {
@@ -223,7 +226,11 @@ function citingWriter(onText: (delta: string) => void) {
         let span = spanOf(raw, start, end, url);
         if (!span && start === end && start >= sent && start <= raw.length) span = { start, end, close: false };
         if (span && span.start >= sent) {
-          out(raw.slice(sent, span.start).replace(/[ \t]+$/, ""));
+          // The spaces before the marker go, found by a loop like safeEnd's: /[ \t]+$/ tries again
+          // from every space in a long run that words follow.
+          let cut = span.start;
+          while (cut > sent && (raw[cut - 1] === " " || raw[cut - 1] === "\t")) cut--;
+          out(raw.slice(sent, cut));
           sent = span.end;
           if (span.close) close = sent;
         } else {

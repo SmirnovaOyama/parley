@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Icon } from "../icons/Icon.tsx";
 import { api, shareUrl, type Share, type SharingMode } from "../lib/api.ts";
 import { longDate } from "../lib/format.ts";
+import { BusyButton } from "./BusyButton.tsx";
 import { LineField } from "./LineField.tsx";
 
 type Props = {
@@ -85,9 +86,9 @@ export function SharePanel({ conversationId, share, upToDate, sharing, busy, emp
         {error && <p className="share-text text-danger">{error}</p>}
         {!empty && (
           <div className="form-page-actions">
-            <button type="button" className="btn-secondary" disabled={working || busy} onClick={() => void create()}>
-              {working ? "Making the link" : stopped ? "Share again" : "Create link"}
-            </button>
+            <BusyButton type="button" className="btn-secondary" busy={working} disabled={busy} onClick={() => void create()}>
+              {stopped ? "Share again" : "Create link"}
+            </BusyButton>
           </div>
         )}
       </div>
@@ -115,8 +116,24 @@ export function SharePanel({ conversationId, share, upToDate, sharing, busy, emp
       />
       <div className="form-page-actions">
         <button type="button" className="btn-secondary" onClick={() => void copy()}>
-          {copied && <Icon name="check" size={16} className="draw-in" />}
-          {copied ? "Copied" : "Copy link"}
+          {/* Sized for both wordings, so "Copied" never nudges Update link aside. */}
+          <span className="swap">
+            <span className="reserve" aria-hidden="true">
+              <Icon name="check" size={16} />
+              Copied
+            </span>
+            <span className="reserve" aria-hidden="true">
+              Copy link
+            </span>
+            {copied ? (
+              <span>
+                <Icon name="check" size={16} className="draw-in" />
+                Copied
+              </span>
+            ) : (
+              <span>Copy link</span>
+            )}
+          </span>
         </button>
         {!upToDate && sharing !== "off" && (
           <button type="button" className="btn-secondary" disabled={working || busy} onClick={() => void create()}>

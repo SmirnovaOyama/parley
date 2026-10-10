@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Icon } from "../icons/Icon.tsx";
-import type { Attachment, Message } from "../lib/api.ts";
+import { Icon, type IconName } from "../icons/Icon.tsx";
+import type { Attachment, Message, ToolUse } from "../lib/api.ts";
 import { dateTime, fileSize } from "../lib/format.ts";
 import { EditFiles, MessageFiles } from "./Attachments.tsx";
 import { Advisory, BusyMark } from "./Feedback.tsx";
@@ -11,8 +11,8 @@ const Markdown = lazy(() => import("./Markdown.tsx").then((m) => ({ default: m.M
 export type UiMessage = Message & {
   /** The reply is still arriving. */
   streaming?: boolean;
-  phase?: "waiting" | "uploading" | "thinking" | "writing" | "searching" | "coding" | "saving";
-  /** While searching: what for. */
+  phase?: "waiting" | "uploading" | "thinking" | "writing" | "searching" | "coding" | "saving" | "tool";
+  /** While searching: what for; while using a tool, what it's doing. */
   searchQuery?: string;
   notice?: string;
 };
@@ -47,7 +47,10 @@ export function Transcript({ messages, readOnly, busy, onEdit, onRegenerate, onS
             readOnly={readOnly}
             switcher={switcher(m)}
             fileUrl={fileUrl}
-            onEdit={!readOnly && !busy && onEdit && m.id > 0 ? (text, ids) => onEdit(m, text, ids) : undefined}
+            // A message just sent has no id yet: its Edit is there from the start, resting until the
+            // id comes back, so the row doesn't appear a moment later and push the reply down.
+            busy={busy || m.id <= 0}
+            onEdit={!readOnly && onEdit ? (text, ids) => onEdit(m, text, ids) : undefined}
           />
         ) : (
           <AssistantMessage
@@ -56,7 +59,8 @@ export function Transcript({ messages, readOnly, busy, onEdit, onRegenerate, onS
             readOnly={readOnly}
             switcher={switcher(m)}
             fileUrl={fileUrl}
-            onRegenerate={!readOnly && !busy && onRegenerate && m.id > 0 && m.parentId ? () => onRegenerate(m) : undefined}
+            busy={busy}
+            onRegenerate={!readOnly && onRegenerate && m.id > 0 && m.parentId ? () => onRegenerate(m) : undefined}
           />
         ),
       )}
@@ -100,10 +104,12 @@ type UserProps = {
   readOnly?: boolean;
   switcher: React.ReactNode;
   fileUrl: (fileId: string) => string;
+  /** A reply is on its way: Edit stays where it is but rests, so nothing around it moves. */
+  busy?: boolean;
   onEdit?: (text: string, attachmentIds: string[]) => void;
 };
 
-function UserMessage({ message, readOnly, switcher, fileUrl, onEdit }: UserProps) {
+function UserMessage({ message, readOnly, switcher, fileUrl, busy, onEdit }: UserProps) {
   const [editing, setEditing] = useState(false);
   const attachments = message.attachments ?? [];
 
@@ -134,7 +140,7 @@ function UserMessage({ message, readOnly, switcher, fileUrl, onEdit }: UserProps
           {readOnly && <span>{dateTime(message.createdAt)}</span>}
           {switcher}
           {onEdit && (
-            <button type="button" className="btn-ghost msg-action" onClick={() => setEditing(true)} aria-label="Edit" title="Edit">
+            <button type="button" className="btn-ghost msg-action" onClick={() => setEditing(true)} disabled={busy} aria-label="Edit" title="Edit">
               <Icon name="pencil" size={14} />
             </button>
           )}
@@ -219,13 +225,15 @@ type AssistantProps = {
   readOnly?: boolean;
   switcher: React.ReactNode;
   fileUrl: (fileId: string) => string;
+  /** A reply is on its way: Regenerate stays where it is but rests. */
+  busy?: boolean;
   onRegenerate?: () => void;
 };
 
 /** Phases that get their own status line under the text while the reply is still coming. */
-const BUSY_PHASES = new Set(["searching", "coding", "saving"]);
+const BUSY_PHASES = new Set(["searching", "coding", "saving", "tool"]);
 
-function AssistantMessage({ message, readOnly, switcher, fileUrl, onRegenerate }: AssistantProps) {
+function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegenerate }: AssistantProps) {
   const [copied, setCopied] = useState(false);
   const failed = message.status === "failed" || message.status === "declined";
   const waiting = message.streaming && !message.text;
@@ -249,6 +257,7 @@ function AssistantMessage({ message, readOnly, switcher, fileUrl, onRegenerate }
       )}
       {message.streaming && BUSY_PHASES.has(message.phase ?? "") && <Thinking phase={message.phase} detail={message.searchQuery} />}
       {message.files && message.files.length > 0 && <FileCards files={message.files} url={fileUrl} />}
+      {!message.streaming && message.tools && message.tools.length > 0 && <ToolUses uses={message.tools} />}
       {!message.streaming && (message.sources?.length || message.searches?.length) ? (
         <SourcesFold sources={message.sources ?? []} found={message.found ?? []} searches={message.searches ?? []} />
       ) : null}
@@ -257,7 +266,7 @@ function AssistantMessage({ message, readOnly, switcher, fileUrl, onRegenerate }
         <Advisory
           action={
             onRegenerate && (
-              <button type="button" className="btn-ghost is-accent" onClick={onRegenerate}>
+              <button type="button" className="btn-ghost is-accent" onClick={onRegenerate} disabled={busy}>
                 <Icon name="retry" size={16} />
                 Try again
               </button>
@@ -280,7 +289,7 @@ function AssistantMessage({ message, readOnly, switcher, fileUrl, onRegenerate }
             </button>
           )}
           {onRegenerate && !failed && (
-            <button type="button" className="btn-ghost msg-action" onClick={onRegenerate} aria-label="Regenerate" title="Regenerate">
+            <button type="button" className="btn-ghost msg-action" onClick={onRegenerate} disabled={busy} aria-label="Regenerate" title="Regenerate">
               <Icon name="retry" size={14} />
             </button>
           )}
@@ -326,9 +335,10 @@ function ThinkingFold({ text, ms, live }: { text: string; ms: number | null; liv
           setOpen((o) => !o);
         }}
       >
-        {live && (
+        {/* When thinking ends the mark folds away, so the words slide back instead of jumping. */}
+        <span className="thought-mark" data-on={live || undefined} aria-hidden="true">
           <BusyMark label={null} size={13} />
-        )}
+        </span>
         <span>{label}</span>
         <Icon name="chevron-down" size={14} className={`chev${open ? " is-open" : ""}`} />
       </button>
@@ -355,6 +365,8 @@ function Thinking({ phase, detail }: { phase?: UiMessage["phase"]; detail?: stri
       <BusyMark label={null} size={13} />
       {phase === "searching" ? (
         <span className="thinking-detail">{detail ? `Searching the web for “${detail}”` : "Searching the web"}</span>
+      ) : phase === "tool" ? (
+        <span className="thinking-detail">{detail || "Using a tool"}</span>
       ) : phase === "coding" ? (
         "Running code"
       ) : phase === "saving" ? (
@@ -367,6 +379,36 @@ function Thinking({ phase, detail }: { phase?: UiMessage["phase"]; detail?: stri
         "Waiting for a reply"
       )}
     </p>
+  );
+}
+
+const TOOL_ICONS: Record<ToolUse["kind"], IconName> = { memory: "note", knowledge: "book", page: "file", mcp: "plug" };
+
+/**
+ * What a reply did with the app's tools: a quiet line when it was one thing ("Remembered “…”"),
+ * otherwise "Used 3 tools", unfolding to a line each.
+ */
+function ToolUses({ uses }: { uses: ToolUse[] }) {
+  const [open, setOpen] = useState(false);
+  const line = (u: ToolUse, i: number) => (
+    <li key={i} className={u.error ? "is-error" : undefined}>
+      <Icon name={TOOL_ICONS[u.kind] ?? "plug"} size={14} />
+      <span>{u.text}</span>
+    </li>
+  );
+  if (uses.length === 1) return <ul className="tool-uses">{uses.map(line)}</ul>;
+  return (
+    <div className="sources">
+      <button type="button" className="thought-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span>Used {uses.length} tools</span>
+        <Icon name="chevron-down" size={14} className={`chev${open ? " is-open" : ""}`} />
+      </button>
+      <div className="disclosure" data-open={open} inert={!open}>
+        <div className="disclosure-inner">
+          <ul className="tool-uses">{uses.map(line)}</ul>
+        </div>
+      </div>
+    </div>
   );
 }
 

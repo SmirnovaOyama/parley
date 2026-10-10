@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { Tabs } from "../../components/Controls.tsx";
 import { PageHeader } from "../../components/PageHeader.tsx";
@@ -6,8 +7,10 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "keys", label: "API keys" },
   { id: "people", label: "People" },
+  { id: "groups", label: "Groups" },
   { id: "chats", label: "Chats" },
   { id: "usage", label: "Usage" },
+  { id: "tools", label: "Tools" },
   { id: "settings", label: "Settings" },
 ] as const;
 
@@ -28,12 +31,18 @@ export function AdminLayout() {
         <div className="admin-tabs">
           <Tabs tabs={TABS} value={current} onChange={(tab) => navigate(`/admin/${tab}`)} />
         </div>
-        <div key={current} className="view-enter-forward">
+        <TabView key={current}>
           <Outlet />
-        </div>
+        </TabView>
       </div>
     </div>
   );
+}
+
+/** A tab's content eases in, unless the whole page is sliding in already (back from a key or a person). */
+function TabView({ children }: { children: ReactNode }) {
+  const [ease] = useState(() => !document.documentElement.dataset.slide);
+  return <div className={ease ? "view-enter-forward" : undefined}>{children}</div>;
 }
 
 function greeting(): string {

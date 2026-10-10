@@ -20,6 +20,9 @@ type Settings = {
   bonusKeyIds: number[];
   bonusSpend: number | null;
   spendLimit: number | null;
+  memory: boolean;
+  retainChatsDays: number | null;
+  retainDeletedDays: number | null;
 };
 type MailMode = "smtp" | "dev" | "off";
 type AuditEntry = { id: number; action: string; target: string | null; createdAt: string; admin: string };
@@ -115,6 +118,16 @@ export function SettingsPage() {
             </div>
             <Switch id="show-thinking" checked={settings.showThinking} onChange={(v) => void update({ showThinking: v })} />
           </div>
+          <div className="oy-row">
+            <Icon name="note" size={20} />
+            <div className="text">
+              <label className="title" htmlFor="memory">
+                Memory
+              </label>
+              <div className="desc">The AI keeps short notes about each person between chats. People see and edit theirs, and can turn it off for themselves</div>
+            </div>
+            <Switch id="memory" checked={settings.memory} onChange={(v) => void update({ memory: v })} />
+          </div>
         </div>
         <label className="oy-field-label" htmlFor="system-prompt">
           Instructions for the AI
@@ -151,6 +164,8 @@ export function SettingsPage() {
 
       <SpendingForm saved={settings.spendLimit} onSave={(spendLimit) => update({ spendLimit })} />
 
+      <RetentionForm settings={settings} onSave={(next) => update(next)} />
+
       <RewardsForm settings={settings} mail={mail} onSave={saveRewards} />
 
       <div className="oy-group">
@@ -176,6 +191,66 @@ export function SettingsPage() {
         )}
       </div>
     </>
+  );
+}
+
+const daysText = (n: number | null) => (n == null ? "" : String(n));
+
+/**
+ * How long chats are kept: ones nobody touches, and ones people deleted (which admins can still read
+ * until then). Both empty keeps everything, as before. People see the rules under Account.
+ */
+function RetentionForm({ settings, onSave }: { settings: Settings; onSave: (next: Pick<Settings, "retainChatsDays" | "retainDeletedDays">) => Promise<boolean> }) {
+  const [chats, setChats] = useState(daysText(settings.retainChatsDays));
+  const [deleted, setDeleted] = useState(daysText(settings.retainDeletedDays));
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const dirty = chats !== daysText(settings.retainChatsDays) || deleted !== daysText(settings.retainDeletedDays);
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const ok = await onSave({ retainChatsDays: chats.trim() === "" ? null : Number(chats), retainDeletedDays: deleted.trim() === "" ? null : Number(deleted) });
+    setBusy(false);
+    setDone(ok);
+  };
+
+  return (
+    <div className="oy-group">
+      <p className="oy-overline">Keeping chats</p>
+      <form className="form-page" onSubmit={save}>
+        <LineField
+          id="retain-chats"
+          label="Delete chats nobody has touched for this many days"
+          inputMode="numeric"
+          autoComplete="off"
+          value={chats}
+          onChange={(e) => {
+            setChats(e.target.value.replace(/[^\d]/g, ""));
+            setDone(false);
+          }}
+          hint="Leave empty to keep them for good. Their files go with them; usage records stay"
+        />
+        <LineField
+          id="retain-deleted"
+          label="Keep chats people deleted, for admins, this many days"
+          inputMode="numeric"
+          autoComplete="off"
+          value={deleted}
+          onChange={(e) => {
+            setDeleted(e.target.value.replace(/[^\d]/g, ""));
+            setDone(false);
+          }}
+          hint="Leave empty to keep them for good, or 0 to remove them as soon as they're deleted"
+        />
+        <div className="form-actions">
+          <p className="oy-field-hint">Checked every hour, and right away when saved. People see these rules under Account</p>
+          <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
+            {done && !dirty ? "Saved" : "Save"}
+          </BusyButton>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -262,8 +337,9 @@ function RewardsForm({
     api.get<{ keys: ApiKey[] }>("/admin/keys").then((r) => setKeys(r.keys), () => {});
   }, []);
 
-  // Only keys that aren't already everyone's can be a reward.
-  const offerable = keys.filter((k) => !k.shared || keyIds.includes(k.id));
+  // Only keys that aren't already everyone's can be a reward. A shared one that was saved as a
+  // reward stays listed after it's unticked, so the rows don't jump under the pointer.
+  const offerable = keys.filter((k) => !k.shared || settings.bonusKeyIds.includes(k.id));
   const list = (text: string) => text.split(/[\s,]+/).map((d) => d.trim().toLowerCase()).filter(Boolean);
   const dirty =
     list(domains).join() !== settings.bonusDomains.join() ||

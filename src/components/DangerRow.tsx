@@ -1,13 +1,19 @@
 import { useState } from "react";
 
-type ConfirmProps = { message: string; onCancel: () => void; onConfirm: () => Promise<void> | void };
+type ConfirmProps = {
+  message: string;
+  onCancel: () => void;
+  onConfirm: () => Promise<void> | void;
+  /** Laid over the row it asks about (which gets `is-confirming`), so the row keeps its size. */
+  overlay?: boolean;
+};
 
 /** Asks "are you sure" in place, as a line on the page. There are no pop-ups in this app. */
-export function InlineConfirm({ message, onCancel, onConfirm }: ConfirmProps) {
+export function InlineConfirm({ message, onCancel, onConfirm, overlay }: ConfirmProps) {
   const [busy, setBusy] = useState(false);
   return (
-    <div className="inline-confirm" role="group" aria-label={message}>
-      <span>{message}</span>
+    <div className={`inline-confirm${overlay ? " is-overlay" : ""}`} role="group" aria-label={message}>
+      <span className={overlay ? "truncate" : undefined}>{message}</span>
       <span className="inline-confirm-actions">
         <button type="button" className="btn-secondary btn-sm" onClick={onCancel} autoFocus>
           Keep it

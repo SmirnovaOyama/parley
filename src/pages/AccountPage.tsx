@@ -1,16 +1,14 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router";
-import { BusyButton } from "../components/BusyButton.tsx";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { Segmented } from "../components/Controls.tsx";
-import { Advisory } from "../components/Feedback.tsx";
-import { InstructionsForm } from "../components/InstructionsForm.tsx";
-import { LineField } from "../components/LineField.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
+import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
-import { api, type Instructions } from "../lib/api.ts";
+import { api, uploadRaw, type Persona, type Policy } from "../lib/api.ts";
 import { domainsText, rewardText, type BonusStatus } from "../lib/bonus.ts";
-import { compactNumber, formatCost, shortDate } from "../lib/format.ts";
+import { compactNumber, formatCost, plural, shortDate } from "../lib/format.ts";
 import { useSession } from "../lib/session.tsx";
+import type { MemoryState } from "./MemoryPage.tsx";
 
 type Theme = "light" | "dark" | "system";
 
@@ -47,27 +45,43 @@ function applyTheme(theme: Theme) {
 export function AccountPage() {
   const { user, signOut } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
   const [theme, setTheme] = useState<Theme>(readTheme);
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [passwordChanged, setPasswordChanged] = useState(false);
-  const [instructions, setInstructions] = useState<Instructions | null>(null);
-  const [editingInstructions, setEditingInstructions] = useState(false);
-  const [instructionsSaved, setInstructionsSaved] = useState(false);
+  // Back from the password page, the Password row says it changed.
+  const [passwordChanged] = useState(() => !!(location.state as { passwordChanged?: boolean } | null)?.passwordChanged);
+  const [personas, setPersonas] = useState<Persona[] | null>(null);
 
   const [bonus, setBonus] = useState<BonusStatus | null>(null);
   const [allowance, setAllowance] = useState<Allowance | null>(null);
+  const [memory, setMemory] = useState<MemoryState | null>(null);
+  const [policy, setPolicy] = useState<Policy | null>(null);
 
   useEffect(() => {
-    api.get<Instructions>("/auth/instructions").then(setInstructions, () => {});
+    // Once read, the note leaves the history entry, so a reload doesn't say it again.
+    if (passwordChanged) navigate(location.pathname, { replace: true, state: null });
+    api.get<{ personas: Persona[] }>("/personas").then((r) => setPersonas(r.personas), () => {});
     api.get<BonusStatus>("/auth/bonus").then(setBonus, () => {});
     api.get<Allowance>("/auth/allowance").then(setAllowance, () => {});
+    api.get<MemoryState>("/memory").then(setMemory, () => {});
+    api.get<Policy>("/policy").then(setPolicy, () => {});
   }, []);
 
-  const instructionsSummary = (() => {
-    if (instructionsSaved) return "Saved. New chats will start with them";
-    const first = [instructions?.aboutMe, instructions?.answerStyle].find((t) => t?.trim());
-    return first ? first.replace(/\s+/g, " ") : "About you and how to answer, copied into each new chat";
-  })();
+  const memoryDesc = !memory
+    ? "What the AI keeps about you between chats"
+    : !memory.site
+      ? "Your admins have turned memory off"
+      : !memory.on
+        ? `Off${memory.memories.length ? `, with ${plural(memory.memories.length, "note", "notes")} kept` : ""}`
+        : memory.memories.length
+          ? `On, with ${plural(memory.memories.length, "note", "notes")}`
+          : "On. Nothing saved yet";
+
+  const startsAs = personas?.find((p) => p.forNewChats);
+  const personaDesc = !personas?.length
+    ? "Who you are to the AI and how it should answer, up to five"
+    : startsAs
+      ? `New chats start as ${startsAs.name}`
+      : `${plural(personas.length, "persona", "personas")}. New chats start without one`;
 
   useEffect(() => applyTheme(theme), [theme]);
 
@@ -98,37 +112,30 @@ export function AccountPage() {
         </div>
 
         <div className="oy-group">
-          <p className="oy-overline">Personal instructions</p>
+          <p className="oy-overline">Persona</p>
           <div className="oy-section">
-            <button
-              type="button"
-              className="oy-row"
-              aria-expanded={editingInstructions}
-              aria-controls="instructions-panel"
-              onClick={() => {
-                setInstructionsSaved(false);
-                setEditingInstructions((open) => !open);
-              }}
-            >
+            <SlideLink className="oy-row" to="/account/personas" direction="forward">
               <Icon name="user" size={20} />
               <div className="text">
-                <p className="title">Defaults for new chats</p>
-                <div className="desc truncate">{instructionsSummary}</div>
+                <p className="title">Personas</p>
+                <div className="desc truncate">{personaDesc}</div>
               </div>
-              <Icon name="chevron-down" size={18} className={`chevron chev${editingInstructions ? " is-open" : ""}`} />
-            </button>
-            {instructions && (
-              <InstructionsPanel
-                open={editingInstructions}
-                saved={instructions}
-                onSaved={(next) => {
-                  setInstructions(next);
-                  setInstructionsSaved(true);
-                  setEditingInstructions(false);
-                }}
-                onCancel={() => setEditingInstructions(false)}
-              />
-            )}
+              <Icon name="chevron-right" size={18} className="chevron" />
+            </SlideLink>
+          </div>
+        </div>
+
+        <div className="oy-group">
+          <p className="oy-overline">Memory</p>
+          <div className="oy-section">
+            <SlideLink className="oy-row" to="/account/memory" direction="forward">
+              <Icon name="note" size={20} />
+              <div className="text">
+                <p className="title">What the AI remembers</p>
+                <div className="desc">{memoryDesc}</div>
+              </div>
+              <Icon name="chevron-right" size={18} className="chevron" />
+            </SlideLink>
           </div>
         </div>
 
@@ -139,28 +146,14 @@ export function AccountPage() {
         <div className="oy-group">
           <p className="oy-overline">Security</p>
           <div className="oy-section">
-            <button
-              type="button"
-              className="oy-row"
-              aria-expanded={changingPassword}
-              aria-controls="password-panel"
-              onClick={() => setChangingPassword((open) => !open)}
-            >
+            <SlideLink className="oy-row" to="/account/password" direction="forward">
               <Icon name="lock" size={20} />
               <div className="text">
                 <p className="title">Password</p>
                 <div className="desc">{passwordChanged ? "Changed. Other devices were signed out" : "Change the password you sign in with"}</div>
               </div>
-              <Icon name="chevron-down" size={18} className={`chevron chev${changingPassword ? " is-open" : ""}`} />
-            </button>
-            <PasswordPanel
-              open={changingPassword}
-              onDone={() => {
-                setChangingPassword(false);
-                setPasswordChanged(true);
-              }}
-              onCancel={() => setChangingPassword(false)}
-            />
+              <Icon name="chevron-right" size={18} className="chevron" />
+            </SlideLink>
             <button
               type="button"
               className="oy-row"
@@ -174,6 +167,8 @@ export function AccountPage() {
           </div>
         </div>
 
+        <DataGroup />
+
         <div className="oy-group">
           <p className="oy-overline">Privacy</p>
           <div className="oy-section">
@@ -184,6 +179,15 @@ export function AccountPage() {
                 <div className="desc">The people who run this site can open any conversation, and each time they do it's logged</div>
               </div>
             </div>
+            {policy && (policy.retainChatsDays != null || policy.retainDeletedDays != null) && (
+              <div className="oy-row">
+                <Icon name="trash" size={20} />
+                <div className="text">
+                  <p className="title">How long chats are kept</p>
+                  <div className="desc">{retentionText(policy)}</div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -192,7 +196,86 @@ export function AccountPage() {
   );
 }
 
-/** Unfolds under its row: your defaults for new chats. */
+/** The site's retention rules, as sentences. */
+function retentionText(p: Policy): string {
+  const parts: string[] = [];
+  if (p.retainChatsDays != null) parts.push(`A chat nobody has touched for ${plural(p.retainChatsDays, "day", "days")} is deleted, files and all`);
+  if (p.retainDeletedDays === 0) parts.push("A chat you delete is gone at once, for admins too");
+  else if (p.retainDeletedDays != null) parts.push(`A chat you delete stays readable to admins for ${plural(p.retainDeletedDays, "day", "days")}, then goes`);
+  return parts.join(". ");
+}
+
+/** Taking everything away as a file, and bringing chats in from Parley, ChatGPT or Claude. */
+function DataGroup() {
+  const { refreshConversations, refreshProjects } = useSession();
+  const pickerRef = useRef<HTMLInputElement>(null);
+  const [status, setStatus] = useState<{ text: string; error?: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const importFile = async (file: File) => {
+    setBusy(true);
+    setStatus({ text: "Sending the file" });
+    try {
+      const r = await uploadRaw<{ chats: number; skipped: number; projects: number; memories: number; source: string }>("/import", file, file.name, (p) =>
+        setStatus({ text: p < 1 ? `Sending the file, ${Math.round(p * 100)}%` : "Reading the chats" }),
+      ).promise;
+      const from = { parley: "a Parley export", chatgpt: "ChatGPT", claude: "Claude" }[r.source] ?? "the file";
+      const extras = [r.projects && plural(r.projects, "project", "projects"), r.memories && plural(r.memories, "note", "notes") + " for memory"].filter(Boolean);
+      setStatus({
+        text:
+          `Brought in ${plural(r.chats, "chat", "chats")} from ${from}` +
+          (extras.length ? `, with ${extras.join(" and ")}` : "") +
+          (r.skipped ? `. ${plural(r.skipped, "chat was", "chats were")} here already` : ""),
+      });
+      void refreshConversations();
+      void refreshProjects();
+    } catch (err) {
+      setStatus({ text: (err as Error).message, error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="oy-group">
+      <p className="oy-overline">Your data</p>
+      <div className="oy-section">
+        <a className="oy-row" href="/api/export" download>
+          <Icon name="download" size={20} />
+          <div className="text">
+            <p className="title">Export everything</p>
+            <div className="desc">Your chats with every version of each message, projects, personas and memory, as one file. Attached files stay here</div>
+          </div>
+        </a>
+        <button type="button" className="oy-row" disabled={busy} onClick={() => pickerRef.current?.click()}>
+          <Icon name="upload" size={20} />
+          <div className="text">
+            <p className="title">Import chats</p>
+            {/* The progress and the result take the place of the sentence, which keeps its room. */}
+            <div className={`desc swap${status?.error ? " text-danger" : ""}`}>
+              <span className={status ? "reserve" : undefined} aria-hidden={status ? true : undefined}>
+                From a Parley export, or the export ChatGPT or Claude emails you (the .zip, or conversations.json inside it)
+              </span>
+              {status && <span className="tabular">{status.text}</span>}
+            </div>
+          </div>
+        </button>
+        <input
+          ref={pickerRef}
+          type="file"
+          hidden
+          accept=".json,.zip,application/json,application/zip"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void importFile(file);
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 /** Shown when the site rewards some email domains: the reward, and the way to earn or keep it. */
 function RewardsGroup({ bonus }: { bonus: BonusStatus }) {
   const reward = rewardText(bonus.reward);
@@ -207,91 +290,14 @@ function RewardsGroup({ bonus }: { bonus: BonusStatus }) {
     <div className="oy-group">
       <p className="oy-overline">Rewards</p>
       <div className="oy-section">
-        <Link className="oy-row" to="/account/bonus">
+        <SlideLink className="oy-row" to="/account/bonus" direction="forward">
           <Icon name="gift" size={20} />
           <div className="text">
             <p className="title">{title}</p>
             <div className="desc">{desc}</div>
           </div>
           <Icon name="chevron-right" size={18} className="chevron" />
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-function InstructionsPanel({
-  open,
-  saved,
-  onSaved,
-  onCancel,
-}: {
-  open: boolean;
-  saved: Instructions;
-  onSaved: (next: Instructions) => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div id="instructions-panel" className="disclosure inline-panel" data-open={open} inert={!open}>
-      <div className="disclosure-inner">
-        <InstructionsForm
-          idPrefix="defaults"
-          value={saved}
-          open={open}
-          note="Each new chat starts with these. To change one chat's, use Instructions at the top of that chat"
-          onSave={async (next) => onSaved(await api.put<Instructions>("/auth/instructions", next))}
-          onCancel={onCancel}
-        />
-      </div>
-    </div>
-  );
-}
-
-/** Unfolds under the Password row: two line fields and a button, no pop-up. */
-function PasswordPanel({ open, onDone, onCancel }: { open: boolean; onDone: () => void; onCancel: () => void }) {
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      setCurrent("");
-      setNext("");
-      setError(null);
-    }
-  }, [open]);
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post("/auth/password", { current, next });
-      onDone();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div id="password-panel" className="disclosure inline-panel" data-open={open} inert={!open}>
-      <div className="disclosure-inner">
-        <form onSubmit={save}>
-          <LineField id="pw-current" label="Current password" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
-          <LineField id="pw-next" label="New password" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} hint="At least 8 characters" />
-          {error && <Advisory>{error}</Advisory>}
-          <div className="form-page-actions">
-            <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!current || !next}>
-              Change password
-            </BusyButton>
-            <button type="button" className="btn-secondary" onClick={onCancel}>
-              Cancel
-            </button>
-          </div>
-        </form>
+        </SlideLink>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Advisory, Spinner } from "../../components/Feedback.tsx";
 import { ModelArt } from "../../components/ModelArt.tsx";
+import { SlideLink } from "../../components/SlideLink.tsx";
 import { Sparkline } from "../../components/Sparkline.tsx";
 import { Icon, type IconName } from "../../icons/Icon.tsx";
 import { api, type SharingMode } from "../../lib/api.ts";
@@ -57,14 +58,14 @@ export function OverviewPage() {
     <div className="overview">
       {/* The two things admins add most, under the tabs; the first icon lines up with the cards' edge. */}
       <div className="overview-actions">
-        <Link className="btn-ghost" to="/admin/keys/new">
+        <SlideLink className="btn-ghost" to="/admin/keys/new" direction="forward">
           <Icon name="plus" size={16} />
           Add a key
-        </Link>
-        <Link className="btn-ghost" to="/admin/people/new">
+        </SlideLink>
+        <SlideLink className="btn-ghost" to="/admin/people/new" direction="forward">
           <Icon name="users" size={16} />
           Add a person
-        </Link>
+        </SlideLink>
       </div>
       <div className="stat-grid">
         <StatCard
@@ -117,7 +118,7 @@ export function OverviewPage() {
         </div>
         <div className="card-grid">
           {data.models.map((m) => (
-            <Link key={m.id} className="model-card" to={`/admin/keys/${m.id}`}>
+            <SlideLink key={m.id} className="model-card" to={`/admin/keys/${m.id}`} direction="forward">
               <ModelArt model={m.model} />
               {/* On the band's corner, so the name below always keeps a line of its own. */}
               {m.isDefault && <span className="model-card-badge">Default</span>}
@@ -135,14 +136,14 @@ export function OverviewPage() {
                   <span className="chip-quiet">{plural(m.replies, "reply", "replies")} this month</span>
                 </div>
               </div>
-            </Link>
+            </SlideLink>
           ))}
           {/* Always last: a way to add another model (an API key), drawn as an empty slot. */}
-          <Link className="model-card is-add" to="/admin/keys/new">
+          <SlideLink className="model-card is-add" to="/admin/keys/new" direction="forward">
             <Icon name="plus" size={20} />
             <span className="model-card-title">{data.models.length ? "Add a key" : "Add the first key"}</span>
             <span className="model-card-key">Claude, OpenAI, Gemini, Grok or another service, for everyone or chosen people</span>
-          </Link>
+          </SlideLink>
         </div>
       </section>
 

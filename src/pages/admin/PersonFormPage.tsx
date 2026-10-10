@@ -1,14 +1,17 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useParams } from "react-router";
 import { BusyButton } from "../../components/BusyButton.tsx";
 import { CheckList, OptionList, Switch } from "../../components/Controls.tsx";
 import { Advisory, Spinner } from "../../components/Feedback.tsx";
 import { LineField } from "../../components/LineField.tsx";
 import { PageHeader } from "../../components/PageHeader.tsx";
+import { SlideLink } from "../../components/SlideLink.tsx";
 import { api } from "../../lib/api.ts";
 import { amountInput, amountText, formatCost } from "../../lib/format.ts";
 import { useSession } from "../../lib/session.tsx";
+import { useSlideNavigate } from "../../lib/slide.ts";
 import type { ApiKey } from "./KeysPage.tsx";
+import type { Group } from "./GroupsPage.tsx";
 import type { Person } from "./PeoplePage.tsx";
 
 const ROLES = [
@@ -20,7 +23,7 @@ const ROLES = [
 export function PersonFormPage() {
   const { id } = useParams();
   const adding = id === "new";
-  const navigate = useNavigate();
+  const slideTo = useSlideNavigate();
   const { user: me } = useSession();
 
   const [person, setPerson] = useState<Person | null>(null);
@@ -30,6 +33,8 @@ export function PersonFormPage() {
   const [role, setRole] = useState<Person["role"]>("user");
   const [keyId, setKeyId] = useState("default");
   const [granted, setGranted] = useState<string[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupIds, setGroupIds] = useState<string[]>([]);
   const [limit, setLimit] = useState("");
   const [spendMode, setSpendMode] = useState<Person["spendLimitMode"]>("site");
   const [ownSpend, setOwnSpend] = useState("");
@@ -45,9 +50,11 @@ export function PersonFormPage() {
       api.get<{ users: Person[] }>("/admin/users"),
       api.get<{ keys: ApiKey[] }>("/admin/keys"),
       api.get<{ settings: { spendLimit: number | null } }>("/admin/settings"),
+      api.get<{ groups: Group[] }>("/admin/groups"),
     ]).then(
-      ([u, k, s]) => {
+      ([u, k, s, g]) => {
         setKeys(k.keys);
+        setGroups(g.groups);
         setSiteSpend(s.settings.spendLimit);
         if (adding) return;
         const p = u.users.find((x) => String(x.id) === id);
@@ -59,6 +66,7 @@ export function PersonFormPage() {
         setRole(p.role);
         setKeyId(p.apiKeyId == null ? "default" : String(p.apiKeyId));
         setGranted(p.keyIds.map(String));
+        setGroupIds((p.groupIds ?? []).map(String));
         setLimit(p.monthlyTokenLimit == null ? "" : String(p.monthlyTokenLimit));
         setSpendMode(p.spendLimitMode);
         setOwnSpend(amountText(p.monthlySpendLimit));
@@ -95,12 +103,13 @@ export function PersonFormPage() {
           disabled: !active,
           apiKeyId: keyId === "default" ? null : Number(keyId),
           keyIds: granted.map(Number),
+          groupIds: groupIds.map(Number),
           monthlyTokenLimit: limit.trim() === "" ? null : Number(limit),
           spendLimitMode: spendMode,
           monthlySpendLimit: ownSpend.trim() === "" ? null : ownSpend,
         });
       }
-      navigate("/admin/people");
+      slideTo("/admin/people", "back");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -145,6 +154,14 @@ export function PersonFormPage() {
 
             {!adding && (
               <>
+                {groups.length > 0 && (
+                  <CheckList
+                    label="Groups"
+                    values={groupIds}
+                    onChange={setGroupIds}
+                    options={groups.map((g) => ({ id: String(g.id), label: g.name }))}
+                  />
+                )}
                 <CheckList
                   label="Extra models they can pick"
                   values={granted}
@@ -158,7 +175,11 @@ export function PersonFormPage() {
                   onChange={setKeyId}
                   options={[
                     { id: "default", label: "The default key", detail: defaultKey ? `${defaultKey.label}, which starts chats on ${defaultKey.modelLabel}` : "None set yet" },
-                    ...usable.filter((k) => !k.isDefault).map((k) => ({ id: String(k.id), label: k.label, detail: k.modelLabel })),
+                    // Every key is listed; the ones they can't pick yet rest, so granting one above
+                    // doesn't add a row here.
+                    ...(keys ?? [])
+                      .filter((k) => !k.isDefault)
+                      .map((k) => ({ id: String(k.id), label: k.label, detail: k.modelLabel, disabled: !usable.includes(k) })),
                   ]}
                 />
                 <OptionList
@@ -224,9 +245,9 @@ export function PersonFormPage() {
               <BusyButton type="submit" className="btn-primary" busy={busy} disabled={adding && (!email || !password)}>
                 {adding ? "Add person" : "Save"}
               </BusyButton>
-              <Link to="/admin/people" className="btn-secondary">
+              <SlideLink to="/admin/people" direction="back" className="btn-secondary">
                 Cancel
-              </Link>
+              </SlideLink>
             </div>
           </form>
         )}

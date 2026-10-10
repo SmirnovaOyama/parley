@@ -100,7 +100,7 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
           required
         />
         <BusyButton className="btn-primary btn-block" type="submit" busy={busy} disabled={!email || !password}>
-          {busy ? "One moment" : signup ? "Create account" : "Sign in"}
+          {signup ? "Create account" : "Sign in"}
         </BusyButton>
       </form>
       {!state.needsSetup && (

@@ -1,4 +1,4 @@
-import { Children, isValidElement, memo, useDeferredValue, useMemo, useState, type ComponentProps } from "react";
+import { Children, isValidElement, memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -46,7 +46,8 @@ export const Markdown = memo(function Markdown({ text, streaming }: Props) {
               {children}
             </a>
           ),
-          pre: CodeBlock,
+          // A finished block that can run (a page, a picture, a component, a diagram) offers a preview.
+          pre: (props) => <CodeBlock {...props} done={!streaming} />,
           table: ({ node: _node, ...props }) => (
             <div className="md-table">
               <table {...props} />
@@ -99,12 +100,48 @@ function fileNameFor(lang: string | undefined, text: string): string {
 
 const MIME: Record<string, string> = { csv: "text/csv", json: "application/json", html: "text/html", svg: "image/svg+xml" };
 
-/** A code block with a quiet header: the language on the left, download and copy on the right. */
-function CodeBlock({ node: _node, children, ...props }: ComponentProps<"pre"> & { node?: unknown }) {
+type PreviewKind = "html" | "svg" | "react" | "mermaid" | "script";
+
+/** What a block can be shown as, by its language: a page, a picture, a React component, a diagram, or a script's output. */
+function previewKind(lang: string | undefined, text: () => string): PreviewKind | null {
+  switch (lang) {
+    case "html":
+    case "htm":
+      return "html";
+    case "svg":
+      return "svg";
+    case "xml":
+      return /^\s*(<\?xml[^>]*>\s*)?<svg[\s>]/i.test(text()) ? "svg" : null;
+    case "jsx":
+    case "tsx":
+      return "react";
+    case "mermaid":
+      return "mermaid";
+    case "js":
+    case "javascript":
+      return "script";
+    default:
+      return null;
+  }
+}
+
+/** The text of a rendered block's code, as written. */
+const textOf = (node: unknown): string => {
+  if (typeof node === "string") return node;
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement(node)) return textOf((node.props as { children?: unknown }).children);
+  return "";
+};
+
+/** A code block with a quiet header: the language on the left, preview, download and copy on the right. */
+function CodeBlock({ node: _node, children, done, ...props }: ComponentProps<"pre"> & { node?: unknown; done?: boolean }) {
   const [copied, setCopied] = useState(false);
-  const code = Children.toArray(children).find(isValidElement) as { props?: { className?: string } } | undefined;
+  const [previewing, setPreviewing] = useState(false);
+  const code = Children.toArray(children).find(isValidElement) as { props?: { className?: string; children?: unknown } } | undefined;
   const lang = /language-([\w+#-]+)/.exec(code?.props?.className ?? "")?.[1]?.toLowerCase();
   const label = lang ? (LANGUAGE_NAMES[lang] ?? lang) : "Code";
+  const source = () => textOf(code?.props?.children).replace(/\n$/, "");
+  const kind = done ? previewKind(lang, source) : null;
 
   const download = (e: React.MouseEvent<HTMLButtonElement>) => {
     const text = e.currentTarget.closest(".md-code")?.querySelector("code")?.textContent ?? "";
@@ -130,7 +167,40 @@ function CodeBlock({ node: _node, children, ...props }: ComponentProps<"pre"> & 
     <div className="md-code">
       <div className="md-code-head">
         <span>{label}</span>
-        <button type="button" className="btn-ghost msg-action md-copy md-download" onClick={download} aria-label="Download as a file">
+        {kind && (
+          <button
+            type="button"
+            className="btn-ghost md-preview-toggle"
+            aria-pressed={previewing}
+            onClick={() => setPreviewing((p) => !p)}
+            title={previewing ? "Show the code" : "Run it here, sandboxed"}
+          >
+            <Icon name={previewing ? "code" : "eye"} size={14} />
+            <span className="swap">
+              <span className={previewing ? "reserve" : undefined} aria-hidden={previewing || undefined}>
+                Preview
+              </span>
+              <span className={previewing ? undefined : "reserve"} aria-hidden={!previewing || undefined}>
+                Code
+              </span>
+            </span>
+          </button>
+        )}
+        {/* There all along, resting while the code shows, so the toggle never moves under the pointer. */}
+        {kind && (
+          <button
+            type="button"
+            className={`btn-ghost msg-action md-copy${previewing ? "" : " is-resting"}`}
+            onClick={() => openPreview(kind, source())}
+            aria-label="Open the preview in a new tab"
+            title="Open in a new tab"
+            aria-hidden={!previewing || undefined}
+            tabIndex={previewing ? undefined : -1}
+          >
+            <Icon name="expand" size={14} />
+          </button>
+        )}
+        <button type="button" className={`btn-ghost msg-action md-copy${kind ? "" : " md-download"}`} onClick={download} aria-label="Download as a file">
           <Icon name="download" size={14} />
         </button>
         <button
@@ -143,7 +213,52 @@ function CodeBlock({ node: _node, children, ...props }: ComponentProps<"pre"> & 
           <Icon name={copied ? "check" : "copy"} size={14} className={copied ? "draw-in" : undefined} />
         </button>
       </div>
-      <pre {...props}>{children}</pre>
+      {kind && previewing ? <PreviewFrame kind={kind} code={source()} /> : <pre {...props}>{children}</pre>}
     </div>
   );
+}
+
+const dark = () => {
+  const theme = document.documentElement.dataset.theme;
+  return theme ? theme === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+};
+
+/**
+ * The preview page (server/preview.ts). Its own Content-Security-Policy sandboxes it: an origin of
+ * its own, so the code can't act as this site. (The frame carries no sandbox attribute as well:
+ * some embedded browsers refuse to load a frame that has one.)
+ */
+const PREVIEW_URL = "/api/preview";
+
+/** A block running in a sandboxed frame that grows to fit what it shows, within limits. */
+function PreviewFrame({ kind, code }: { kind: PreviewKind; code: string }) {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(kind === "react" || kind === "html" ? 420 : 240);
+  // The code goes over when the page says it's ready, and again once it has loaded, in case the
+  // first word came before this was listening. The page takes only the first: writing the code
+  // replaces it, listener and all.
+  const send = () => ref.current?.contentWindow?.postMessage({ type: "preview-code", kind, code, dark: dark() }, "*");
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== ref.current?.contentWindow) return;
+      if (e.data?.type === "preview-ready") send();
+      else if (e.data?.type === "preview-size" && typeof e.data.height === "number") setHeight(Math.min(Math.max(e.data.height, 80), 720));
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [kind, code]);
+  return <iframe ref={ref} className="md-preview" src={PREVIEW_URL} title="Preview" style={{ height }} onLoad={send} />;
+}
+
+/** The same preview in a tab of its own, handed the code once it's ready. */
+function openPreview(kind: PreviewKind, code: string) {
+  const tab = window.open(PREVIEW_URL, "_blank");
+  if (!tab) return;
+  const onMessage = (e: MessageEvent) => {
+    if (e.source !== tab || e.data?.type !== "preview-ready") return;
+    tab.postMessage({ type: "preview-code", kind, code, dark: dark() }, "*");
+    window.removeEventListener("message", onMessage);
+  };
+  window.addEventListener("message", onMessage);
+  setTimeout(() => window.removeEventListener("message", onMessage), 60_000);
 }

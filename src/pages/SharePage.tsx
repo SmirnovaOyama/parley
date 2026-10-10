@@ -59,7 +59,7 @@ export function SharePage() {
               It was shared with people who have an account on {APP_NAME}
             </EmptyState>
           ) : (
-            <EmptyState doodle="chat" title="This link doesn't open">
+            <EmptyState doodle="link" title="This link doesn't open">
               {error.message}
             </EmptyState>
           )

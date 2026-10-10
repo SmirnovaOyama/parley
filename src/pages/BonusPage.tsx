@@ -4,6 +4,7 @@ import { BusyButton } from "../components/BusyButton.tsx";
 import { Advisory, Callout, EmptyState, Spinner } from "../components/Feedback.tsx";
 import { LineField } from "../components/LineField.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
+import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api } from "../lib/api.ts";
 import { domainsText, rewardText, type BonusStatus } from "../lib/bonus.ts";
@@ -87,7 +88,6 @@ export function BonusPage() {
   const reward = status ? rewardText(status.reward) : null;
   const wait = Math.max(0, Math.ceil((resendAt - now) / 1000));
   const back = fromSignup ? undefined : { label: "Account", to: "/account" };
-  const leave = fromSignup ? { label: "Skip for now", to: "/chat" } : { label: "Cancel", to: "/account" };
 
   return (
     <>
@@ -98,7 +98,7 @@ export function BonusPage() {
         ) : !status ? (
           <Spinner />
         ) : status.domains.length === 0 ? (
-          <EmptyState doodle="people" title="No email rewards here">
+          <EmptyState doodle="gift" title="No email rewards here">
             This site doesn't reward any email addresses at the moment
           </EmptyState>
         ) : stage === "done" && status.verified ? (
@@ -159,11 +159,17 @@ export function BonusPage() {
                 />
                 <div className="form-page-actions">
                   <BusyButton type="submit" className="btn-primary" busy={busy === "send"} disabled={!email.trim()}>
-                    {busy === "send" ? "Sending" : "Send code"}
+                    Send code
                   </BusyButton>
-                  <Link className="btn-secondary" to={leave.to}>
-                    {leave.label}
-                  </Link>
+                  {fromSignup ? (
+                    <Link className="btn-secondary" to="/chat">
+                      Skip for now
+                    </Link>
+                  ) : (
+                    <SlideLink className="btn-secondary" to="/account" direction="back">
+                      Cancel
+                    </SlideLink>
+                  )}
                 </div>
               </form>
             ) : (
@@ -189,10 +195,16 @@ export function BonusPage() {
                 />
                 <div className="form-page-actions">
                   <BusyButton type="submit" className="btn-primary" busy={busy === "verify"} disabled={busy === "send" || code.length !== 6}>
-                    {busy === "verify" ? "Checking" : "Verify"}
+                    Verify
                   </BusyButton>
                   <button type="button" className="btn-secondary" disabled={busy !== null || wait > 0} onClick={() => void send(sentTo)}>
-                    {wait > 0 ? `Send again in ${wait}s` : "Send again"}
+                    {/* As wide as its longest wording all along, so the countdown never moves it. */}
+                    <span className="swap tabular">
+                      <span className="reserve" aria-hidden="true">
+                        Send again in 00s
+                      </span>
+                      <span>{wait > 0 ? `Send again in ${wait}s` : "Send again"}</span>
+                    </span>
                   </button>
                   <button
                     type="button"

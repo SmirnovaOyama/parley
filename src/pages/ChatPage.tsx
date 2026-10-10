@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { ComposerFiles } from "../components/Attachments.tsx";
 import { EmptyState, Spinner, Advisory } from "../components/Feedback.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
-import { ModelPicker } from "../components/ModelPicker.tsx";
+import { SlideLink } from "../components/SlideLink.tsx";
+import { CONTEXT_NEARLY_FULL, ModelPicker } from "../components/ModelPicker.tsx";
 import { Transcript, type UiMessage } from "../components/Transcript.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api, streamChat, type Attachment, type Choice, type Instructions, type Message, type ModelChoice, type Share } from "../lib/api.ts";
 import { kindsPhrase } from "../lib/format.ts";
 import { useSession } from "../lib/session.tsx";
-import { useSlideNavigate } from "../lib/slide.ts";
 import { useUploads, type PendingFile } from "../lib/uploads.ts";
 
 type Loaded = {
@@ -20,6 +20,7 @@ type Loaded = {
     model: string | null;
     effort: string | null;
     instructions: Instructions;
+    project: { id: string; name: string } | null;
   };
   messages: Message[];
   generating: boolean;
@@ -49,7 +50,20 @@ export function ChatPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { conversations, touchConversation, refreshConversations, newChatInstructions, setNewChatInstructions } = useSession();
+  const {
+    conversations,
+    touchConversation,
+    refreshConversations,
+    newChatInstructions,
+    setNewChatInstructions,
+    newChatKnowledge,
+    setNewChatKnowledge,
+    projects,
+  } = useSession();
+  const [searchParams] = useSearchParams();
+  // A new chat started from a project (/chat?project=…) goes into it.
+  const newProjectId = !id ? searchParams.get("project") : null;
+  const newProject = newProjectId ? projects.find((p) => p.id === newProjectId) : undefined;
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
   // An open chat starts with its title from the list and the loading line, so its first frame
@@ -64,9 +78,11 @@ export function ChatPage() {
   const uploads = useUploads();
   /** Files are being dragged over the page: the message box says it takes them. */
   const [dropping, setDropping] = useState(false);
-  const [share, setShare] = useState<Share | null>(null);
+  const [shared, setShared] = useState(false);
   /** A short line under the title, e.g. after saving this chat's settings. */
   const [headerNote, setHeaderNote] = useState<string | null>(null);
+  /** The project an open chat is in. */
+  const [chatProject, setChatProject] = useState<{ id: string; name: string } | null>(null);
   const [models, setModels] = useState<Models>({ choices: [], start: null });
   const [chatPick, setChatPick] = useState<ChatPick | null>(null);
   /** A model or thinking level picked for this chat and not sent yet. */
@@ -102,7 +118,8 @@ export function ChatPage() {
       if (shownIdRef.current !== convId) return;
       setTitle(data.conversation.title);
       setChatPick({ keyId: data.conversation.keyId, model: data.conversation.model, effort: data.conversation.effort });
-      setShare(data.share);
+      setShared(!!data.share);
+      setChatProject(data.conversation.project);
       setMessages(
         data.generating
           ? [...data.messages, { id: -1, parentId: null, role: "assistant", text: "", model: "", status: "ok", error: null, note: null, thinking: null, thinkingMs: null, instructionsChanged: false, siblingIds: [], createdAt: "", streaming: true, phase: "writing" }]
@@ -124,8 +141,15 @@ export function ChatPage() {
   useEffect(() => {
     shownIdRef.current = id ?? null;
     setSendError(null);
-    setShare(null);
     setHandPick(null);
+    // The header shows the chat's project and sharing straight away, from the list, so its
+    // subtitle doesn't blink out while the chat loads.
+    const listed = id ? conversations.find((c) => c.id === id) : undefined;
+    setShared(!!listed?.shared);
+    if (justCreatedRef.current !== id) {
+      const listedProject = listed?.projectId ? projects.find((p) => p.id === listed.projectId) : undefined;
+      setChatProject(listedProject ? { id: listedProject.id, name: listedProject.name } : null);
+    }
     // Coming back from this chat's settings page, say what was saved.
     const note = (location.state as { note?: string } | null)?.note ?? null;
     setHeaderNote(note);
@@ -145,7 +169,6 @@ export function ChatPage() {
     }
 
     setLoading(true);
-    const listed = conversations.find((c) => c.id === id);
     if (listed) setTitle(listed.title);
     setMessages([]);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -248,7 +271,8 @@ export function ChatPage() {
       setDraft("");
       taken = uploads.take();
     }
-    setHeaderNote(null);
+    // A note from the settings page ("Saved") stays until you leave the chat: taking it away here
+    // would shrink the header and jolt the conversation under it.
     stickRef.current = request.kind === "new";
 
     let convId = id ?? null;
@@ -291,7 +315,15 @@ export function ChatPage() {
     const attachments = files.length ? { attachments: files.map((f) => f.id) } : {};
     const body =
       request.kind === "new"
-        ? { conversationId: convId, text, ...picked, ...attachments, ...(convId || !newChatInstructions ? {} : { instructions: newChatInstructions }) }
+        ? {
+            conversationId: convId,
+            text,
+            ...picked,
+            ...attachments,
+            ...(convId || !newChatInstructions ? {} : { instructions: newChatInstructions }),
+            ...(convId || !newProjectId ? {} : { projectId: newProjectId }),
+            ...(convId || !newChatKnowledge.length ? {} : { knowledgeIds: newChatKnowledge }),
+          }
         : request.kind === "edit"
           ? { conversationId: convId, text, ...picked, ...attachments, parentId: request.target.parentId }
           : { conversationId: convId, ...picked, regenerate: request.target.parentId! };
@@ -328,6 +360,8 @@ export function ChatPage() {
             if (meta.created) {
               // The draft instructions went with the first message; the next new chat starts afresh.
               setNewChatInstructions(null);
+              setNewChatKnowledge([]);
+              if (newProject) setChatProject({ id: newProject.id, name: newProject.name });
               shownIdRef.current = convId;
               justCreatedRef.current = convId;
               setTitle(meta.title);
@@ -402,9 +436,8 @@ export function ChatPage() {
     }
   };
 
-  // The chat's settings slide in from the right, like opening a chat from the list.
-  const slideTo = useSlideNavigate();
-  const settingsPath = `/chat/${id ?? "new"}/settings`;
+  // A new chat's settings keep the project it's being started in.
+  const settingsPath = `/chat/${id ?? "new"}/settings${!id && newProjectId ? `?project=${newProjectId}` : ""}`;
 
   const stop = () => {
     const convId = streamingIdRef.current ?? id;
@@ -415,32 +448,39 @@ export function ChatPage() {
   // picked model can't open waits for one that can.
   const picked = models.choices.find((c) => choice && c.keyId === choice.keyId && c.model === choice.model);
   const unread = picked ? uploads.ready.filter((a) => !picked.reads.includes(a.kind)) : [];
+  // How much of the model's context the chat fills: the latest reply on screen says.
+  const contextUsed = [...messages].reverse().find((m) => m.role === "assistant" && m.contextTokens)?.contextTokens ?? null;
+  const nearlyFull = !!(contextUsed && picked?.context && contextUsed / picked.context >= CONTEXT_NEARLY_FULL);
   const fileHint = unread.length
     ? `${picked!.label} reads ${kindsPhrase(picked!.reads)} only. Pick another model to send ${unread.length === 1 ? unread[0].name : "these files"}`
-    : uploads.problem;
+    : (uploads.problem ??
+      (nearlyFull ? `This chat is close to what ${picked!.label} can read at once. A new chat keeps answers sharp` : null));
+  const project = chatProject ?? (newProject ? { id: newProject.id, name: newProject.name } : null);
 
   return (
     <div className="chat">
       <PageHeader
         title={title}
-        back={{ label: "Chats", to: "/chats", mobileOnly: true, slide: true }}
-        subtitle={share ? "Shared with a link" : undefined}
+        back={project ? { label: project.name, to: `/projects/${project.id}`, mobileOnly: true } : { label: "Chats", to: "/chats", mobileOnly: true }}
+        subtitle={
+          project ? (
+            <>
+              In{" "}
+              <SlideLink to={`/projects/${project.id}`} direction="back">
+                {project.name}
+              </SlideLink>
+              {shared ? ". Shared with a link" : ""}
+            </>
+          ) : shared ? (
+            "Shared with a link"
+          ) : undefined
+        }
         below={headerNote ? <p className="header-note">{headerNote}</p> : undefined}
         trailing={
           !missing ? (
-            <Link
-              className="btn-ghost icon-button"
-              to={settingsPath}
-              aria-label="Chat settings"
-              onClick={(e) => {
-                // A plain click slides; a modified click (new tab) behaves as a link.
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-                e.preventDefault();
-                slideTo(settingsPath, "forward");
-              }}
-            >
+            <SlideLink className="btn-ghost icon-button" to={settingsPath} direction="forward" aria-label="Chat settings">
               <Icon name="gear" size={20} />
-            </Link>
+            </SlideLink>
           ) : undefined
         }
       />
@@ -453,8 +493,8 @@ export function ChatPage() {
             It may have been deleted
           </EmptyState>
         ) : messages.length === 0 ? (
-          <EmptyState doodle="flag" title="Start a new chat">
-            Ask a question, draft something or think out loud
+          <EmptyState doodle="flag" title={project ? `New chat in ${project.name}` : "Start a new chat"}>
+            {project ? "It follows the project's instructions and can search its knowledge" : "Ask a question, draft something or think out loud"}
           </EmptyState>
         ) : (
           <Transcript
@@ -475,7 +515,7 @@ export function ChatPage() {
             {sendError && <Advisory>{sendError}</Advisory>}
             {/* One line above the box: the model on the left, thinking on the right. */}
             <div className="composer-head">
-              <ModelPicker choices={models.choices} value={choice} onChange={setHandPick} disabled={sending} />
+              <ModelPicker choices={models.choices} value={choice} onChange={setHandPick} disabled={sending} contextUsed={contextUsed} />
             </div>
             <Composer
               value={draft}
@@ -610,7 +650,11 @@ function Composer({ value, onChange, onSend, onStop, sending, files, onAddFiles,
           )}
         </div>
       </form>
-      {hint && <p className="composer-hint">{hint}</p>}
+      {hint && (
+        <p className="composer-hint" role="status">
+          {hint}
+        </p>
+      )}
     </>
   );
 }

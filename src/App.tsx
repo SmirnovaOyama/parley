@@ -18,6 +18,13 @@ import { PeoplePage } from "./pages/admin/PeoplePage.tsx";
 import { PersonFormPage } from "./pages/admin/PersonFormPage.tsx";
 import { SettingsPage } from "./pages/admin/SettingsPage.tsx";
 import { UsagePage } from "./pages/admin/UsagePage.tsx";
+import { GroupFormPage, GroupsPage } from "./pages/admin/GroupsPage.tsx";
+import { McpFormPage, ToolsPage } from "./pages/admin/ToolsPage.tsx";
+import { KnowledgeBasePage, KnowledgeFormPage, KnowledgePage } from "./pages/KnowledgePage.tsx";
+import { MemoryPage } from "./pages/MemoryPage.tsx";
+import { PasswordPage } from "./pages/PasswordPage.tsx";
+import { PersonaFormPage, PersonasPage } from "./pages/PersonasPage.tsx";
+import { ProjectPage, ProjectSettingsPage, ProjectsPage } from "./pages/ProjectsPage.tsx";
 
 export function App() {
   // Route changes render straight away (no React transition), so a page slide can show the new page.
@@ -38,6 +45,18 @@ export function App() {
             <Route path="chats" element={<ChatsPage />} />
             <Route path="account" element={<AccountPage />} />
             <Route path="account/bonus" element={<BonusPage />} />
+            <Route path="account/memory" element={<MemoryPage />} />
+            <Route path="account/personas" element={<PersonasPage />} />
+            <Route path="account/personas/:id" element={<PersonaFormPage />} />
+            <Route path="account/password" element={<PasswordPage />} />
+            <Route path="projects" element={<ProjectsPage />} />
+            <Route path="projects/new" element={<ProjectSettingsPage />} />
+            <Route path="projects/:id" element={<ProjectPage />} />
+            <Route path="projects/:id/settings" element={<ProjectSettingsPage />} />
+            <Route path="knowledge" element={<KnowledgePage />} />
+            <Route path="knowledge/new" element={<KnowledgeFormPage />} />
+            <Route path="knowledge/:id" element={<KnowledgeBasePage />} />
+            <Route path="knowledge/:id/settings" element={<KnowledgeFormPage />} />
             <Route
               path="admin"
               element={
@@ -50,6 +69,8 @@ export function App() {
               <Route path="overview" element={<OverviewPage />} />
               <Route path="keys" element={<KeysPage />} />
               <Route path="people" element={<PeoplePage />} />
+              <Route path="groups" element={<GroupsPage />} />
+              <Route path="tools" element={<ToolsPage />} />
               <Route path="chats" element={<ChatsAdminPage />} />
               <Route path="usage" element={<UsagePage />} />
               <Route path="settings" element={<SettingsPage />} />
@@ -75,6 +96,22 @@ export function App() {
               element={
                 <RequireAdmin>
                   <PersonFormPage />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="admin/groups/:id"
+              element={
+                <RequireAdmin>
+                  <GroupFormPage />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="admin/mcp/:id"
+              element={
+                <RequireAdmin>
+                  <McpFormPage />
                 </RequireAdmin>
               }
             />

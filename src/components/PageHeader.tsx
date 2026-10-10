@@ -1,15 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link } from "react-router";
 import { Icon } from "../icons/Icon.tsx";
-import { useSlideNavigate } from "../lib/slide.ts";
+import { SlideLink } from "./SlideLink.tsx";
 
 type Props = {
   title: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
-  /** A page reached from another: a back link naming the parent sits above the title. `slide`
-   *  slides this page away to the right on the way back (for pages that slid in). */
-  back?: { label: string; to: string; mobileOnly?: boolean; slide?: boolean };
+  /** A page reached from another: a back link naming the parent sits above the title. It slides
+   *  this page away to the right, the way it slid in. */
+  back?: { label: string; to: string; mobileOnly?: boolean };
   /** Replaces the title and actions, e.g. with an inline rename field. */
   editor?: ReactNode;
   /** A line under the bar, e.g. an inline "are you sure". */
@@ -21,7 +20,6 @@ type Props = {
 /** Large-title header on frosted glass; the hairline shows once content scrolls under it. */
 export function PageHeader({ title, subtitle, actions, back, editor, below, trailing }: Props) {
   const [scrolled, setScrolled] = useState(false);
-  const slideTo = useSlideNavigate();
   // Under a back link the title sits lower than the bar's top, so the trailing button joins the
   // title's own row to stay level with it.
   const inTitleRow = !!back && !!trailing && !editor;
@@ -37,23 +35,10 @@ export function PageHeader({ title, subtitle, actions, back, editor, below, trai
       <div className="oy-page-column bar">
         <div style={{ minWidth: 0, flex: 1 }}>
           {back && (
-            <Link
-              className={`back${back.mobileOnly ? " mobile-only" : ""}`}
-              to={back.to}
-              onClick={
-                back.slide
-                  ? (e) => {
-                      // A plain click slides back; a modified click (new tab) behaves as a link.
-                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-                      e.preventDefault();
-                      slideTo(back.to, "back");
-                    }
-                  : undefined
-              }
-            >
+            <SlideLink className={`back${back.mobileOnly ? " mobile-only" : ""}`} to={back.to} direction="back">
               <Icon name="chevron-left" size={20} />
               {back.label}
-            </Link>
+            </SlideLink>
           )}
           {editor ??
             (inTitleRow ? (

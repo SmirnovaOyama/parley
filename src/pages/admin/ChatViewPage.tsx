@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 import { Advisory, Callout, Spinner } from "../../components/Feedback.tsx";
 import { DangerRow } from "../../components/DangerRow.tsx";
 import { PageHeader } from "../../components/PageHeader.tsx";
@@ -7,6 +7,7 @@ import { Transcript } from "../../components/Transcript.tsx";
 import { api, type Message } from "../../lib/api.ts";
 import { dateTime } from "../../lib/format.ts";
 import { declinedSummary, useReviewedLine, type Declined } from "../../lib/declined.ts";
+import { useSlideNavigate } from "../../lib/slide.ts";
 
 type Loaded = {
   conversation: { id: string; title: string; email: string; createdAt: string; deletedByUser: boolean; shared: boolean };
@@ -18,7 +19,7 @@ type Loaded = {
 /** Read-only transcript for admins. Opening it is logged on the server. */
 export function ChatViewPage() {
   const { id } = useParams();
-  const navigate = useNavigate();
+  const slideTo = useSlideNavigate();
   const [params] = useSearchParams();
   const declinedId = params.get("declined");
   const [data, setData] = useState<Loaded | null>(null);
@@ -50,7 +51,7 @@ export function ChatViewPage() {
 
   const remove = async () => {
     await api.del(`/admin/conversations/${id}`);
-    navigate("/admin/chats", { replace: true });
+    slideTo("/admin/chats", "back", { replace: true });
   };
 
   return (
@@ -110,17 +111,35 @@ function ReviewLine({ review, onChange }: { review: Declined; onChange: (next: D
 
   return (
     <div className="inline-confirm" role="group" aria-label="Review">
-      <span className={error ? "text-danger" : undefined}>{text}</span>
-      <span className="inline-confirm-actions">
-        {review.reviewedAt ? (
-          <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => void mark(false)}>
-            Undo
-          </button>
-        ) : (
-          <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => void mark(true)}>
-            Mark reviewed
-          </button>
-        )}
+      {/* Marking it changes the words and the button but not the line's size: the summary holds its
+          room under the "reviewed" words, and both buttons share one place. */}
+      <span className={`swap${error ? " text-danger" : ""}`}>
+        <span className="reserve" aria-hidden="true">
+          {declinedSummary(review)}
+        </span>
+        <span>{text}</span>
+      </span>
+      <span className="inline-confirm-actions swap">
+        <button
+          type="button"
+          className={`btn-secondary btn-sm${review.reviewedAt ? "" : " reserve"}`}
+          disabled={busy}
+          onClick={() => void mark(false)}
+          aria-hidden={!review.reviewedAt || undefined}
+          tabIndex={review.reviewedAt ? undefined : -1}
+        >
+          Undo
+        </button>
+        <button
+          type="button"
+          className={`btn-primary btn-sm${review.reviewedAt ? " reserve" : ""}`}
+          disabled={busy}
+          onClick={() => void mark(true)}
+          aria-hidden={review.reviewedAt ? true : undefined}
+          tabIndex={review.reviewedAt ? -1 : undefined}
+        >
+          Mark reviewed
+        </button>
       </span>
     </div>
   );

@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { Icon, type IconName } from "../icons/Icon.tsx";
 import { Wordmark } from "../icons/Brand.tsx";
+import { groupChats } from "../lib/groups.ts";
 import { useSession } from "../lib/session.tsx";
+import { isUnderChat } from "../lib/slide.ts";
 import { BusyMark, Spinner } from "./Feedback.tsx";
 
 /** Signed-in frame: Sidebar from 768px, the floating BottomNav below it. */
@@ -22,7 +24,7 @@ export function AppShell() {
   // Inside a conversation the composer owns the bottom of the screen, so the tab bar steps aside.
   // A chat's settings page lays out as an ordinary page, but it belongs to the chat (it has its own
   // back link), so the tab bar stays away there too.
-  const underChat = location.pathname === "/chat" || location.pathname.startsWith("/chat/");
+  const underChat = isUnderChat(location.pathname);
   const inChat = underChat && !location.pathname.endsWith("/settings");
 
   return (
@@ -38,7 +40,7 @@ export function AppShell() {
 
 function Sidebar() {
   const { user, conversations } = useSession();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
 
   return (
     <nav className="oy-sidebar app-sidebar" aria-label="Main">
@@ -46,25 +48,34 @@ function Sidebar() {
         <Wordmark />
       </p>
       <div className="items">
-        <NavItem to="/chat" icon="compose" label="New chat" current={pathname === "/chat"} accent />
+        <NavItem to="/chat" icon="compose" label="New chat" current={pathname === "/chat" && !search} accent />
+        <NavItem to="/projects" icon="folder" label="Projects" current={pathname.startsWith("/projects")} />
+        <NavItem to="/knowledge" icon="book" label="Knowledge" current={pathname.startsWith("/knowledge")} />
       </div>
 
-      <p className="oy-overline sidebar-heading">Chats</p>
       <ChatList>
         {conversations.length === 0 ? (
-          <p className="sidebar-empty">Your chats show up here</p>
+          <>
+            <p className="oy-overline sidebar-heading">Chats</p>
+            <p className="sidebar-empty">Your chats show up here</p>
+          </>
         ) : (
-          conversations.map((c) => (
-            <Link
-              key={c.id}
-              to={`/chat/${c.id}`}
-              className="oy-nav-item sidebar-chat"
-              aria-current={pathname === `/chat/${c.id}` || pathname.startsWith(`/chat/${c.id}/`) ? "page" : undefined}
-              title={c.title}
-            >
-              <span className="truncate">{c.title}</span>
-              {c.generating && <BusyMark />}
-            </Link>
+          groupChats(conversations).map((g) => (
+            <section key={g.label} className="sidebar-group" aria-label={g.label}>
+              <p className="oy-overline sidebar-heading">{g.label}</p>
+              {g.chats.map((c) => (
+                <Link
+                  key={c.id}
+                  to={`/chat/${c.id}`}
+                  className="oy-nav-item sidebar-chat"
+                  aria-current={pathname === `/chat/${c.id}` || pathname.startsWith(`/chat/${c.id}/`) ? "page" : undefined}
+                  title={c.title}
+                >
+                  <span className="truncate">{c.title}</span>
+                  {c.generating && <BusyMark />}
+                </Link>
+              ))}
+            </section>
           ))
         )}
       </ChatList>
@@ -141,7 +152,7 @@ function BottomNav() {
   const navigate = useNavigate();
 
   const items: { to: string; icon: IconName; label: string; current: boolean }[] = [
-    { to: "/chats", icon: "chats", label: "Chats", current: pathname === "/chats" },
+    { to: "/chats", icon: "chats", label: "Chats", current: pathname === "/chats" || pathname.startsWith("/projects") || pathname.startsWith("/knowledge") },
     ...(user?.role === "admin"
       ? [{ to: "/admin", icon: "gear" as const, label: "Admin", current: pathname.startsWith("/admin") }]
       : []),

@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useParams } from "react-router";
 import { BusyButton } from "../../components/BusyButton.tsx";
 import { CheckList, OptionList, Switch } from "../../components/Controls.tsx";
 import { DangerRow } from "../../components/DangerRow.tsx";
 import { Advisory, Spinner } from "../../components/Feedback.tsx";
 import { LineField } from "../../components/LineField.tsx";
 import { PageHeader } from "../../components/PageHeader.tsx";
+import { SlideLink } from "../../components/SlideLink.tsx";
 import { Icon } from "../../icons/Icon.tsx";
 import { api } from "../../lib/api.ts";
 import { amountInput, amountText } from "../../lib/format.ts";
+import { useSlideNavigate } from "../../lib/slide.ts";
 import type { ApiKey, ProviderInfo, Service } from "./KeysPage.tsx";
 
 /** One model of another service as it's typed: its name, and its prices per million tokens. */
@@ -36,7 +38,7 @@ const TOOL_COPY: Record<string, { search: string; code: string }> = {
 export function KeyFormPage() {
   const { id } = useParams();
   const adding = id === "new";
-  const navigate = useNavigate();
+  const slideTo = useSlideNavigate();
 
   const [providers, setProviders] = useState<ProviderInfo[] | null>(null);
   const [services, setServices] = useState<Service[]>([]);
@@ -168,7 +170,7 @@ export function KeyFormPage() {
           isDefault,
           shared: isDefault || shared === "everyone",
           fallbackKeyId: fallback === "none" ? null : Number(fallback),
-          webSearch: !!tools && webSearch,
+          webSearch,
           codeExecution: !!tools && codeExecution,
         });
       } else if (existing) {
@@ -179,11 +181,11 @@ export function KeyFormPage() {
           ...(isDefault && !existing.isDefault ? { isDefault: true } : {}),
           shared: isDefault || shared === "everyone",
           fallbackKeyId: fallback === "none" ? null : Number(fallback),
-          webSearch: !!tools && webSearch,
+          webSearch,
           codeExecution: !!tools && codeExecution,
         });
       }
-      navigate("/admin/keys");
+      slideTo("/admin/keys", "back");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -256,7 +258,8 @@ export function KeyFormPage() {
                           maxLength={200}
                           value={r.id}
                           onChange={(e) => editRow(r.key, { id: e.target.value })}
-                          hint={i === 0 && !r.id && service ? `Like ${service.example}` : undefined}
+                          // Stays while you type, so the rows under it don't jump up on the first key.
+                          hint={i === 0 && service ? `Like ${service.example}` : undefined}
                         />
                         <LineField
                           id={`key-model-${r.key}-in`}
@@ -322,7 +325,8 @@ export function KeyFormPage() {
                   label="New chats start on"
                   value={model}
                   onChange={(m) => pickModel(m)}
-                  options={provider.models.filter((m) => models.includes(m.id)).map((m) => ({ id: m.id, label: m.label }))}
+                  // Every model is listed; unticked ones rest, so ticking above doesn't add rows here.
+                  options={provider.models.map((m) => ({ id: m.id, label: m.label, disabled: !models.includes(m.id) }))}
                 />
 
                 {modelInfo && modelInfo.efforts.length > 1 && (
@@ -352,19 +356,19 @@ export function KeyFormPage() {
                   <Switch id="key-images" checked={images} onChange={setImages} />
                 </div>
               )}
-              {tools && (
-                <div className="oy-row">
-                  <div className="text">
-                    <label className="title" htmlFor="key-web-search">
-                      Web search
-                    </label>
-                    <div className="desc">
-                      {tools.search} Works in chats started while some Claude or OpenAI key has it on
-                    </div>
+              <div className="oy-row">
+                <div className="text">
+                  <label className="title" htmlFor="key-web-search">
+                    Web search
+                  </label>
+                  <div className="desc">
+                    {tools
+                      ? `${tools.search} Works in chats started while some key has it on`
+                      : "Searches through the search service set up under Tools, and reads the pages it finds. Works in chats started while some key has it on"}
                   </div>
-                  <Switch id="key-web-search" checked={webSearch} onChange={setWebSearch} />
                 </div>
-              )}
+                <Switch id="key-web-search" checked={webSearch} onChange={setWebSearch} />
+              </div>
               {tools && (
                 <div className="oy-row">
                   <div className="text">
@@ -380,18 +384,16 @@ export function KeyFormPage() {
               )}
             </div>
 
-            {/* The default key is everyone's, so who-can-use-it only matters for the others. */}
-            {!isDefault && (
-              <OptionList
-                label="Who can pick it"
-                value={shared}
-                onChange={setShared}
-                options={[
-                  { id: "everyone", label: "Everyone" },
-                  { id: "chosen", label: "Only people you choose", detail: "Choose them under People" },
-                ]}
-              />
-            )}
+            {/* The default key is everyone's: the choice stays in view, set to Everyone and resting. */}
+            <OptionList
+              label="Who can pick it"
+              value={isDefault ? "everyone" : shared}
+              onChange={setShared}
+              options={[
+                { id: "everyone", label: "Everyone", disabled: isDefault },
+                { id: "chosen", label: "Only people you choose", detail: "Choose them under People", disabled: isDefault },
+              ]}
+            />
 
             <OptionList
               label="If it fails, answer with"
@@ -416,11 +418,11 @@ export function KeyFormPage() {
 
             <div className="form-page-actions">
               <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!ready}>
-                {busy ? "Checking the key" : adding ? "Add key" : "Save"}
+                {adding ? "Add key" : "Save"}
               </BusyButton>
-              <Link to="/admin/keys" className="btn-secondary">
+              <SlideLink to="/admin/keys" direction="back" className="btn-secondary">
                 Cancel
-              </Link>
+              </SlideLink>
             </div>
 
             {existing && (
@@ -431,7 +433,7 @@ export function KeyFormPage() {
                 }
                 onConfirm={async () => {
                   await api.del(`/admin/keys/${existing.id}`);
-                  navigate("/admin/keys");
+                  slideTo("/admin/keys", "back");
                 }}
               />
             )}

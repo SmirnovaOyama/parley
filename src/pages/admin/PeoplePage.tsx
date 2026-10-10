@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
 import { Advisory, Spinner } from "../../components/Feedback.tsx";
 import { Icon } from "../../icons/Icon.tsx";
 import { api } from "../../lib/api.ts";
 import { compactNumber, formatCost, plural } from "../../lib/format.ts";
 import { useSession } from "../../lib/session.tsx";
+import { useSlideNavigate } from "../../lib/slide.ts";
 
 export type Person = {
   id: number;
@@ -12,6 +12,8 @@ export type Person = {
   role: "admin" | "user";
   apiKeyId: number | null;
   keyIds: number[];
+  /** The groups they're in. */
+  groupIds?: number[];
   keyLabel: string | null;
   monthlyTokenLimit: number | null;
   /** Whose spending limit they follow; their own amount is kept while they follow another. */
@@ -36,7 +38,7 @@ const tokenCap = (p: Person) => (p.monthlyTokenLimit == null ? null : p.monthlyT
 
 export function PeoplePage() {
   const { user: me } = useSession();
-  const navigate = useNavigate();
+  const slideTo = useSlideNavigate();
   const [people, setPeople] = useState<Person[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,7 +56,7 @@ export function PeoplePage() {
     <>
       <div className="admin-toolbar">
         <p className="text-muted">{plural(people.length, "person", "people")}</p>
-        <button type="button" className="btn-ghost is-accent" onClick={() => navigate("/admin/people/new")}>
+        <button type="button" className="btn-ghost is-accent" onClick={() => slideTo("/admin/people/new", "forward")}>
           <Icon name="plus" size={16} />
           Add a person
         </button>
@@ -65,7 +67,7 @@ export function PeoplePage() {
           const tokenLimit = tokenCap(p);
           const atLimit = (spendLimit != null && p.spentThisMonth >= spendLimit) || (tokenLimit != null && p.tokensThisMonth >= tokenLimit);
           return (
-            <button key={p.id} type="button" className="oy-row" onClick={() => navigate(`/admin/people/${p.id}`)}>
+            <button key={p.id} type="button" className="oy-row" onClick={() => slideTo(`/admin/people/${p.id}`, "forward")}>
               <div className="text">
                 <p className="title truncate">
                   {p.email}

@@ -143,6 +143,9 @@ textarea.input-base { resize: none; }
 .oy-segmented .seg { position: relative; z-index: 1; height: 26px; padding: 0 12px; border-radius: var(--radius-full); font-size: 13px; line-height: 18px; font-weight: 500; color: var(--text-muted); }
 .oy-segmented .seg:hover { color: var(--text); }
 .oy-segmented .seg[aria-selected="true"] { color: var(--text); font-weight: 600; }
+.oy-segmented .seg-label { display: grid; justify-items: center; }
+.oy-segmented .seg-label > * { grid-column: 1; grid-row: 1; }
+.oy-segmented .seg-label > .reserve { visibility: hidden; font-weight: 600; }
 .oy-segmented .thumb { position: absolute; top: 3px; bottom: 3px; border-radius: var(--radius-full); background: var(--control-thumb); box-shadow: var(--shadow-xs); }
 
 /* ── tick ────────────────────────────────────────────────────── */

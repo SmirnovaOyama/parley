@@ -1,0 +1,368 @@
+import { useEffect, useState, type FormEvent } from "react";
+import { useNavigate, useParams } from "react-router";
+import { BusyButton } from "../../components/BusyButton.tsx";
+import { CheckList, OptionList, Switch } from "../../components/Controls.tsx";
+import { DangerRow } from "../../components/DangerRow.tsx";
+import { Advisory, Spinner } from "../../components/Feedback.tsx";
+import { LineArea, LineField } from "../../components/LineField.tsx";
+import { PageHeader } from "../../components/PageHeader.tsx";
+import { SlideLink } from "../../components/SlideLink.tsx";
+import { Icon } from "../../icons/Icon.tsx";
+import { api } from "../../lib/api.ts";
+import { atOrOn, plural } from "../../lib/format.ts";
+import { useSlideNavigate } from "../../lib/slide.ts";
+import type { Group } from "./GroupsPage.tsx";
+
+export type McpServer = {
+  id: number;
+  name: string;
+  url: string;
+  headerNames: string[];
+  enabled: boolean;
+  shared: boolean;
+  tools: { name: string; title: string | null; description: string }[];
+  offTools: string[];
+  groupIds: number[];
+  checkedAt: string | null;
+  error: string | null;
+};
+
+type SearchService = { id: string; label: string; detail: string; needs: "key" | "url" };
+type SearchSettings = { provider: string | null; url: string; hasKey: boolean; services: SearchService[] };
+
+/** Admin › Tools: the search service behind web search for models without their own, and MCP servers. */
+export function ToolsPage() {
+  const slideTo = useSlideNavigate();
+  const [servers, setServers] = useState<McpServer[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ servers: McpServer[] }>("/admin/mcp").then((r) => setServers(r.servers), (err) => setError((err as Error).message));
+  }, []);
+
+  return (
+    <>
+      <SearchForm />
+
+      <div className="oy-group">
+        <div className="group-head">
+          <p className="oy-overline">MCP servers</p>
+          <button type="button" className="btn-ghost is-accent" onClick={() => slideTo("/admin/mcp/new", "forward")}>
+            <Icon name="plus" size={16} />
+            Add a server
+          </button>
+        </div>
+        <p className="group-intro">
+          Connect a service that speaks the Model Context Protocol, like GitHub, Notion or one of your own, and every model can use its tools. A
+          chat gets the tools that were on when it started
+        </p>
+        {error ? (
+          <Advisory>{error}</Advisory>
+        ) : !servers ? (
+          <Spinner />
+        ) : servers.length === 0 ? (
+          <p className="group-empty">None yet</p>
+        ) : (
+          <div className="oy-section is-plain">
+            {servers.map((s) => {
+              const on = s.tools.length - s.offTools.filter((t) => s.tools.some((x) => x.name === t)).length;
+              return (
+                <button key={s.id} type="button" className="oy-row" onClick={() => slideTo(`/admin/mcp/${s.id}`, "forward")}>
+                  <Icon name="plug" size={20} />
+                  <div className="text">
+                    <p className="title truncate">
+                      {s.name}
+                      {!s.enabled && <span className="tag is-warning">Off</span>}
+                      {s.error && <span className="tag is-warning">Not answering</span>}
+                    </p>
+                    <div className="desc">
+                      {plural(on, "tool", "tools")} for {s.shared ? "everyone" : s.groupIds.length ? plural(s.groupIds.length, "group", "groups") : "nobody yet"}
+                    </div>
+                  </div>
+                  <Icon name="chevron-right" size={18} className="chevron" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Which search service DeepSeek, Gemini, Grok and other services search the web through. */
+function SearchForm() {
+  const [settings, setSettings] = useState<SearchSettings | null>(null);
+  const [provider, setProvider] = useState("off");
+  const [key, setKey] = useState("");
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get<SearchSettings>("/admin/search").then((s) => {
+      setSettings(s);
+      setProvider(s.provider ?? "off");
+      setUrl(s.url);
+    }, (err) => setError((err as Error).message));
+  }, []);
+
+  if (!settings) return error ? <Advisory>{error}</Advisory> : <Spinner />;
+  const service = settings.services.find((s) => s.id === provider);
+  const dirty = provider !== (settings.provider ?? "off") || !!key.trim() || (service?.needs === "url" && url !== settings.url);
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await api.put<SearchSettings>("/admin/search", provider === "off" ? { provider: null } : { provider, key, url });
+      setSettings(next);
+      setKey("");
+      setSaved(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="oy-group">
+      <p className="oy-overline">Web search for other models</p>
+      <p className="group-intro">
+        Claude and OpenAI search with their own tools. DeepSeek, Gemini, Grok and other services search through the service picked here,
+        and can read the pages they find, on keys with web search on
+      </p>
+      <form className="form-page" onSubmit={save}>
+        <OptionList
+          label="Search service"
+          value={provider}
+          onChange={(p) => {
+            setProvider(p);
+            setSaved(false);
+            setError(null);
+          }}
+          options={[{ id: "off", label: "None", detail: "Those models answer from what they know" }, ...settings.services.map((s) => ({ id: s.id, label: s.label, detail: s.detail }))]}
+        />
+        {service?.needs === "key" && (
+          <LineField
+            id="search-key"
+            label={settings.hasKey && settings.provider === provider ? "A new API key (empty keeps the saved one)" : `${service.label} API key`}
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={key}
+            onChange={(e) => {
+              setKey(e.target.value);
+              setSaved(false);
+            }}
+          />
+        )}
+        {service?.needs === "url" && (
+          <LineField
+            id="search-url"
+            label="Your SearXNG's address"
+            autoComplete="off"
+            spellCheck={false}
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              setSaved(false);
+            }}
+            hint="Its settings need JSON among the result formats"
+          />
+        )}
+        {error && <Advisory>{error}</Advisory>}
+        <div className="form-actions">
+          <p className="oy-field-hint">A test search runs before it's saved</p>
+          <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
+            {saved && !dirty ? "Saved" : "Save"}
+          </BusyButton>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/** Add an MCP server (/admin/mcp/new) or change one (/admin/mcp/:id): where it is, who can use it, which tools are on. */
+export function McpFormPage() {
+  const { id } = useParams();
+  const adding = id === "new";
+  const navigate = useNavigate();
+  const slideTo = useSlideNavigate();
+  const [server, setServer] = useState<McpServer | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [headers, setHeaders] = useState("");
+  const [who, setWho] = useState<"everyone" | "groups">("everyone");
+  const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [enabled, setEnabled] = useState(true);
+  const [onTools, setOnTools] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const fill = (s: McpServer) => {
+    setServer(s);
+    setName(s.name);
+    setUrl(s.url);
+    setWho(s.shared ? "everyone" : "groups");
+    setGroupIds(s.groupIds.map(String));
+    setEnabled(s.enabled);
+    setOnTools(s.tools.map((t) => t.name).filter((t) => !s.offTools.includes(t)));
+  };
+
+  useEffect(() => {
+    api.get<{ groups: Group[] }>("/admin/groups").then((r) => setGroups(r.groups), () => {});
+    if (adding) return;
+    api.get<{ servers: McpServer[] }>("/admin/mcp").then(
+      (r) => {
+        const found = r.servers.find((s) => String(s.id) === id);
+        if (found) fill(found);
+        else setLoadError("This server doesn't exist any more");
+      },
+      (err) => setLoadError((err as Error).message),
+    );
+  }, [id, adding]);
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const body = { name, url, headers, shared: who === "everyone", groupIds: groupIds.map(Number) };
+      if (adding) {
+        const { server: made } = await api.post<{ server: McpServer }>("/admin/mcp", body);
+        navigate(`/admin/mcp/${made.id}`, { replace: true });
+        fill(made);
+      } else {
+        const offTools = server!.tools.map((t) => t.name).filter((t) => !onTools.includes(t));
+        await api.patch(`/admin/mcp/${id}`, { ...body, keepHeaders: true, enabled, offTools });
+        slideTo("/admin/tools", "back");
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const check = async () => {
+    setChecking(true);
+    setError(null);
+    try {
+      const { server: next } = await api.post<{ server: McpServer }>(`/admin/mcp/${id}/refresh`);
+      const before = new Set(server?.tools.map((t) => t.name));
+      setServer(next);
+      // New tools come on; ones turned off stay off.
+      setOnTools((list) => [...list.filter((t) => next.tools.some((x) => x.name === t)), ...next.tools.map((t) => t.name).filter((t) => !before.has(t))]);
+      if (next.error) setError(next.error);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="admin-page">
+      <PageHeader
+        title={adding ? "New MCP server" : (server?.name ?? "MCP server")}
+        subtitle={server?.checkedAt ? `Listed its tools ${atOrOn(server.checkedAt)}` : undefined}
+        back={{ label: "Tools", to: "/admin/tools" }}
+      />
+      <div className="oy-page-column page-body">
+        {loadError ? (
+          <Advisory>{loadError}</Advisory>
+        ) : !adding && !server ? (
+          <Spinner />
+        ) : (
+          <>
+            <form className="form-page" onSubmit={save}>
+              <LineField id="mcp-name" label="Name" value={name} maxLength={40} autoComplete="off" onChange={(e) => setName(e.target.value)} hint="Tools are named after it, like github__create_issue" />
+              <LineField id="mcp-url" label="Address" value={url} autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} hint="Its Streamable HTTP or SSE endpoint, often ending in /mcp" />
+              <LineArea
+                id="mcp-headers"
+                label={server?.headerNames.length ? `New headers (${server.headerNames.join(", ")} kept when empty)` : "Headers (optional)"}
+                value={headers}
+                spellCheck={false}
+                onChange={(e) => setHeaders(e.target.value)}
+                hint="One per line, like Authorization: Bearer abc123, or just a token. Kept encrypted and never shown again"
+              />
+              <OptionList
+                label="Who can use it"
+                value={who}
+                onChange={setWho}
+                options={[
+                  { id: "everyone", label: "Everyone" },
+                  { id: "groups", label: "Only some groups" },
+                ]}
+              />
+              {who === "groups" && (
+                <CheckList
+                  label="Groups"
+                  values={groupIds}
+                  onChange={setGroupIds}
+                  options={groups.map((g) => ({ id: String(g.id), label: g.name, detail: plural(g.memberIds.length, "person", "people") }))}
+                  empty="There are no groups yet. Make them under Groups"
+                />
+              )}
+              {!adding && server && (
+                <>
+                  <div className="oy-section is-plain">
+                    <div className="oy-row">
+                      <div className="text">
+                        <label className="title" htmlFor="mcp-enabled">
+                          On
+                        </label>
+                        <div className="desc">Off, its tools stop working in every chat until it's back on</div>
+                      </div>
+                      <Switch id="mcp-enabled" checked={enabled} onChange={setEnabled} />
+                    </div>
+                  </div>
+                  <CheckList
+                    label="Tools people can use"
+                    values={onTools}
+                    onChange={setOnTools}
+                    options={server.tools.map((t) => ({ id: t.name, label: t.title || t.name, detail: t.description.split("\n")[0].slice(0, 160) || undefined }))}
+                    empty="It lists no tools"
+                  />
+                  <BusyButton type="button" className="btn-ghost is-accent push-left mcp-check" busy={checking} onClick={() => void check()}>
+                    <Icon name="retry" size={16} />
+                    Ask it for its tools again
+                  </BusyButton>
+                </>
+              )}
+              {adding && <p className="panel-note">Saving connects to it and lists its tools</p>}
+              {error && <Advisory>{error}</Advisory>}
+              <div className="form-page-actions">
+                <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!name.trim() || !url.trim()}>
+                  {adding ? "Connect" : "Save"}
+                </BusyButton>
+                <SlideLink to="/admin/tools" direction="back" className="btn-secondary">
+                  Cancel
+                </SlideLink>
+              </div>
+            </form>
+            {!adding && (
+              <div className="settings-danger">
+                <DangerRow
+                  label="Remove this server"
+                  confirmLabel="Remove it? Its tools stop working in every chat"
+                  onConfirm={async () => {
+                    await api.del(`/admin/mcp/${id}`);
+                    slideTo("/admin/tools", "back", { replace: true });
+                  }}
+                />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

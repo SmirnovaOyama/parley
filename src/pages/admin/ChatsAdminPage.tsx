@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import { Segmented } from "../../components/Controls.tsx";
 import { Advisory, Callout, EmptyState, Spinner } from "../../components/Feedback.tsx";
 import { Icon } from "../../icons/Icon.tsx";
 import { api } from "../../lib/api.ts";
 import { plural, shortDate } from "../../lib/format.ts";
 import { declinedSummary, useReviewedLine, type Declined } from "../../lib/declined.ts";
+import { useSlideNavigate } from "../../lib/slide.ts";
 
 type Row = { id: string; title: string; email: string; messageCount: number; updatedAt: string; deletedByUser: boolean; shared: boolean };
 
@@ -62,7 +63,7 @@ type AllProps = {
 };
 
 function AllChats({ userId, params, setFilter, onToReview }: AllProps) {
-  const navigate = useNavigate();
+  const slideTo = useSlideNavigate();
   const [query, setQuery] = useState(params.get("q") ?? "");
   const [rows, setRows] = useState<Row[] | null>(null);
 
@@ -114,7 +115,7 @@ function AllChats({ userId, params, setFilter, onToReview }: AllProps) {
       ) : (
         <div className="oy-section">
           {rows.map((r) => (
-            <button key={r.id} type="button" className="oy-row" onClick={() => navigate(`/admin/chats/${r.id}`)}>
+            <button key={r.id} type="button" className="oy-row" onClick={() => slideTo(`/admin/chats/${r.id}`, "forward")}>
               <Icon name="chat" size={20} />
               <div className="text">
                 <p className="title truncate">
@@ -138,7 +139,7 @@ function AllChats({ userId, params, setFilter, onToReview }: AllProps) {
 
 /** Messages the AI declined, waiting ones first, so admins can check them without reading every chat. */
 function DeclinedList({ userId, onToReview }: { userId: string; onToReview: (n: number) => void }) {
-  const navigate = useNavigate();
+  const slideTo = useSlideNavigate();
   const reviewedLine = useReviewedLine();
   const [rows, setRows] = useState<Declined[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -174,7 +175,7 @@ function DeclinedList({ userId, onToReview }: { userId: string; onToReview: (n: 
   };
 
   const row = (r: Declined) => (
-    <button key={r.id} type="button" className="oy-row" onClick={() => navigate(`/admin/chats/${r.conversationId}?declined=${r.id}`)}>
+    <button key={r.id} type="button" className="oy-row" onClick={() => slideTo(`/admin/chats/${r.conversationId}?declined=${r.id}`, "forward")}>
       <Icon name={r.reviewedAt ? "check" : "alert"} size={20} />
       <div className="text">
         <p className="title truncate">
@@ -207,12 +208,17 @@ function DeclinedList({ userId, onToReview }: { userId: string; onToReview: (n: 
           <div className="oy-group">
             <div className="group-head">
               <p className="oy-overline">To review</p>
-              {waiting.length > 0 && (
-                <button type="button" className="btn-ghost is-accent" onClick={markAll} disabled={busy}>
-                  <Icon name="check" size={16} />
-                  Mark all reviewed
-                </button>
-              )}
+              {/* Rests once all are done, so the heading keeps its height. */}
+              <button
+                type="button"
+                className={`btn-ghost is-accent${waiting.length ? "" : " is-resting"}`}
+                onClick={markAll}
+                disabled={busy || !waiting.length}
+                tabIndex={waiting.length ? undefined : -1}
+              >
+                <Icon name="check" size={16} />
+                Mark all reviewed
+              </button>
             </div>
             {waiting.length === 0 ? <p className="group-empty">All caught up</p> : <div className="oy-section">{waiting.map(row)}</div>}
           </div>

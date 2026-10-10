@@ -32,7 +32,13 @@ export function Segmented<K extends string>({ options, value, onChange, ...rest 
           aria-selected={o.id === value}
           onClick={() => onChange(o.id)}
         >
-          {o.label}
+          {/* A bold copy holds the width, so choosing one never nudges the others (as in Tabs). */}
+          <span className="seg-label">
+            <span className="reserve" aria-hidden="true">
+              {o.label}
+            </span>
+            <span>{o.label}</span>
+          </span>
         </button>
       ))}
     </div>
@@ -121,10 +127,24 @@ export function Tick({ on, size = 18 }: { on: boolean; size?: number }) {
 
 // ── Option list ─────────────────────────────────────────────────────
 
+/** A choice's name. It turns medium when chosen; a medium copy holds the room, so the row never
+ *  rewraps or grows when it's ticked. */
+export function OptionTitle({ label }: { label: ReactNode }) {
+  return (
+    <span className="title swap">
+      <span className="reserve" aria-hidden="true">
+        {label}
+      </span>
+      <span>{label}</span>
+    </span>
+  );
+}
+
 type OptionListProps<K extends string> = {
   label: string;
-  /** `features`: what a choice can do, each shown with a small quiet tick under its name. */
-  options: readonly { id: K; label: string; detail?: string; features?: readonly string[] }[];
+  /** `features`: what a choice can do, each shown with a small quiet tick under its name.
+   *  `disabled`: there but not available now (dimmed rather than taken away, so rows never jump). */
+  options: readonly { id: K; label: string; detail?: string; features?: readonly string[]; disabled?: boolean }[];
   value: K;
   onChange: (id: K) => void;
 };
@@ -142,10 +162,11 @@ export function OptionList<K extends string>({ label, options, value, onChange }
             className="oy-row option-row"
             role="radio"
             aria-checked={o.id === value}
+            disabled={o.disabled}
             onClick={() => onChange(o.id)}
           >
             <span className="text">
-              <span className="title">{o.label}</span>
+              <OptionTitle label={o.label} />
               {o.detail && <span className="desc">{o.detail}</span>}
               {o.features?.length ? (
                 <span className="option-features">
@@ -172,7 +193,7 @@ export function OptionList<K extends string>({ label, options, value, onChange }
 
 type CheckListProps = {
   label: string;
-  options: readonly { id: string; label: string; detail?: string }[];
+  options: readonly { id: string; label: string; detail?: ReactNode }[];
   values: readonly string[];
   onChange: (values: string[]) => void;
   /** Shown instead of rows when there's nothing to pick. */
@@ -199,7 +220,7 @@ export function CheckList({ label, options, values, onChange, empty }: CheckList
               onClick={() => toggle(o.id)}
             >
               <span className="text">
-                <span className="title">{o.label}</span>
+                <OptionTitle label={o.label} />
                 {o.detail && <span className="desc">{o.detail}</span>}
               </span>
               <Tick on={values.includes(o.id)} />

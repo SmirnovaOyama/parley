@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, type ComponentProps } from "react";
 import { BusyMark } from "./Feedback.tsx";
 
 type Props = ComponentProps<"button"> & {
-  /** Waiting on the server: the turning mark slides in before the label and clicks are held. */
+  /** Waiting on the server: the turning mark takes the label's place and clicks are held. */
   busy?: boolean;
 };
 
@@ -10,10 +10,10 @@ const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)")
 const widthOf = (el: Element) => parseFloat(getComputedStyle(el).width);
 
 /**
- * A button that can wait. While `busy` it keeps its colour and focus (it isn't disabled, it's
- * working): the turning mark slides in before the label, `aria-busy` is set, and clicks and Enter
- * are held so a form can't go twice. When the label's words change ("Send code" to "Sending"), the
- * label eases to its new width and fades in, so the button grows or shrinks instead of jumping.
+ * A button that can wait. While `busy` it keeps its colour, focus and size (it isn't disabled, it's
+ * working): the turning mark takes the label's place in the middle, `aria-busy` is set, and clicks
+ * and Enter are held so a form can't go twice. Keep the label's words the same while busy, so the
+ * button never changes size; if they do change, the label eases to its new width instead of jumping.
  */
 export function BusyButton({ busy = false, className, onClick, children, ...rest }: Props) {
   const labelRef = useRef<HTMLSpanElement>(null);

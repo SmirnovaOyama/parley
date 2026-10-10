@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, ApiError, type ConversationSummary, type Instructions, type User } from "./api.ts";
+import { api, ApiError, type ConversationSummary, type Instructions, type Project, type User } from "./api.ts";
 
 type SessionValue = {
   user: User | null;
@@ -13,6 +13,12 @@ type SessionValue = {
   /** Instructions for the chat about to start, set on its settings page; null means the Account defaults. */
   newChatInstructions: Instructions | null;
   setNewChatInstructions: (next: Instructions | null) => void;
+  /** Knowledge bases picked for the chat about to start. */
+  newChatKnowledge: string[];
+  setNewChatKnowledge: (next: string[]) => void;
+  /** The person's projects, newest activity first. */
+  projects: Project[];
+  refreshProjects: () => Promise<void>;
 };
 
 const SessionContext = createContext<SessionValue | null>(null);
@@ -22,6 +28,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [newChatInstructions, setNewChatInstructions] = useState<Instructions | null>(null);
+  const [newChatKnowledge, setNewChatKnowledge] = useState<string[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -44,6 +52,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshProjects = useCallback(async () => {
+    try {
+      const { projects } = await api.get<{ projects: Project[] }>("/projects");
+      setProjects(projects);
+    } catch {
+      // The list can wait for the next refresh.
+    }
+  }, []);
+
   const touchConversation = useCallback((c: ConversationSummary) => {
     setConversations((list) => [{ ...list.find((x) => x.id === c.id), ...c }, ...list.filter((x) => x.id !== c.id)]);
   }, []);
@@ -52,7 +69,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await api.post("/auth/logout").catch(() => {});
     setUser(null);
     setConversations([]);
+    setProjects([]);
     setNewChatInstructions(null);
+    setNewChatKnowledge([]);
   }, []);
 
   useEffect(() => {
@@ -60,8 +79,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [refreshUser]);
 
   useEffect(() => {
-    if (user) void refreshConversations();
-  }, [user, refreshConversations]);
+    if (!user) return;
+    void refreshConversations();
+    void refreshProjects();
+  }, [user, refreshConversations, refreshProjects]);
 
   // While any chat has a reply being written (here, in another tab, or one left running), check
   // back every few seconds so its spinner stops when the reply is saved.
@@ -84,6 +105,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         touchConversation,
         newChatInstructions,
         setNewChatInstructions,
+        newChatKnowledge,
+        setNewChatKnowledge,
+        projects,
+        refreshProjects,
       }}
     >
       {children}

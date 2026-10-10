@@ -61,14 +61,23 @@ export type Message = {
   files?: { id: string; name: string; mime: string; size: number }[];
   /** On your message: the files you attached, from /api/files/:id too. */
   attachments?: Attachment[];
+  /** On a reply: what it did with the app's tools, in words ("Remembered “…”", "Used create_issue on GitHub"). */
+  tools?: ToolUse[];
+  /** On a reply: how much of the model's context the chat filled by its end, in tokens. */
+  contextTokens?: number | null;
   createdAt: string;
 };
+
+export type ToolUse = { kind: "memory" | "knowledge" | "page" | "mcp"; text: string; error?: boolean };
 
 /** A file attached to a message: what the model gets is its kind (other: only code can open it). */
 export type Attachment = { id: string; name: string; mime: string; size: number; kind: "image" | "pdf" | "text" | "other" };
 
-/** About you, and how the AI should answer: Account defaults, or one chat's own. */
+/** About you, and how the AI should answer: a persona's, or one chat's own. */
 export type Instructions = { aboutMe: string; answerStyle: string };
+
+/** One of up to five ways a person presents themselves to the AI. */
+export type Persona = Instructions & { id: string; name: string; /** New chats start as this one. */ forNewChats: boolean };
 
 /** A model a person can pick (each one is an admin's API key). */
 export type ModelChoice = {
@@ -80,6 +89,8 @@ export type ModelChoice = {
   defaultEffort: string;
   /** The kinds of file it can open: some of images, PDFs and text, or anything (Claude or OpenAI running code). */
   reads: Attachment["kind"][];
+  /** Tokens it reads at once; null where it isn't known. */
+  context: number | null;
 };
 /** One chat's pick: which key runs it, the model, and how hard it thinks. */
 export type Choice = { keyId: number; model: string; effort: string };
@@ -88,10 +99,35 @@ export type ConversationSummary = {
   id: string;
   title: string;
   updatedAt: string;
+  /** The project it's in, and when it was pinned to the top (null when it isn't). */
+  projectId?: string | null;
+  pinnedAt?: string | null;
   shared?: boolean;
   /** A reply is being written for this chat right now. */
   generating?: boolean;
 };
+
+/** A project: a folder of chats with its own instructions and knowledge bases. */
+export type Project = { id: string; name: string; instructions: string; knowledgeIds: string[]; chats: number; updatedAt: string };
+
+/** A knowledge base: documents chats can search. Yours, or an admin's shared with everyone. */
+export type KnowledgeBase = {
+  id: string;
+  name: string;
+  description: string;
+  shared: boolean;
+  mine: boolean;
+  canEdit: boolean;
+  /** Who made it, when it isn't you. */
+  owner: string | null;
+  docs: number;
+  bytes: number;
+  updatedAt: string;
+};
+export type KnowledgeDoc = { id: string; name: string; mime: string; size: number; chars: number; parts: number; createdAt: string };
+
+/** The site's rules that touch a person's data. */
+export type Policy = { retainChatsDays: number | null; retainDeletedDays: number | null; memory: boolean };
 
 /** Who can open shared chat links, as an admin set it. */
 export type SharingMode = "anyone" | "signed-in" | "off";
@@ -131,6 +167,36 @@ export function uploadFile(file: Blob, name: string, onProgress: (fraction: numb
   return { promise, abort: () => xhr.abort() };
 }
 
+/**
+ * Sends a file's bytes to an endpoint that takes them raw (a knowledge base's documents, an
+ * import), reporting progress. Resolves with the JSON the server answered.
+ */
+export function uploadRaw<T>(path: string, file: Blob, name: string, onProgress?: (fraction: number) => void) {
+  const xhr = new XMLHttpRequest();
+  const promise = new Promise<T>((resolve, reject) => {
+    xhr.open("PUT", `/api${path}`);
+    xhr.setRequestHeader("content-type", "application/octet-stream");
+    xhr.setRequestHeader("x-file-name", encodeURIComponent(name));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      let data: { error?: string } = {};
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        // Not JSON: a proxy's error page, say.
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && !data.error) resolve(data as T);
+      else reject(new ApiError(xhr.status, data.error ?? "Couldn't send this file. Try again"));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Couldn't send this file. Check the connection and try again"));
+    xhr.onabort = () => reject(new ApiError(0, "Stopped"));
+    xhr.send(file);
+  });
+  return { promise, abort: () => xhr.abort() };
+}
+
 // ── Streaming a reply ───────────────────────────────────────────────
 
 export type StreamHandlers = {
@@ -147,8 +213,8 @@ export type StreamHandlers = {
   }) => void;
   onDelta: (text: string) => void;
   onThinking: (text: string) => void;
-  /** "searching" comes with the query. */
-  onStatus: (status: "thinking" | "writing" | "searching" | "coding" | "saving" | "uploading", detail?: string) => void;
+  /** "searching" comes with the query; "tool" with a few words on what it's doing ("Updating memory"). */
+  onStatus: (status: "thinking" | "writing" | "searching" | "coding" | "saving" | "uploading" | "tool", detail?: string) => void;
   onNotice: (message: string) => void;
   onDone: (message: Message) => void;
   onError: (message: Message) => void;
@@ -174,6 +240,9 @@ export async function streamChat(
     regenerate?: number;
     /** A new chat's own instructions (else it starts with the Account defaults). */
     instructions?: Instructions;
+    /** A new chat's project, and the knowledge bases picked for it. */
+    projectId?: string;
+    knowledgeIds?: string[];
     /** Files for the new message or the edited version (uploaded first, see uploadFile). */
     attachments?: string[];
   },

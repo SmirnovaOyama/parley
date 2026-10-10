@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
 import { Advisory, EmptyState, Spinner } from "../../components/Feedback.tsx";
 import { Icon } from "../../icons/Icon.tsx";
 import { api } from "../../lib/api.ts";
 import { plural } from "../../lib/format.ts";
+import { useSlideNavigate } from "../../lib/slide.ts";
 
 export type ModelOption = {
   id: string;
@@ -62,7 +62,7 @@ export type ApiKey = {
 };
 
 export function KeysPage() {
-  const navigate = useNavigate();
+  const slideTo = useSlideNavigate();
   const [keys, setKeys] = useState<ApiKey[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,7 +81,7 @@ export function KeysPage() {
       <EmptyState
         title="No API keys yet"
         action={
-          <button type="button" className="btn-primary" onClick={() => navigate("/admin/keys/new")}>
+          <button type="button" className="btn-primary" onClick={() => slideTo("/admin/keys/new", "forward")}>
             Add a key
           </button>
         }
@@ -95,14 +95,14 @@ export function KeysPage() {
     <>
       <div className="admin-toolbar">
         <p className="text-muted">{plural(keys.length, "key", "keys")}</p>
-        <button type="button" className="btn-ghost is-accent" onClick={() => navigate("/admin/keys/new")}>
+        <button type="button" className="btn-ghost is-accent" onClick={() => slideTo("/admin/keys/new", "forward")}>
           <Icon name="plus" size={16} />
           Add a key
         </button>
       </div>
       <div className="oy-section is-plain">
         {keys.map((k) => (
-          <button key={k.id} type="button" className="oy-row" onClick={() => navigate(`/admin/keys/${k.id}`)}>
+          <button key={k.id} type="button" className="oy-row" onClick={() => slideTo(`/admin/keys/${k.id}`, "forward")}>
             <div className="text">
               <p className="title">
                 {k.label}

@@ -2,7 +2,9 @@
    (thread, composer, Markdown, data tables). Tokens only; no raw colours. */
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+/* Where scrollbars take room (Windows, Linux, a Mac set to always show them), the room is kept
+   whether or not the page scrolls, so the centred column never shifts sideways when it starts to. */
+html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
 /* No elastic bounce or pull-to-refresh: the page stops dead at its top and bottom (Safari 16+).
    It never moves sideways either: a two-finger swipe left or right doesn't slide or bounce it
    (in Chrome and Edge that also turns off swiping back through history). */
@@ -120,23 +122,26 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .busy-arc { stroke: var(--accent-ink); }
 @keyframes busy-turn { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .busy-mark { animation: none; } }
-/* A busy button (BusyButton): the same mark, in the label's colour, slides in before the label
-   while the button stays full colour. It's waiting, not disabled. The label's width eases from script. */
-.busy-btn { flex-shrink: 0; gap: 0; white-space: nowrap; overflow: clip; }
+/* A busy button (BusyButton): the same mark, in the label's colour, takes the label's place in the
+   middle of the button, which stays full colour (it's waiting, not disabled) and exactly its size,
+   so the button beside it never moves. If the label's words change, its width eases from script. */
+.busy-btn { position: relative; flex-shrink: 0; gap: 0; white-space: nowrap; overflow: clip; }
 .busy-btn[aria-busy="true"] { cursor: progress; }
 .busy-btn[aria-busy="true"]:active { transform: none; }
 .busy-btn-mark {
-  display: inline-flex; flex-shrink: 0; width: 0; overflow: hidden; opacity: 0;
-  transition: width var(--duration-base) var(--ease-out), opacity var(--duration-base) var(--ease-standard);
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-standard);
 }
-.busy-btn[aria-busy="true"] .busy-btn-mark { width: calc(1em + 6px); opacity: 1; }
+.busy-btn-label { transition: opacity var(--duration-base) var(--ease-standard); }
+.busy-btn[aria-busy="true"] .busy-btn-mark { opacity: 1; }
+.busy-btn[aria-busy="true"] .busy-btn-label { opacity: 0; }
 .busy-btn-mark .busy-mark { width: 1em; height: 1em; }
 .busy-btn:not([aria-busy="true"]) .busy-mark { animation-play-state: paused; }
 .busy-btn .busy-track { stroke: currentColor; opacity: 0.3; }
 .busy-btn .busy-arc { stroke: currentColor; }
 .busy-btn-label { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 @media (prefers-reduced-motion: reduce) {
-  .busy-btn-mark { transition: none; }
+  .busy-btn-mark, .busy-btn-label { transition: none; }
   .busy-btn .busy-mark { animation: busy-turn 2.4s linear infinite; }
 }
 .sidebar-chat[aria-current="page"] { font-weight: 500; }
@@ -325,6 +330,7 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 @media (hover: hover) and (min-width: 768px) {
   .msg .msg-action { opacity: 0; transition: opacity var(--duration-quick) var(--ease-standard), background-color var(--duration-quick) var(--ease-standard), color var(--duration-quick) var(--ease-standard); }
   .msg:hover .msg-action, .msg:focus-within .msg-action { opacity: 1; }
+  .msg:hover .msg-action:disabled, .msg:focus-within .msg-action:disabled { opacity: 0.45; }
 }
 @media (hover: none), (max-width: 767px) {
   .msg-meta-user.is-floating { position: static; margin-top: 4px; }
@@ -357,6 +363,15 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 }
 .thought-toggle:hover { color: var(--text); background: var(--surface-hover); }
 .thought-toggle .chev { width: 14px; height: 14px; opacity: 0.8; }
+/* The turning mark while it thinks; folded to nothing (its gap too) once it's done. */
+.thought-mark {
+  display: inline-flex; flex: none; width: 0; margin-inline-end: -6px; overflow: hidden; opacity: 0;
+  transition: width var(--duration-base) var(--ease-out), margin var(--duration-base) var(--ease-out), opacity var(--duration-base) var(--ease-standard);
+}
+.thought-mark[data-on] { width: 13px; margin-inline-end: 0; opacity: 1; }
+.thought-mark:not([data-on]) .busy-mark { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .thought-mark { transition: none; } }
+button.oy-row:disabled:hover { background: none; }
 /* One left edge for the label's words, the thoughts and the answer. The rule hangs in the margin,
    under the left end of the label's pill (the fold's clip box reaches out to include it). */
 .thought .disclosure-inner { margin-inline-start: -10px; padding-inline-start: 10px; }
@@ -455,7 +470,17 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .composer-send:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
 .composer-send.is-stop { color: var(--text); background: var(--surface-pressed); }
 .composer-send.is-stop:hover { background: var(--border); }
-.composer-hint { margin: 6px 16px 0; font-size: 12px; line-height: 16px; color: var(--text-muted); overflow-wrap: anywhere; }
+/* Why Send waits, or that the chat is getting long: a small card floating over the conversation
+   above the model line, like the picker's cards, so it never moves the box or the line. */
+.composer-dock > .oy-page-column { position: relative; }
+.composer-hint {
+  position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; width: fit-content; max-width: 100%; margin: 0 auto;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--surface); box-shadow: var(--shadow-sm);
+  font-size: 12px; line-height: 16px; color: var(--text-muted); overflow-wrap: anywhere;
+  animation: fade-in var(--duration-base) var(--ease-standard);
+}
+@media (prefers-reduced-motion: reduce) { .composer-hint { animation: none; } }
 
 /* Files on a message being written (or edited): tiles in a row. A picture is a small square; any
    other file shows its mark, name and size. The cross sits on the corner; while a file uploads, a
@@ -764,7 +789,10 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .chart-card { gap: 0; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 18px; color: var(--text-muted); }
 .chart-legend li { display: inline-flex; align-items: center; gap: 6px; }
-.chart-legend strong { font-weight: 600; color: var(--text); }
+.chart-legend strong { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+/* Room for two lines all along: pointing at a column changes the numbers, and on a narrow card
+   that can tip the legend onto a second line, which would push the chart down. */
+.chart-legend { min-height: 40px; align-content: flex-start; }
 .chart-key { width: 10px; height: 10px; border-radius: 3px; }
 
 .column-chart { margin-top: 16px; }
@@ -809,7 +837,7 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .form-page .oy-group + .oy-group { margin-top: 0; }
 .option-row { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
 .option-row .title { font-weight: 400; }
-.option-row[aria-checked="true"] .title { font-weight: 500; }
+.option-row[aria-checked="true"] .title, .option-row .title > .reserve { font-weight: 500; }
 .option-row .desc { text-wrap: pretty; }
 /* What a choice can do: a quiet line of words, each with a small tick after it. */
 .option-features { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
@@ -849,10 +877,8 @@ a.oy-row:hover { background: var(--surface-hover); }
 /* Under the page title the header already has its own edge, so the confirm line draws none. */
 .header-below .inline-confirm { border-top: 0; padding-top: 0; }
 .inline-confirm-actions { display: flex; gap: 8px; flex-shrink: 0; margin-inline-start: auto; }
+.inline-confirm-actions.swap { justify-items: end; }
 
-/* Password change, unfolded in place under its row. */
-.inline-panel .disclosure-inner > form { display: flex; flex-direction: column; gap: 22px; padding: 4px 0 20px; }
-.inline-panel .form-page-actions { margin-top: 4px; }
 .panel-note { margin-top: -6px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
 
 /* Another service's models on a key: a name and two prices per row, a way to take one off. */
@@ -865,7 +891,6 @@ a.oy-row:hover { background: var(--surface-hover); }
 
 /* A chat's own instructions unfold under its title; long ones scroll so the chat stays in view. */
 .instructions-panel { padding: 4px 0 16px; max-height: 60vh; overflow-y: auto; overscroll-behavior-y: none; }
-.instructions-form { display: flex; flex-direction: column; gap: 22px; }
 .header-note { padding: 0 0 12px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
 /* A chat's settings page: the form, then sharing, then deleting. */
 .settings-group { margin-top: 36px; }
@@ -886,11 +911,6 @@ a.oy-row:hover { background: var(--surface-hover); }
 }
 /* Marks the message from which a chat's instructions changed. */
 .msg-user .instr-note { margin: 0 0 6px; text-align: end; }
-/* The row after an unfolding panel keeps its divider, as if the panel weren't there. */
-.oy-section > .inline-panel + .oy-row::before {
-  content: ""; position: absolute; top: 0; height: 1px; background: var(--border);
-  inset-inline-start: 44px; inset-inline-end: 12px;
-}
 
 .switch-row { padding: 4px 0; min-height: 0; }
 .switch-row label.title { display: block; cursor: pointer; }
@@ -903,6 +923,16 @@ a.oy-row:hover { background: var(--surface-hover); }
   .input-base, .mono-input, .composer textarea, .edit-box textarea { font-size: 16px; }
 }
 .menu-desc { display: block; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+/* Words that change with what you do (a switch's description, a button's label): every version
+   sits in one cell and the hidden ones hold their room, so the box stays the size of its longest
+   version and nothing around it moves. */
+.swap { display: grid; }
+.swap > * { grid-column: 1; grid-row: 1; }
+.swap > .reserve { visibility: hidden; }
+:is(.btn-primary, .btn-tonal, .btn-secondary, .btn-danger, .btn-ghost) .swap { justify-items: center; }
+:is(.btn-primary, .btn-tonal, .btn-secondary, .btn-danger, .btn-ghost) .swap > * { display: inline-flex; align-items: center; gap: 6px; }
+/* A control that's out of play for now: hidden but still holding its room. */
+.is-resting { visibility: hidden; }
 .oy-select .truncate { flex: 1; }
 .form-actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 8px; }
 .form-actions .oy-field-hint { margin-top: 10px; }
@@ -914,12 +944,15 @@ a.oy-row:hover { background: var(--surface-hover); }
   .composer-send { transition: none; }
 }
 
-/* Opening a chat from the list: the chat slides in from the right over the list, which drifts a
-   little left; going back runs it in reverse. Only those navigations start a view transition
-   (src/lib/slide.ts), so nothing else moves. The sidebar is captured on its own and stays put. */
+/* Going into a page (a chat from the list, a person, a key, a project's settings): it slides in
+   from the right over the page you were on, which drifts a little left; going back runs it in
+   reverse. Only those navigations start a view transition (src/lib/slide.ts), so nothing else
+   moves. The sidebar is captured on its own and stays put, and so does the tab bar when both pages
+   have it; into or out of a chat, it travels with its page. */
 .app-sidebar { view-transition-name: app-sidebar; }
-::view-transition-old(app-sidebar) { display: none; }
-::view-transition-new(app-sidebar) { animation: none; }
+html[data-slide-bar] .app-bottom-nav { view-transition-name: app-bottom-nav; }
+::view-transition-old(app-sidebar), ::view-transition-old(app-bottom-nav) { display: none; }
+::view-transition-new(app-sidebar), ::view-transition-new(app-bottom-nav) { animation: none; }
 html[data-slide]::view-transition-old(root),
 html[data-slide]::view-transition-new(root) {
   animation-duration: 380ms;
@@ -935,3 +968,102 @@ html[data-slide="back"]::view-transition-new(root) { animation-name: slide-in-le
 @keyframes slide-out-left { to { transform: translateX(-25%); } }
 @keyframes slide-out-right { to { transform: translateX(100%); } }
 @keyframes slide-in-left { from { transform: translateX(-25%); } }
+
+/* ── chat list groups ──────────────────────────────────────────── */
+/* In the sidebar each group's heading sits inside the scrolling list, in line with the rows' text. */
+.sidebar-chats .sidebar-heading { padding: 14px 12px 4px; }
+.sidebar-chats > .sidebar-group:first-child .sidebar-heading { padding-top: 16px; }
+.sidebar-group { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+/* On the Chats page, Projects and Knowledge lead the list. */
+.chats-places { margin-bottom: 20px; }
+
+/* ── projects and knowledge ────────────────────────────────────── */
+.project-instructions {
+  margin: 0 0 16px; padding-inline-start: 12px; border-inline-start: 2px solid var(--border-strong);
+  font-size: 14px; line-height: 21px; color: var(--text-muted); white-space: pre-wrap;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.project-actions { margin-bottom: 4px; }
+.oy-page-header .subtitle a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+/* Where documents go in: a dashed line of its own, which says so while files are dragged over. */
+.doc-drop {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 14px 16px; border: 1px dashed var(--border-strong); border-radius: var(--radius-lg);
+  font-size: 14px; line-height: 20px; color: var(--text-muted);
+  transition: border-color var(--duration-quick) var(--ease-standard), background-color var(--duration-quick) var(--ease-standard);
+}
+.doc-drop.is-dropping { border-color: var(--text); background: var(--bg-subtle); color: var(--text); }
+.doc-drop p { flex: 1 1 14rem; }
+.doc-upload .allowance-meter { margin-top: 8px; }
+a.doc-link { display: block; color: var(--text); text-decoration: none; }
+a.doc-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.page-note { margin-top: 20px; }
+
+/* ── memory ────────────────────────────────────────────────────── */
+.memory-add { margin-top: 20px; }
+.memory-row .title { font-weight: 400; }
+.memory-row .desc a { color: inherit; }
+.memory-edit { display: flex; flex-direction: column; gap: 12px; padding: 8px 0 14px; }
+.oy-section > .memory-edit + .oy-row::before, .oy-section > .inline-confirm + .oy-row::before {
+  content: ""; position: absolute; top: 0; height: 1px; background: var(--border); inset-inline-start: 0; inset-inline-end: 0;
+}
+.oy-section > .inline-confirm { border-top: 0; }
+/* "Forget this?" on a note or a document: laid over its row, which keeps its size, so the rows
+   below never move and Delete appears where the bin was. */
+.oy-row.is-confirming > :not(.inline-confirm) { visibility: hidden; }
+.inline-confirm.is-overlay { position: absolute; inset: 0; z-index: 1; flex-wrap: nowrap; padding: 0; border-top: 0; background: var(--bg); }
+.mcp-check { align-self: flex-start; margin: -8px 0 0 -10px; }
+
+/* ── a reply's tools ───────────────────────────────────────────── */
+/* What a reply did with the app's tools: a quiet line each, with a small mark for the kind. */
+.tool-uses { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.sources .tool-uses { margin: 6px 0 2px; }
+.tool-uses li { display: flex; align-items: flex-start; gap: 6px; font-size: 13px; line-height: 18px; color: var(--text-muted); overflow-wrap: anywhere; }
+.tool-uses li .oy-icon { flex: none; margin-top: 2px; }
+.tool-uses li.is-error { color: var(--warning); }
+
+/* ── context meter ─────────────────────────────────────────────── */
+/* Model on the left; the context meter and thinking together on the right. */
+.composer-head { justify-content: flex-start; }
+.composer-head .thinking-line, .composer-head .context-line { margin-left: auto; }
+.composer-head .context-line ~ .thinking-line { margin-left: 0; }
+/* The level sits by its arrow; the room kept for longer levels opens after "Thinking". */
+.thinking-line .swap { justify-items: end; }
+/* Each stays on one line. When the row runs short (a phone, "extra high"), the model's name gives
+   way first and fades out at its edge; thinking and the meter keep their size. */
+.composer-head { gap: 8px; }
+.composer-head .model-line { flex: none; white-space: nowrap; }
+.composer-head .model-name { flex: 0 1 auto; min-width: 0; }
+.model-name-label { min-width: 0; overflow: hidden; }
+.model-name .oy-icon { flex: none; }
+.model-name-label[data-clipped] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.context-line { gap: 5px; font-variant-numeric: tabular-nums; }
+.context-ring { flex: none; fill: none; stroke-width: 2.2; }
+.context-ring-track { stroke: var(--border-strong); }
+.context-ring-fill { stroke: var(--text-muted); stroke-linecap: round; transition: stroke-dasharray var(--duration-base) var(--ease-standard); }
+.context-line.is-full, .context-line.is-full .context-ring-fill { color: var(--warning); stroke: var(--warning); }
+.picker-pop.is-context { right: 0; }
+.context-card { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-md); }
+.context-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 20px; font-weight: 500; }
+.context-card-value { color: var(--accent-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.context-card-value.is-full { color: var(--warning); }
+.context-card .allowance-meter { margin-top: 8px; }
+.context-card-text { margin-top: 8px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
+
+/* ── code preview ──────────────────────────────────────────────── */
+/* "Preview" in a code block's header: a small text pill, then the block runs in a frame below. */
+.md-preview-toggle {
+  height: 24px; margin-left: auto; padding: 0 8px; gap: 4px; border-radius: var(--radius-full);
+  font-size: 12px; line-height: 16px; color: var(--text-muted);
+}
+.md-preview-toggle:hover { color: var(--text); }
+.md-preview-toggle[aria-pressed="true"] { color: var(--accent-ink); }
+.md-preview-toggle + .md-copy, .md-preview-toggle ~ .md-copy { margin-right: 0; }
+.md-preview {
+  display: block; width: 100%; border: 0; border-top: 1px solid var(--border); background: var(--surface);
+  transition: height var(--duration-base) var(--ease-standard);
+}
+@media (prefers-reduced-motion: reduce) { .md-preview, .context-ring-fill { transition: none; } }

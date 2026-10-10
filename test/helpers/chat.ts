@@ -24,6 +24,8 @@ export function chatRequest(overrides: Partial<ChatRequest> = {}): { req: ChatRe
     searchAllowed: false,
     codeTool: false,
     codeAllowed: false,
+    functions: [],
+    runTool: async (call) => ({ content: `No tool called ${call.name}`, isError: true }),
     onText: (delta) => void (seen.text += delta),
     onThinking: (delta) => void (seen.thinking += delta),
     onStatus: (status) => void seen.statuses.push(status),

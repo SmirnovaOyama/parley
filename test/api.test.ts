@@ -203,7 +203,8 @@ describe("api", () => {
     const models = (await member.json("GET", "/api/models")).body;
     assert.deepEqual(models.start, { keyId, model: "mock-model", effort: "default" });
     assert.deepEqual(models.choices, [
-      { keyId, model: "mock-model", label: "mock-model", efforts: [{ id: "default", label: "Default" }], defaultEffort: "default", reads: ["text"] },
+      // Another service's model has no known context window.
+      { keyId, model: "mock-model", label: "mock-model", efforts: [{ id: "default", label: "Default" }], defaultEffort: "default", reads: ["text"], context: null },
     ]);
   });
 

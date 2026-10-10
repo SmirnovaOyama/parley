@@ -1,6 +1,6 @@
 // Outgoing email. With SMTP_URL set, mail goes out through that server. Without it, development
-// prints messages to the server log instead (so codes can be read there), and production can't
-// send at all.
+// prints messages to the server log instead (so codes and links can be read there), and
+// production can't send at all.
 import nodemailer, { type Transporter } from "nodemailer";
 import { env } from "./env.ts";
 

@@ -38,7 +38,7 @@ export const env = {
   keyEncryptionSecret: secret,
   /** The site's name, written into the web app's page and used in emails. */
   appName: process.env.VITE_APP_NAME?.trim() || "Parley",
-  /** Outgoing mail for verification codes, e.g. smtps://user:password@smtp.example.com:465. */
+  /** Outgoing mail for reset links and verification codes, e.g. smtps://user:password@smtp.example.com:465. */
   smtpUrl: process.env.SMTP_URL?.trim() || null,
   /** The sender; defaults to the SMTP account itself. */
   mailFrom: process.env.MAIL_FROM?.trim() || null,

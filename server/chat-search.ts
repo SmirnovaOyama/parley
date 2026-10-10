@@ -12,9 +12,13 @@ import { db } from "./db.ts";
 const MAX_QUERY_CHARS = 200;
 const MAX_WORDS = 8;
 const MAX_RESULTS = 50;
-/** How much of a message a result shows: some text before the first match, and this much in all. */
-const SNIPPET_BEFORE = 40;
-const SNIPPET_CHARS = 160;
+/**
+ * How much of a message a result shows, in the width of a letter (a Chinese character or an emoji
+ * takes two): a little before the first match, so it's on the first line even on a phone, and this
+ * much in all.
+ */
+const SNIPPET_BEFORE = 24;
+const SNIPPET_WIDTH = 120;
 
 // LIKE ignores case in English letters only. A word with other letters that have a case (Cyrillic,
 // Greek, accented Latin) is matched through JavaScript's lower case instead, which is slower.
@@ -111,6 +115,10 @@ function plainText(text: string): string {
     .replace(/\s+/g, " ");
 }
 
+/** Chinese, Japanese and Korean characters, and emoji, which take about twice a letter's width. */
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\ud800-\udbff]/;
+const widthOf = (ch: string) => (WIDE.test(ch) ? 2 : 1);
+
 /**
  * A line of the message around its first match: a little before it, as plain text, with an
  * ellipsis where the message goes on. Only the stretch around the match is read, however long the
@@ -118,19 +126,33 @@ function plainText(text: string): string {
  */
 export function snippetOf(text: string, words: string[]): string {
   const at = firstMatch(text, words);
-  const from = Math.max(0, at - SNIPPET_BEFORE * 2);
-  const to = Math.min(text.length, at + SNIPPET_CHARS * 2);
-  const flat = plainText(text.slice(from, to));
-  const hit = firstMatch(flat, words);
-  let start = Math.max(0, hit - SNIPPET_BEFORE);
-  // Start on a whole word where the text has spaces between words.
-  const space = flat.indexOf(" ", start);
-  if (start > 0 && space >= 0 && space < hit) start = space + 1;
-  let end = Math.min(flat.length, start + SNIPPET_CHARS);
+  let from = Math.max(0, at - SNIPPET_BEFORE * 4);
+  let to = Math.min(text.length, at + SNIPPET_WIDTH * 4);
   // Not halfway through a character that takes two code units (most emoji).
-  if (/[\udc00-\udfff]/.test(flat[start] ?? "")) start++;
-  if (/[\ud800-\udbff]/.test(flat[end - 1] ?? "")) end--;
+  if (/[\udc00-\udfff]/.test(text[from] ?? "")) from++;
+  if (/[\ud800-\udbff]/.test(text[to - 1] ?? "")) to--;
+  const flat = plainText(text.slice(from, to));
+  const chars = [...flat];
+  const hit = [...flat.slice(0, firstMatch(flat, words))].length;
+
+  let start = hit;
+  let room = SNIPPET_BEFORE;
+  while (start > 0 && (room -= widthOf(chars[start - 1])) >= 0) start--;
+  let end = start;
+  room = SNIPPET_WIDTH;
+  while (end < chars.length && (room -= widthOf(chars[end])) >= 0) end++;
+  // Whole words at either end, where it would cut through one (Chinese and Japanese can be cut anywhere).
+  const inWord = (i: number) => /[\p{L}\p{N}]/u.test(chars[i] ?? "") && !WIDE.test(chars[i]);
+  if (inWord(start - 1) && inWord(start)) {
+    const space = chars.indexOf(" ", start);
+    if (space >= 0 && space < hit) start = space + 1;
+  }
+  while (start < hit && /[\s\p{P}]/u.test(chars[start])) start++;
+  if (inWord(end - 1) && inWord(end)) {
+    const space = chars.lastIndexOf(" ", end);
+    if (space > hit) end = space;
+  }
   const before = from > 0 || start > 0;
-  const after = to < text.length || end < flat.length;
-  return `${before ? "…" : ""}${flat.slice(start, end).trim()}${after ? "…" : ""}`;
+  const after = to < text.length || end < chars.length;
+  return `${before ? "…" : ""}${chars.slice(start, end).join("").trim()}${after ? "…" : ""}`;
 }

@@ -6,3 +6,6 @@ data/
 *.db-shm
 *.db-wal
 .DS_Store
+# Local Claude Code files. The project's agent config lives in .agents/; the desktop app's preview
+# tool only reads .claude/launch.json, so keep a local copy of .agents/launch.json there.
+.claude/

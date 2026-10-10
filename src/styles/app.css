@@ -896,10 +896,11 @@ a.oy-row:hover { background: var(--surface-hover); }
 .settings-group { margin-top: 36px; }
 /* Deleting sits apart at the foot; its "are you sure" line takes the row's place without moving. */
 .settings-danger { margin-top: 36px; }
-.share-panel { display: flex; flex-direction: column; gap: 16px; padding-top: 6px; }
-.share-text { font-size: 15px; line-height: 22px; color: var(--text-muted); }
-.share-panel .line-field input { color: var(--text-muted); }
-.share-panel .form-page-actions { flex-wrap: wrap; }
+/* Not .share-panel or .share-text: social blocklists (AdGuard, Fanboy) hide those on every site. */
+.settings-panel { display: flex; flex-direction: column; gap: 16px; padding-top: 6px; }
+.settings-text { font-size: 15px; line-height: 22px; color: var(--text-muted); }
+.settings-panel .line-field input { color: var(--text-muted); }
+.settings-panel .form-page-actions { flex-wrap: wrap; }
 /* Stopping sits apart from the pair, at the far end. */
 .share-stop { margin-inline-start: auto; color: var(--danger); }
 .btn-ghost.share-stop:hover:not(:disabled) { color: var(--danger); }

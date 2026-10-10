@@ -75,15 +75,15 @@ export function SharePanel({ conversationId, share, upToDate, sharing, busy, emp
 
   if (!share) {
     return (
-      <div className="share-panel">
-        <p className="share-text">
+      <div className="settings-panel">
+        <p className="settings-text">
           {stopped
             ? "Sharing stopped. The old link no longer opens"
             : empty
               ? "Once there's something in this chat, you can make a read-only link to it"
               : `Make a read-only link to this chat as it is now. ${WHO[sharing]} can open it. What you send later stays private until you update the link`}
         </p>
-        {error && <p className="share-text text-danger">{error}</p>}
+        {error && <p className="settings-text text-danger">{error}</p>}
         {!empty && (
           <div className="form-page-actions">
             <BusyButton type="button" className="btn-secondary" busy={working} disabled={busy} onClick={() => void create()}>
@@ -103,7 +103,7 @@ export function SharePanel({ conversationId, share, upToDate, sharing, busy, emp
         : `Shared on ${longDate(share.sharedAt)}. The chat has changed since, so the link shows the earlier version`;
 
   return (
-    <div className="share-panel">
+    <div className="settings-panel">
       <LineField
         id="share-link"
         label="Link"

@@ -312,8 +312,8 @@ export function ChatSettingsPage() {
                 {chat.messages.length > 0 && (
                   <div className="oy-group settings-group">
                     <p className="oy-overline">Export</p>
-                    <div className="share-panel">
-                      <p className="share-text">Save this chat as a Markdown file: what's on screen, without the AI's thinking</p>
+                    <div className="settings-panel">
+                      <p className="settings-text">Save this chat as a Markdown file: what's on screen, without the AI's thinking</p>
                       <div className="form-page-actions">
                         <a className="btn-secondary" href={`/api/conversations/${id}/export`} download>
                           <Icon name="download" size={16} />

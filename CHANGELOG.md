@@ -4,6 +4,10 @@ What changed in each version of Parley. The format follows [Keep a Changelog](ht
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-10
+
+A database from 0.1.x is brought up to date when the server starts. MCP servers added before this release ask the person before running any of their tools, until an admin asks the server for its tools again and looks over what it says about them (see Security).
+
 ### Added
 
 - Search your own chats from the Chats page and the sidebar, by title and by what was said in them. Each word matches anywhere in the text, so Chinese and Japanese need no spaces, and each result shows the line that matched.
@@ -63,6 +67,7 @@ The first public release.
 - The site's name (`VITE_APP_NAME`) is read when the server starts, so the published image works under any name.
 - `GET /api/health` for uptime checks, which the Docker image uses as its health check.
 
-[Unreleased]: https://github.com/SmirnovaOyama/parley/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/SmirnovaOyama/parley/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/SmirnovaOyama/parley/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/SmirnovaOyama/parley/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/SmirnovaOyama/parley/releases/tag/v0.1.0

@@ -112,7 +112,7 @@ docker compose up -d
 
 #### Versions and updates
 
-`latest` is always the newest release. To stay on one, use its version in place of `latest`: `0.1.0` stays exactly there, and `0.1` takes that version's bug-fix releases too. [Releases](https://github.com/SmirnovaOyama/parley/releases) lists them, and [CHANGELOG.md](CHANGELOG.md) says what changed in each.
+`latest` is always the newest release. To stay on one, use its version in place of `latest`: `0.2.0` stays exactly there, and `0.2` takes that version's bug-fix releases too. [Releases](https://github.com/SmirnovaOyama/parley/releases) lists them, and [CHANGELOG.md](CHANGELOG.md) says what changed in each.
 
 To update with Compose:
 

@@ -112,7 +112,7 @@ docker compose up -d
 
 #### 版本和升级
 
-`latest` 始终是最新版本。想固定在某个版本，就把 `latest` 换成版本号：`0.1.0` 一直停在这个版本，`0.1` 还会跟着拿到这个版本的修复更新。所有版本列在 [Releases](https://github.com/SmirnovaOyama/parley/releases) 页面，每个版本改了什么见 [CHANGELOG.md](CHANGELOG.md)。
+`latest` 始终是最新版本。想固定在某个版本，就把 `latest` 换成版本号：`0.2.0` 一直停在这个版本，`0.2` 还会跟着拿到这个版本的修复更新。所有版本列在 [Releases](https://github.com/SmirnovaOyama/parley/releases) 页面，每个版本改了什么见 [CHANGELOG.md](CHANGELOG.md)。
 
 用 Compose 升级：
 

@@ -4,11 +4,6 @@ What changed in each version of Parley. The format follows [Keep a Changelog](ht
 
 ## [Unreleased]
 
-### Added
-
-- Forgotten passwords can be reset by email. "Forgot your password?" on the sign-in page sends a link that works once, for 30 minutes, and a newer link replaces the last. Setting the new password signs out every other device and signs in this one. Asking gets the same answer whether or not an account uses the address, and is limited by address and by network. It needs `SMTP_URL` and `PUBLIC_URL`; without them, the sign-in page says to ask an admin.
-- Admins can set a new password for someone who can't sign in, from that person's page under Admin → People. It signs them out everywhere, stops any reset link they asked for, and is written to the activity log. An admin's own password is still changed under Account.
-
 ## [0.2.0] - 2026-10-10
 
 A database from 0.1.x is brought up to date when the server starts. MCP servers added before this release ask the person before running any of their tools, until an admin asks the server for its tools again and looks over what it says about them (see Security).
@@ -16,6 +11,8 @@ A database from 0.1.x is brought up to date when the server starts. MCP servers 
 ### Added
 
 - Search your own chats from the Chats page and the sidebar, by title and by what was said in them. Each word matches anywhere in the text, so Chinese and Japanese need no spaces, and each result shows the line that matched.
+- Forgotten passwords can be reset by email. "Forgot your password?" on the sign-in page sends a link that works once, for 30 minutes, and a newer link replaces the last. Setting the new password signs out every other device and signs in this one. Asking gets the same answer whether or not an account uses the address, and is limited by address and by network. It needs `SMTP_URL` and `PUBLIC_URL`; without them, the sign-in page says to ask an admin.
+- Admins can set a new password for someone who can't sign in, from that person's page under Admin → People. It signs them out everywhere, stops any reset link they asked for, and is written to the activity log. An admin's own password is still changed under Account.
 - "Tell it who's asking" for an MCP server: every request carries the person's email in an `X-Parley-User` header, so the server can tell people apart. Off by default.
 - MCP servers can act with each person's own account instead of one shared one. Under Admin → Tools, "Whose account it uses" offers one shared account (as before, and still the default), each person signing in on the server's own sign-in page (MCP's OAuth flow, with Parley registering itself where the service allows it, or a client an admin registered), or each person adding a token of their own. People connect under Account, in Connected services. Their requests carry only their own account, never the admin's headers, and a tool used before they've connected says so on a line in the reply, with a link to connect it. Sign-ins refresh as they run out, and accounts are forgotten when the person disconnects, loses access, is turned off, or the server's address or way of signing in changes. The server's page lists who has connected, and can disconnect everyone.
 - `PUBLIC_URL`, the address people reach Parley at, for sign-in pages to send them back to when a proxy in front changes it.

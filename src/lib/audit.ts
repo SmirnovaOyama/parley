@@ -15,6 +15,8 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   delete_group: "Deleted a group",
   add_mcp: "Connected an MCP server",
   edit_mcp: "Changed an MCP server",
+  take_mcp_tools: "Used an MCP server's new tools",
+  keep_mcp_tools: "Kept an MCP server's old tools",
   delete_mcp: "Removed an MCP server",
   edit_search: "Set the search service",
   share_knowledge: "Shared a knowledge base with everyone",

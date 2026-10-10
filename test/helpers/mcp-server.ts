@@ -1,6 +1,7 @@
 // A stand-in MCP server: Streamable HTTP on a free local port, with an MCP session for each client
 // that connects and four tools (one it calls read-only, one that changes things, one it says
 // nothing about, and one that only reads but reaches beyond the server). It remembers every call: the tool, the session it came on and its headers.
+// What it lists can be changed while it runs, as a server that's been taken over might rewrite its tools.
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -9,8 +10,9 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
 export type McpCall = { tool: string; input: unknown; session: string; headers: Record<string, unknown> };
+export type ListedTool = { name: string; title?: string; description?: string; inputSchema: Record<string, unknown>; annotations?: Record<string, unknown> };
 
-const TOOLS = [
+const TOOLS: ListedTool[] = [
   { name: "read_notes", description: "Reads the notes", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } },
   {
     name: "add_note",
@@ -30,6 +32,7 @@ const TOOLS = [
 /** Listens on `port`, or a free one. */
 export async function mcpServer(port = 0) {
   const calls: McpCall[] = [];
+  const tools = structuredClone(TOOLS);
   const sessions = new Map<string, StreamableHTTPServerTransport>();
   const http = createServer(async (req, res) => {
     const id = req.headers["mcp-session-id"];
@@ -40,7 +43,7 @@ export async function mcpServer(port = 0) {
         onsessioninitialized: (sid) => void sessions.set(sid, fresh),
       });
       const server = new Server({ name: "notes", version: "1.0.0" }, { capabilities: { tools: {} } });
-      server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+      server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
       server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
         calls.push({
           tool: request.params.name,
@@ -60,6 +63,10 @@ export async function mcpServer(port = 0) {
   return {
     url: `http://127.0.0.1:${at}/mcp`,
     calls,
+    /** What it lists, to change in place. */
+    tools,
+    /** The tool called `name`, to change in place. */
+    tool: (name: string) => tools.find((t) => t.name === name)!,
     /** The sessions clients opened. */
     sessions: () => sessions.size,
     async close() {

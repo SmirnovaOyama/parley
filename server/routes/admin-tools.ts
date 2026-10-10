@@ -10,14 +10,19 @@ import {
   forget,
   getServer,
   headersOf,
+  keptListing,
+  listingChanges,
+  listingVersion,
   listTools,
   mcpErrorMessage,
   offToolsOf,
   refreshServer,
   runsByDefault,
   runsUnasked,
+  settleListing,
   toolsOf,
   type McpServerRow,
+  type McpTool,
 } from "../mcp.ts";
 import { SEARCH_SERVICES, webSearch } from "../web-tools.ts";
 
@@ -118,6 +123,35 @@ adminToolRoutes.delete("/groups/:id", (c) => {
 
 // ── MCP servers ─────────────────────────────────────────────────────
 
+/** A tool as an admin compares it: what the model reads, what the server says it does, and whether it would ask. */
+function toolText(t: McpTool, runs: boolean) {
+  return {
+    title: t.title ?? null,
+    description: t.description ?? "",
+    input: JSON.stringify(t.inputSchema ?? {}, null, 2),
+    readOnly: t.annotations?.readOnlyHint ?? null,
+    destructive: t.annotations?.destructiveHint ?? null,
+    openWorld: t.annotations?.openWorldHint ?? null,
+    runs,
+  };
+}
+
+/** Tools the server listed that wait for an admin, each beside the one kept, with a version to take them by. */
+function pendingOut(s: McpServerRow) {
+  if (!s.pending_tools) return null;
+  const waiting = { tools: s.pending_tools, tool_modes: s.tool_modes };
+  return {
+    version: listingVersion(s.pending_tools),
+    changes: listingChanges(toolsOf(s), toolsOf(waiting)).map((c) => ({
+      name: c.name,
+      change: c.change,
+      parts: c.parts,
+      before: c.before && toolText(c.before, runsUnasked(s, c.name)),
+      after: c.after && toolText(c.after, runsUnasked(waiting, c.name)),
+    })),
+  };
+}
+
 function serverOut(s: McpServerRow) {
   const headers = headersOf(s);
   return {
@@ -143,6 +177,8 @@ function serverOut(s: McpServerRow) {
     groupIds: idsOf("SELECT group_id AS v FROM group_mcp WHERE server_id = ?", s.id),
     checkedAt: s.checked_at,
     error: s.error,
+    /** New or changed tools from the last listing, which new chats don't get until an admin takes them. */
+    pending: pendingOut(s),
   };
 }
 
@@ -176,7 +212,7 @@ adminToolRoutes.get("/mcp", (c) => {
   return c.json({ servers: rows.map(serverOut) });
 });
 
-/** Adds a server once it answers: its tools are listed and kept. */
+/** Adds a server once it answers: its tools are listed and kept straight away, the admin having just chosen it. */
 adminToolRoutes.post("/mcp", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const name = String(body.name ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
@@ -217,8 +253,8 @@ function setServerGroups(id: number, groups: number[]) {
 
 /**
  * What an admin chose about each tool running unasked, kept only where it differs from what the
- * server says (a tool it calls read-only runs; any other asks). So a tool whose description
- * changes when the server is asked again follows what it says now, where no admin chose otherwise.
+ * server says (a tool it calls read-only runs; any other asks). So once an admin uses a listing in
+ * which the server says something new of a tool, the tool follows it, where no admin chose otherwise.
  */
 function modesFor(tools: ReturnType<typeof toolsOf>, runTools: string[]): Record<string, "run" | "ask"> {
   const run = new Set(runTools);
@@ -243,35 +279,60 @@ adminToolRoutes.patch("/mcp/:id", async (c) => {
     if ("error" in headers) return c.json(headers, 400);
     sealed = Object.keys(headers).length ? encryptSecret(JSON.stringify(headers)) : null;
   }
-  let tools = s.tools;
-  let error = s.error;
+  // A new address or new headers may reach a different server, so its tools are listed again. New
+  // or changed ones wait for an admin like any other listing; the rest is saved now.
+  let listed: McpTool[] | null = null;
   if (url !== s.url || sealed !== s.encrypted_headers) {
     try {
-      tools = JSON.stringify(await listTools(url, sealed ? headersOf({ encrypted_headers: sealed }) : {}));
-      error = null;
+      listed = await listTools(url, sealed ? headersOf({ encrypted_headers: sealed }) : {});
     } catch (err) {
       return c.json({ error: mcpErrorMessage(err) }, 400);
     }
   }
+  const now = getServer(s.id);
+  if (!now) return c.json({ error: "This server doesn't exist" }, 404);
+  const kept = listed ? keptListing(now, listed) : now;
   const offTools = Array.isArray(body.offTools) ? JSON.stringify([...new Set(body.offTools.map(String))]) : s.off_tools;
-  const toolModes = Array.isArray(body.runTools) ? JSON.stringify(modesFor(toolsOf({ tools }), body.runTools.map(String))) : s.tool_modes;
+  const toolModes = Array.isArray(body.runTools) ? JSON.stringify(modesFor(toolsOf(kept), body.runTools.map(String))) : s.tool_modes;
   const enabled = body.enabled === undefined ? s.enabled : body.enabled ? 1 : 0;
   const shared = body.shared === undefined ? s.shared : body.shared ? 1 : 0;
   const sendUser = body.sendUser === undefined ? s.send_user : body.sendUser ? 1 : 0;
   db.prepare(
-    "UPDATE mcp_servers SET name = ?, url = ?, encrypted_headers = ?, tools = ?, off_tools = ?, tool_modes = ?, enabled = ?, shared = ?, send_user = ?, error = ?, checked_at = ? WHERE id = ?",
-  ).run(name, url, sealed, tools, offTools, toolModes, enabled, shared, sendUser, error, nowIso(), s.id);
+    `UPDATE mcp_servers SET name = ?, url = ?, encrypted_headers = ?, tools = ?, pending_tools = ?, off_tools = ?, tool_modes = ?, enabled = ?, shared = ?, send_user = ?,
+       error = ?, checked_at = ? WHERE id = ?`,
+  ).run(
+    name, url, sealed, kept.tools, kept.pending_tools, offTools, toolModes, enabled, shared, sendUser,
+    listed ? null : now.error, listed ? nowIso() : now.checked_at, s.id,
+  );
   if (Array.isArray(body.groupIds)) setServerGroups(s.id, body.groupIds.map(Number));
   forget(s.id);
   audit(c.var.user!.id, "edit_mcp", name);
   return c.json({ server: serverOut(getServer(s.id)!) });
 });
 
-/** Asks the server for its tools again (new ones join new chats). */
+/** Asks the server for its tools again. Tools that are new or read differently wait for an admin (pending). */
 adminToolRoutes.post("/mcp/:id/refresh", async (c) => {
   const s = getServer(Number(c.req.param("id")));
   if (!s) return c.json({ error: "This server doesn't exist" }, 404);
-  return c.json({ server: serverOut(await refreshServer(s)) });
+  const next = await refreshServer(s);
+  if (!next) return c.json({ error: "This server doesn't exist" }, 404);
+  return c.json({ server: serverOut(next) });
+});
+
+/**
+ * Takes the tools waiting on a server ({ use: true }), so new chats get them, or keeps the old
+ * ones ({ use: false }). `version` is the listing the admin looked over; a newer one isn't taken.
+ */
+adminToolRoutes.post("/mcp/:id/pending", async (c) => {
+  const s = getServer(Number(c.req.param("id")));
+  if (!s) return c.json({ error: "This server doesn't exist" }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  if (typeof body.use !== "boolean" || typeof body.version !== "string") return c.json({ error: "Say whether to use the new tools" }, 400);
+  const settled = settleListing(s.id, body.version, body.use);
+  if (settled === "none") return c.json({ error: "Nothing from this server is waiting any more" }, 409);
+  if (settled === "moved") return c.json({ error: "The server listed its tools again since this page loaded. Look over what it says now" }, 409);
+  audit(c.var.user!.id, body.use ? "take_mcp_tools" : "keep_mcp_tools", s.name);
+  return c.json({ server: serverOut(getServer(s.id)!) });
 });
 
 adminToolRoutes.delete("/mcp/:id", (c) => {

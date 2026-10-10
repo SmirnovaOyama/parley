@@ -451,6 +451,10 @@ CREATE TABLE IF NOT EXISTS group_mcp (
 // runsUnasked). send_user: requests name the person asking, for servers that tell people apart.
 addColumn("mcp_servers", "tool_modes", "TEXT NOT NULL DEFAULT '{}'");
 addColumn("mcp_servers", "send_user", "INTEGER NOT NULL DEFAULT 0");
+// A server's tools as it listed them last, when they differ from the ones kept (tools) in what a
+// model reads or whether a tool asks: they wait here, unused, until an admin takes them or keeps the
+// old ones (mcp.ts, keptListing). JSON like tools; null when nothing waits.
+addColumn("mcp_servers", "pending_tools", "TEXT");
 // On a reply: addresses later replies may read without asking (JSON string[], see tools.ts): what
 // its searches through the site's service returned, and pages the person let it read.
 addColumn("messages", "page_urls", "TEXT");

@@ -14,7 +14,7 @@ export const env = {
   isProd: process.env.NODE_ENV === "production",
   databasePath: process.env.DATABASE_PATH ?? "data/chat.db",
   keyEncryptionSecret: secret,
-  /** The site's name, shared with the web app; used in emails. */
+  /** The site's name, written into the web app's page and used in emails. */
   appName: process.env.VITE_APP_NAME?.trim() || "Parley",
   /** Outgoing mail for verification codes, e.g. smtps://user:password@smtp.example.com:465. */
   smtpUrl: process.env.SMTP_URL?.trim() || null,

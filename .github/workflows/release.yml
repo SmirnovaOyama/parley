@@ -1,0 +1,120 @@
+name: Release
+
+# Pushing a version tag (git tag v0.1.0 && git push origin v0.1.0) publishes the Docker image for
+# linux/amd64 and linux/arm64 to ghcr.io/smirnovaoyama/parley, then makes a GitHub release with
+# that version's section of CHANGELOG.md.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions: {}
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      notes: ${{ steps.notes.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Before anything is built, so a version without notes stops here.
+      - name: Read this version's notes from CHANGELOG.md
+        id: notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes=$(awk -v heading="## [$version]" '
+            index($0, "## [") == 1 { if (found) exit; found = index($0, heading) == 1; next }
+            /^\[[^]]+\]: / { if (found) exit }
+            found
+          ' CHANGELOG.md | sed '/./,$!d')
+          if [ -z "$notes" ]; then
+            echo "::error file=CHANGELOG.md::CHANGELOG.md has no section for $version. Add one, then tag again."
+            exit 1
+          fi
+          delimiter="notes_$(openssl rand -hex 16)"
+          {
+            echo "notes<<$delimiter"
+            printf '%s\n' "$notes"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        env:
+          # The registry reads a multi-platform image's description from its index.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ghcr.io/smirnovaoyama/parley
+          # X.Y.Z, X.Y and the commit. latest comes with them, except for pre-releases
+          # (v1.0.0-rc.1), which get only their own version.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=Parley
+            org.opencontainers.image.description=A self-hosted AI chat site for teams: Claude, OpenAI, Gemini, Grok, DeepSeek and any OpenAI-compatible service, with shared API keys, limits and usage
+            org.opencontainers.image.source=https://github.com/SmirnovaOyama/parley
+            org.opencontainers.image.licenses=AGPL-3.0-only
+          annotations: |
+            org.opencontainers.image.title=Parley
+            org.opencontainers.image.description=A self-hosted AI chat site for teams: Claude, OpenAI, Gemini, Grok, DeepSeek and any OpenAI-compatible service, with shared API keys, limits and usage
+            org.opencontainers.image.source=https://github.com/SmirnovaOyama/parley
+            org.opencontainers.image.licenses=AGPL-3.0-only
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+
+  release:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Make the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ needs.image.outputs.notes }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          {
+            printf '%s\n\n' "$NOTES"
+            echo "The Docker image, for linux/amd64 and linux/arm64:"
+            echo
+            echo '```'
+            echo "docker pull ghcr.io/smirnovaoyama/parley:$version"
+            echo '```'
+          } > notes.md
+          # Running the workflow again for the same tag updates the notes.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+          else
+            prerelease=()
+            if [[ "$version" == *-* ]]; then prerelease=(--prerelease); fi
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "Parley $version" --notes-file notes.md "${prerelease[@]}"
+          fi

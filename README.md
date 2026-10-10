@@ -71,20 +71,58 @@ Prices for the cost estimates live in [`server/providers/catalog.ts`](server/pro
 
 ### With Docker
 
+Each release is published as an image for x86 and ARM machines (linux/amd64 and linux/arm64), so it runs on a server, a NAS or a Raspberry Pi with a 64-bit system:
+
 ```bash
-git clone https://github.com/SmirnovaOyama/parley.git && cd parley
-cp .env.example .env
+docker pull ghcr.io/smirnovaoyama/parley:latest
 ```
 
-Put a random secret of at least 32 characters in `.env` as `KEY_ENCRYPTION_SECRET` (for example the output of `openssl rand -base64 48`), then:
+Parley needs a random secret of at least 32 characters. Make one and keep it somewhere safe: it has to be the same every time Parley starts, and a backup is no use without it.
+
+```bash
+openssl rand -base64 48
+```
+
+Then start Parley, with your secret in place of `your-secret`:
+
+```bash
+docker run -d --name parley -p 8787:8787 -v parley-data:/data -e KEY_ENCRYPTION_SECRET='your-secret' --restart unless-stopped ghcr.io/smirnovaoyama/parley:latest
+```
+
+Open http://localhost:8787. **The first account to sign up becomes the admin**, so sign up straight away. Its next stop is Admin → API keys.
+
+Everything Parley keeps (the database, attached files, files the AI made) is in the `parley-data` volume. Other settings (see [Configuration](#configuration)) go in as more `-e` options, like `-e VITE_APP_NAME='Our chat'` to give the site another name.
+
+#### With Docker Compose
+
+[`docker-compose.yml`](docker-compose.yml) runs the same image and reads its settings from a `.env` file next to it. In an empty folder:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/SmirnovaOyama/parley/main/docker-compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/SmirnovaOyama/parley/main/.env.example
+```
+
+Put your secret in `.env` as `KEY_ENCRYPTION_SECRET`, then:
 
 ```bash
 docker compose up -d
 ```
 
-Open http://localhost:8787. **The first account to sign up becomes the admin**, so sign up straight away. Its next stop is Admin → API keys.
+#### Versions and updates
 
-Everything Parley keeps (the database, attached files, files the AI made) is in the `parley-data` volume.
+`latest` is always the newest release. To stay on one, use its version in place of `latest`: `0.1.0` stays exactly there, and `0.1` takes that version's bug-fix releases too. [Releases](https://github.com/SmirnovaOyama/parley/releases) lists them, and [CHANGELOG.md](CHANGELOG.md) says what changed in each.
+
+To update with Compose:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+With `docker run`, pull the new image, remove the container (`docker rm -f parley`) and run the same `docker run` command again. Your data stays in the volume, and the database updates itself on start.
+
+#### Building the image yourself
+
+To run changes of your own, clone the repository and, in `docker-compose.yml`, swap the `image:` line for `build: .` (it's there, commented out). Then run `docker compose up -d --build`.
 
 ### With Node
 
@@ -114,7 +152,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 | Setting | What it does |
 |---|---|
 | `KEY_ENCRYPTION_SECRET` | Required. Encrypts the API keys in the database. Keep it safe and never change it, or saved keys can't be read. |
-| `VITE_APP_NAME` | The site's name, in the sidebar and the browser tab. With Docker it's built in, so rebuild after changing it. |
+| `VITE_APP_NAME` | The site's name, in the sidebar and the browser tab. It's read when Parley starts, so a restart picks up a change. |
 | `DATABASE_PATH` | Where the SQLite database lives (default `data/chat.db`). Files sit next to it. |
 | `PORT` | The API's port (default 8787). |
 | `SMTP_URL`, `MAIL_FROM` | Outgoing email for the optional email rewards. |
@@ -129,7 +167,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
   }
   ```
 - **Backups.** Back up the data folder or volume, and keep `KEY_ENCRYPTION_SECRET` with them: a backup without the secret has keys nobody can read. To copy the database while it runs, use `sqlite3 chat.db ".backup backup.db"`.
-- **Updating.** `git pull`, then `docker compose up -d --build` (or `npm install && npm run build` and a restart). The database updates itself on start.
+- **Updating.** With Docker, see [Versions and updates](#versions-and-updates). From source, `git pull`, then `npm install && npm run build` and a restart. The database updates itself on start.
 
 ## Security notes
 

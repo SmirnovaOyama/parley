@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 import { Agent, setGlobalDispatcher } from "undici";
 import { sameOriginGuard, sessionMiddleware, type AppEnv } from "./auth.ts";
@@ -60,10 +61,18 @@ app.route("/api", personaRoutes);
 app.route("/api", chatRoutes);
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 
-// In production the API also serves the built app; any other path falls back to index.html.
+// In production the API also serves the built app; any other path falls back to index.html. The
+// page gets the site's name here, at run time, so one built image serves any name.
 if (env.isProd) {
+  const name = env.appName.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+  const page = readFileSync("./dist/index.html", "utf8")
+    .replace(/<title>[^<]*<\/title>/, () => `<title>${name}</title>`)
+    .replace("</head>", () => `  <meta name="application-name" content="${name}" />\n  </head>`);
+  const sendPage = (c: Context) => c.html(page);
+  app.get("/", sendPage);
+  app.get("/index.html", sendPage);
   app.use("/*", serveStatic({ root: "./dist" }));
-  app.get("*", serveStatic({ path: "./dist/index.html" }));
+  app.get("*", sendPage);
 }
 
 // Files added to a message that was never sent are cleared after a day, and chats past the site's

@@ -161,10 +161,12 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
   left: -16px; right: -16px; top: -28px; bottom: calc(-12px - env(safe-area-inset-bottom));
   background: linear-gradient(to bottom, transparent, var(--bg) 62%);
 }
-/* A capsule that hugs its tabs, with one pill that slides to the current tab. */
+/* A capsule that hugs its tabs, with one pill that slides to the current tab. Each tab has a width
+   as well as a flex basis: Safari sizes the capsule from its tabs' widths and ignores the basis, so
+   without one the capsule shrank to the tabs' words and the tabs spilled out of it. */
 .app-bottom-nav .oy-bottom-nav { --tab: 84px; border-radius: var(--radius-full); }
 .app-bottom-nav .row { position: relative; padding: 5px; gap: 0; }
-.app-bottom-nav .oy-bottom-nav button { position: relative; flex: 0 0 var(--tab); gap: 1px; padding: 6px 0 7px; transition: color var(--duration-base) var(--ease-standard); }
+.app-bottom-nav .oy-bottom-nav button { position: relative; flex: 0 0 var(--tab); width: var(--tab); gap: 1px; padding: 6px 0 7px; transition: color var(--duration-base) var(--ease-standard); }
 .app-bottom-nav .oy-bottom-nav button[aria-current="page"] { color: var(--accent-ink); }
 .app-bottom-nav .oy-bottom-nav .pill { width: auto; height: 26px; transition: transform var(--duration-quick) var(--ease-standard); }
 .app-bottom-nav .oy-bottom-nav button[aria-current="page"] .pill { background: none; color: inherit; }

@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type {
   BetaContentBlock,
   BetaContentBlockParam,
@@ -7,6 +6,7 @@ import type {
   BetaMessageStreamParams,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { findModel, modelLabel } from "./catalog.ts";
+import { anthropicClient } from "./clients.ts";
 import {
   fileRef,
   imageCaption,
@@ -85,7 +85,7 @@ function echoable(blocks: BetaContentBlockParam[]): BetaContentBlockParam[] {
 }
 
 async function chat(req: ChatRequest): Promise<ChatResult> {
-  const client = new Anthropic({ apiKey: req.apiKey, maxRetries: 2 });
+  const client = anthropicClient(req.apiKey, 2);
   const supportsFallback = findModel("anthropic", req.model)?.fallbacks ?? false;
 
   // "off" exists only for models that can stop thinking: Sonnet 5.5 says so with `between_tools`
@@ -333,7 +333,7 @@ function parseQuery(json: string): string | null {
 
 /** A short answer at the lowest thinking level every Claude model accepts. */
 async function complete(req: CompleteRequest): Promise<CompleteResult> {
-  const client = new Anthropic({ apiKey: req.apiKey, maxRetries: 1 });
+  const client = anthropicClient(req.apiKey, 1);
   const message = await client.messages.create(
     {
       model: req.model,
@@ -359,7 +359,7 @@ async function complete(req: CompleteRequest): Promise<CompleteResult> {
 }
 
 async function verify(apiKey: string, model: string) {
-  const client = new Anthropic({ apiKey, maxRetries: 1 });
+  const client = anthropicClient(apiKey, 1);
   await client.models.retrieve(model);
 }
 

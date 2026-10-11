@@ -4,8 +4,8 @@
 // message when it goes. Claude reads them through its Files API, and OpenAI's sandbox takes them
 // from its own: each file is uploaded once per account and referred to by id after that, so a long
 // chat never sends the same bytes twice.
-import Anthropic, { toFile } from "@anthropic-ai/sdk";
-import OpenAI, { toFile as toOpenAIFile } from "openai";
+import { toFile } from "@anthropic-ai/sdk";
+import { toFile as toOpenAIFile } from "openai";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
@@ -13,6 +13,7 @@ import { db, nowIso } from "./db.ts";
 import { FILES_DIR, safeName } from "./files.ts";
 import { readsFor, type KeyRow } from "./keys.ts";
 import { hasTools } from "./providers/catalog.ts";
+import { anthropicClient, OPENAI_API, openaiClient } from "./providers/clients.ts";
 import { fileRef, type HistoryAttachment, type HistoryTurn } from "./providers/types.ts";
 
 /** What a file is to the model: something to look at, read, or (other) open in code. */
@@ -256,11 +257,11 @@ export async function providerFileIds(
     provider === "openai"
       ? async (a: HistoryAttachment) => {
           const file = await toOpenAIFile(readFileSync(a.path), a.name, { type: uploadType(a) });
-          return (await new OpenAI({ apiKey, maxRetries: 2 }).files.create({ file, purpose: "user_data" })).id;
+          return (await openaiClient(apiKey, OPENAI_API, 2).files.create({ file, purpose: "user_data" })).id;
         }
       : async (a: HistoryAttachment) => {
           const file = await toFile(readFileSync(a.path), a.name, { type: uploadType(a) });
-          return (await new Anthropic({ apiKey, maxRetries: 2 }).files.upload({ file })).id;
+          return (await anthropicClient(apiKey, 2).files.upload({ file })).id;
         };
   const save = db.prepare(
     `INSERT INTO provider_files (account, sha256, name, file_id, created_at) VALUES (?, ?, ?, ?, ?)

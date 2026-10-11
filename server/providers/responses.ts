@@ -4,7 +4,7 @@
 // to make files, with OpenAI's own tools (see toolsFor).
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import type {
   ResponseCreateParamsNonStreaming,
   ResponseCreateParamsStreaming,
@@ -15,6 +15,7 @@ import type {
 } from "openai/resources/responses/responses";
 import type { ReasoningEffort } from "openai/resources/shared";
 import { findModel, type ProviderId, type Usage } from "./catalog.ts";
+import { OPENAI_API, openaiClient } from "./clients.ts";
 import { base64Of, fileNote, fileText } from "./compat.ts";
 import {
   fileRef,
@@ -258,7 +259,7 @@ function citingWriter(onText: (delta: string) => void) {
 }
 
 export function responsesProvider(options: Options): ChatProvider {
-  const client = (apiKey: string, maxRetries: number) => new OpenAI({ apiKey, baseURL: options.baseURL, maxRetries });
+  const client = (apiKey: string, maxRetries: number) => openaiClient(apiKey, options.baseURL ?? OPENAI_API, maxRetries);
 
   /** Whether a file goes in as a part of its own: an image in a format it takes, or a PDF where it reads them. */
   const asPart = (file: HistoryAttachment, reads: string[]) =>

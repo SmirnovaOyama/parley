@@ -71,6 +71,10 @@ const REPLIES_AT_ONCE = 3;
 const UPLOADS_PER_MINUTE = 40;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
+// Cloudflare, and other proxies in front of the site, cut a stream that sends nothing for about
+// 100 seconds, which a model thinking quietly or a long tool run can do. A comment line this often
+// keeps the reply's stream open; browsers skip it.
+const HEARTBEAT_MS = 20_000;
 
 /** Replies being written right now, so a person can stop one or come back to it. */
 const generating = new Map<string, { controller: AbortController; userId: number }>();
@@ -530,6 +534,17 @@ chatRoutes.post("/chat", async (c) => {
       });
       return queue;
     };
+    const heartbeat = setInterval(() => {
+      queue = queue.then(async () => {
+        if (stream.aborted || stream.closed) return clearInterval(heartbeat);
+        try {
+          await stream.write(": keep-alive\n\n");
+        } catch {
+          // The browser went away.
+        }
+      });
+    }, HEARTBEAT_MS);
+    heartbeat.unref();
 
     await send("meta", {
       conversationId: convId,
@@ -721,6 +736,7 @@ chatRoutes.post("/chat", async (c) => {
       const newTitle = await maybeRetitle(convId, user.id, used, saved.id);
       if (newTitle) await send("title", { title: newTitle });
     }
+    clearInterval(heartbeat);
   });
 });
 

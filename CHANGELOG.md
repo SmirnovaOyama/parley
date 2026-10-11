@@ -12,6 +12,10 @@ Claude's and OpenAI's keys now go only to api.anthropic.com and api.openai.com: 
 - Admins see the same on each person's page under Admin → People, with how many networks this week's sign-ins came from, and can sign them out of one device or all of them. The People list marks someone signed in on three devices or more, or from a program rather than a browser. Signing someone out is written to the activity log.
 - A limit on how many devices one account can be signed in on, under Admin → Settings → Signing in: 5 unless you change it, or empty for none. Signing in on one more signs out the one used longest ago, and a lower number holds as soon as it's saved, except for the admin's own device that saved it.
 
+### Fixed
+
+- A reply's stream sends a keep-alive line every 20 seconds, so Cloudflare and other proxies that cut a silent connection after about 100 seconds no longer cut off a model thinking quietly or running a long tool.
+
 ### Security
 
 - Keys go only to their provider. The Anthropic and OpenAI libraries read `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID` from the environment, so whatever set one there could have every admin's key sent to an address of its choosing, or other credentials sent along with it. Parley now gives every provider its address and credentials itself, and only an "Another service" key goes where an admin points it.

@@ -128,6 +128,15 @@ function writeDatabase(sql: string, ...params: (string | number)[]) {
   }
 }
 
+/** Waits for `check` to hold, for up to five seconds. */
+async function eventually(check: () => boolean | Promise<boolean>, what: string) {
+  const until = Date.now() + 5000;
+  while (!(await check())) {
+    if (Date.now() > until) throw new Error(`Still waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 /** Server-sent events as { event, data } with the data parsed. */
 function parseEvents(text: string): { event: string; data: any }[] {
   return text
@@ -180,6 +189,10 @@ const REMEMBER_CALL = [
   chunk({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "memory", arguments: '{"action":"save","text":"Teaches chemistry"}' } }] }),
   chunk({}, "tool_calls"),
 ];
+/** A message ending with this has the service hold its reply until the test lets it go (release). */
+const HOLD = "Take your time";
+const held: (() => void)[] = [];
+const release = () => held.splice(0).forEach((go) => go());
 const TITLE = {
   id: "chatcmpl-title",
   object: "chat.completion",
@@ -195,6 +208,9 @@ before(async () => {
     if (req.method === "POST" && req.path === "/v1/chat/completions") {
       if (!req.body.stream) return json(TITLE);
       const last = req.body.messages.at(-1);
+      if (typeof last.content === "string" && last.content.endsWith(HOLD)) {
+        return new Promise((resolve) => held.push(() => resolve(completionStream(REPLY))));
+      }
       return completionStream(typeof last.content === "string" && last.content.endsWith(REMEMBER) ? REMEMBER_CALL : REPLY);
     }
     throw new Error(`Unexpected ${req.method} ${req.path}`);
@@ -839,4 +855,25 @@ describe("api", () => {
       assert.equal((await admin.json("DELETE", `/api/admin/mcp/${id}`)).status, 200);
     });
   });
+
+  test("one person has at most three replies written at once", async () => {
+    const waiting = await Promise.all([1, 2, 3].map(() => member.request("POST", "/api/chat", { text: HOLD })));
+    assert.deepEqual(waiting.map((r) => r.status), [200, 200, 200]);
+    await eventually(() => held.length === 3, "the service to have all three");
+    assert.deepEqual(await member.json("POST", "/api/chat", { text: "One more" }), {
+      status: 429,
+      body: { error: "3 replies are being written for you already. Wait for one to finish" },
+    });
+    // Someone else isn't held back by it.
+    assert.equal((await admin.chat({ text: "Meanwhile" })).at(-2)?.event, "done");
+
+    release();
+    await Promise.all(waiting.map((r) => r.text()));
+    await eventually(
+      async () => (await member.json("GET", "/api/conversations")).body.conversations.every((c: { generating: boolean }) => !c.generating),
+      "the replies to be saved",
+    );
+    assert.equal((await member.chat({ text: "One more" })).at(-2)?.event, "done");
+  });
+
 });

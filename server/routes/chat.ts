@@ -63,11 +63,19 @@ chatRoutes.use("*", requireUser);
 
 const MAX_MESSAGE_CHARS = 50_000;
 const MESSAGES_PER_MINUTE = 20;
+// A person chatting stays well under these. An account turned into a relay for some other app or
+// for other people (a reverse proxy on the site's keys) runs into them: it sends without pause,
+// and many replies at once.
+const MESSAGES_PER_HOUR = 200;
+const REPLIES_AT_ONCE = 3;
 const UPLOADS_PER_MINUTE = 40;
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
 
 /** Replies being written right now, so a person can stop one or come back to it. */
 const generating = new Map<string, { controller: AbortController; userId: number }>();
 const recentSends = new Map<number, number[]>();
+const hourSends = new Map<number, number[]>();
 const recentUploads = new Map<number, number[]>();
 
 /** The provider couldn't find a file id it was given: the file was deleted from that account. */
@@ -81,12 +89,19 @@ function ownConversation(id: string, userId: number) {
   return conv && conv.user_id === userId && !conv.deleted_at ? conv : undefined;
 }
 
-function rateLimited(userId: number, recent = recentSends, perMinute = MESSAGES_PER_MINUTE): boolean {
+function rateLimited(userId: number, recent = recentSends, limit = MESSAGES_PER_MINUTE, windowMs = MINUTE_MS): boolean {
   const now = Date.now();
-  const times = (recent.get(userId) ?? []).filter((t) => now - t < 60_000);
+  const times = (recent.get(userId) ?? []).filter((t) => now - t < windowMs);
   times.push(now);
   recent.set(userId, times);
-  return times.length > perMinute;
+  return times.length > limit;
+}
+
+/** How many replies are being written for this person right now, across all their chats. */
+function repliesUnderway(userId: number): number {
+  let n = 0;
+  for (const job of generating.values()) if (job.userId === userId) n++;
+  return n;
 }
 
 /** The models this person can pick from, and which one new chats start with. */
@@ -411,7 +426,13 @@ chatRoutes.post("/chat", async (c) => {
   if (cantRead) return c.json({ error: cantRead }, 400);
   const overLimit = overLimitMessage(allowanceOf(user.id));
   if (overLimit) return c.json({ error: overLimit }, 429);
+  if (repliesUnderway(user.id) >= REPLIES_AT_ONCE) {
+    return c.json({ error: `${REPLIES_AT_ONCE} replies are being written for you already. Wait for one to finish` }, 429);
+  }
   if (rateLimited(user.id)) return c.json({ error: "You're sending messages quickly. Wait a moment and try again" }, 429);
+  if (rateLimited(user.id, hourSends, MESSAGES_PER_HOUR, HOUR_MS)) {
+    return c.json({ error: `You've sent ${MESSAGES_PER_HOUR} messages in the last hour. Try again a little later` }, 429);
+  }
 
   // A new chat starts with the instructions set on its page, or the person's Account defaults, in
   // the project it was started from, with the knowledge bases picked for it.

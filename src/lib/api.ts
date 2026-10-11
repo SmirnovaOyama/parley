@@ -1,4 +1,8 @@
 // Thin client for the Hono API. Errors carry the server's sentence so the UI can show it as is.
+import { LANG } from "./i18n.ts";
+
+/** Every request says the page's language, so the server answers in it (server/i18n.ts). */
+const LANG_HEADER = { "x-parley-lang": LANG };
 
 export class ApiError extends Error {
   status: number;
@@ -14,7 +18,7 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers: { ...LANG_HEADER, ...(body === undefined ? {} : { "content-type": "application/json" }) },
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "same-origin",
   });
@@ -211,6 +215,7 @@ export function uploadFile(file: Blob, name: string, onProgress: (fraction: numb
     xhr.open("PUT", "/api/uploads");
     xhr.setRequestHeader("content-type", "application/octet-stream");
     xhr.setRequestHeader("x-file-name", encodeURIComponent(name));
+    xhr.setRequestHeader("x-parley-lang", LANG);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total);
     };
@@ -241,6 +246,7 @@ export function uploadRaw<T>(path: string, file: Blob, name: string, onProgress?
     xhr.open("PUT", `/api${path}`);
     xhr.setRequestHeader("content-type", "application/octet-stream");
     xhr.setRequestHeader("x-file-name", encodeURIComponent(name));
+    xhr.setRequestHeader("x-parley-lang", LANG);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress?.(e.loaded / e.total);
     };
@@ -317,7 +323,7 @@ export async function streamChat(
 ) {
   const res = await fetch("/api/chat", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { ...LANG_HEADER, "content-type": "application/json" },
     body: JSON.stringify(body),
     signal,
   });

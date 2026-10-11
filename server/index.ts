@@ -6,6 +6,7 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { Agent, setGlobalDispatcher } from "undici";
 import { sameOriginGuard, sessionMiddleware, type AppEnv } from "./auth.ts";
+import { langMiddleware } from "./i18n.ts";
 import { clearStaleUploads } from "./attachments.ts";
 import { db } from "./db.ts";
 import { env } from "./env.ts";
@@ -82,6 +83,8 @@ const MAX_JSON_BYTES = 1024 * 1024;
 const RAW_UPLOAD = /^\/api\/(uploads|import|knowledge\/[^/]+\/docs)$/;
 const jsonLimit = bodyLimit({ maxSize: MAX_JSON_BYTES, onError: (c) => c.json({ error: "That request is too big" }, 413) });
 app.use("/api/*", (c, next) => (c.req.method === "PUT" && RAW_UPLOAD.test(c.req.path) ? next() : jsonLimit(c, next)));
+// Everything said back, from here on, in the language the page asked for (server/i18n.ts).
+app.use("/api/*", langMiddleware);
 app.use("/api/*", sameOriginGuard, sessionMiddleware);
 app.route("/api/auth", authRoutes);
 app.route("/api/auth/two-step", twoStepRoutes);

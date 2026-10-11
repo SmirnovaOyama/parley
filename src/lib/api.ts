@@ -170,6 +170,14 @@ export type KnowledgeDoc = { id: string; name: string; mime: string; size: numbe
 /** The site's rules that touch a person's data. */
 export type Policy = { retainChatsDays: number | null; retainDeletedDays: number | null; memory: boolean; privacyNotice: boolean };
 
+/** Two-step verification as it stands for someone (server/two-step.ts). */
+export type TwoStep = {
+  on: boolean;
+  totp: boolean;
+  passkeys: { id: string; name: string; createdAt: string; lastUsedAt: string | null }[];
+  recoveryLeft: number;
+};
+
 /** A device someone is signed in on (server/sessions.ts). */
 export type Device = {
   id: string;

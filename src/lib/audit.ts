@@ -9,6 +9,7 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   set_password: "Set a person's password",
   sign_out_user: "Signed a person out everywhere",
   sign_out_device: "Signed a person out of a device",
+  turn_off_two_step: "Turned off a person's two-step verification",
   view_conversation: "Opened a chat",
   view_declined: "Looked at declined messages",
   delete_conversation: "Deleted a chat",

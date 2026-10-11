@@ -4,11 +4,12 @@ import { Segmented } from "../components/Controls.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
-import { api, uploadRaw, type Connection, type Device, type Persona, type Policy } from "../lib/api.ts";
+import { api, uploadRaw, type Connection, type Device, type Persona, type Policy, type TwoStep } from "../lib/api.ts";
 import { domainsText, rewardText, type BonusStatus } from "../lib/bonus.ts";
 import { compactNumber, formatCost, plural, shortDate } from "../lib/format.ts";
 import { useSession } from "../lib/session.tsx";
 import { devicesText } from "./DevicesPage.tsx";
+import { twoStepText } from "./TwoStepPage.tsx";
 import type { MemoryState } from "./MemoryPage.tsx";
 
 type Theme = "light" | "dark" | "system";
@@ -66,6 +67,7 @@ export function AccountPage() {
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [connections, setConnections] = useState<Connection[] | null>(null);
   const [devices, setDevices] = useState<Device[] | null>(null);
+  const [twoStep, setTwoStep] = useState<TwoStep | null>(null);
 
   useEffect(() => {
     // Once read, the note leaves the history entry, so a reload doesn't say it again.
@@ -77,6 +79,7 @@ export function AccountPage() {
     api.get<Policy>("/policy").then(setPolicy, () => {});
     api.get<{ connections: Connection[] }>("/mcp/connections").then((r) => setConnections(r.connections), () => {});
     api.get<{ sessions: Device[] }>("/auth/sessions").then((r) => setDevices(r.sessions), () => {});
+    api.get<TwoStep>("/auth/two-step").then(setTwoStep, () => {});
   }, []);
 
   const memoryDesc = !memory
@@ -121,6 +124,14 @@ export function AccountPage() {
               <div className="text">
                 <p className="title">Password</p>
                 <div className="desc">{passwordChanged ? "Changed. Other devices were signed out" : "Change the password you sign in with"}</div>
+              </div>
+              <Icon name="chevron-right" size={18} className="chevron" />
+            </SlideLink>
+            <SlideLink className="oy-row" to="/settings/two-step" direction="forward">
+              <Icon name="shield" size={20} />
+              <div className="text">
+                <p className="title">Two-step verification</p>
+                <div className="desc">{twoStep ? twoStepText(twoStep) : "A code from an app, or a passkey, after your password"}</div>
               </div>
               <Icon name="chevron-right" size={18} className="chevron" />
             </SlideLink>

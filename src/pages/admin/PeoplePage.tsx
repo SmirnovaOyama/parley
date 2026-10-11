@@ -34,6 +34,8 @@ export type Person = {
   devices: number;
   networks: number;
   programs: number;
+  /** Their two-step verification: on or off, with an app, and how many passkeys. */
+  twoStep: { on: boolean; totp: boolean; passkeys: number };
 };
 
 /** From this many devices on, the list says how many: more than one person has, say a phone and a laptop. */

@@ -9,6 +9,7 @@ import { ChatSettingsPage } from "./pages/ChatSettingsPage.tsx";
 import { ChatsPage } from "./pages/ChatsPage.tsx";
 import { ConnectionsPage, ConnectionTokenPage } from "./pages/ConnectionsPage.tsx";
 import { DevicesPage } from "./pages/DevicesPage.tsx";
+import { TwoStepPage } from "./pages/TwoStepPage.tsx";
 import { SharePage } from "./pages/SharePage.tsx";
 import { AdminLayout } from "./pages/admin/AdminLayout.tsx";
 import { ChatsAdminPage } from "./pages/admin/ChatsAdminPage.tsx";
@@ -56,6 +57,7 @@ export function App() {
             <Route path="settings/personas" element={<PersonasPage />} />
             <Route path="settings/personas/:id" element={<PersonaFormPage />} />
             <Route path="settings/password" element={<PasswordPage />} />
+            <Route path="settings/two-step" element={<TwoStepPage />} />
             {/* What was Account is now Settings: old links and bookmarks still arrive. */}
             <Route path="account/*" element={<FromAccount />} />
             <Route path="projects" element={<ProjectsPage />} />

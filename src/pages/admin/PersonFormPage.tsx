@@ -291,6 +291,24 @@ export function PersonFormPage() {
             )}
           </div>
         )}
+
+        {person && (
+          <div className="oy-group settings-group">
+            <p className="oy-overline">Two-step verification</p>
+            {isSelf ? (
+              <div className="settings-panel">
+                <p className="settings-text">Yours is under Settings, which asks for your password to change it</p>
+                <div className="form-page-actions">
+                  <SlideLink to="/settings/two-step" direction="forward" className="btn-secondary">
+                    Your two-step verification
+                  </SlideLink>
+                </div>
+              </div>
+            ) : (
+              <PersonTwoStep person={person} />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -450,6 +468,42 @@ function PersonDevices({ person }: { person: Person }) {
             }}
           />
         </>
+      )}
+    </>
+  );
+}
+
+/**
+ * Someone's two-step verification, and turning it off for them when they've lost both their phone
+ * and their recovery codes: they then sign in with their password alone, and can set it up again.
+ */
+function PersonTwoStep({ person }: { person: Person }) {
+  const [state, setState] = useState(person.twoStep);
+  const [error, setError] = useState<string | null>(null);
+  const ways = [state.totp && "an authenticator app", state.passkeys > 0 && plural(state.passkeys, "passkey", "passkeys")].filter(Boolean);
+  return (
+    <>
+      <p className="group-intro">
+        {state.on
+          ? `On, with ${ways.join(" and ")}. If they've lost their phone and their recovery codes, turn it off so they can sign in with their password, then set it up again`
+          : "Off. They can turn it on under Settings"}
+      </p>
+      {error && <Advisory>{error}</Advisory>}
+      {state.on && (
+        <DangerRow
+          label="Turn off two-step verification"
+          confirmLabel={`Turn off ${person.email}'s two-step verification?`}
+          action="Turn off"
+          onConfirm={async () => {
+            setError(null);
+            try {
+              await api.post(`/admin/users/${person.id}/two-step/off`, {});
+              setState({ on: false, totp: false, passkeys: 0 });
+            } catch (err) {
+              setError((err as Error).message);
+            }
+          }}
+        />
       )}
     </>
   );

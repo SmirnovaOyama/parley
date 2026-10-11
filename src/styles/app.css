@@ -230,6 +230,12 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 }
 .auth-switch { font-size: 13px; line-height: 18px; }
 .auth-links { display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 18px; }
+/* A button that does what a link would on this page, and looks like one. */
+.link-button {
+  padding: 0; border: 0; background: none; font: inherit; color: var(--accent-ink); cursor: pointer;
+  text-decoration: underline; text-decoration-color: color-mix(in oklch, currentColor 35%, transparent); text-underline-offset: 3px;
+}
+.link-button:hover { text-decoration-color: currentColor; }
 .auth-sent { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 22px; }
 .auth-sent .oy-icon { flex: none; margin-top: 2px; color: var(--text-muted); }
 :is(.auth-sent, .auth) strong { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
@@ -310,6 +316,13 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
   flex: none; width: 48px; height: 48px; border-radius: var(--radius-full); display: grid; place-items: center;
   background: var(--accent-subtle); color: var(--on-accent-subtle); font-size: 20px; line-height: 1; font-weight: 600;
 }
+/* Settings › Two-step verification: the QR code always on white, as scanners need, the key to type
+   and the recovery codes in monospace, two to a line. */
+.two-step-setup { display: flex; flex-direction: column; gap: 12px; }
+.two-step-qr { display: block; padding: 8px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.two-step-secret { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; }
+.two-step-secret code, .recovery-codes code { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 15px; letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.recovery-codes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 4px 0 8px; padding: 14px 16px; list-style: none; background: var(--surface-muted); border-radius: var(--radius-md); }
 .tag {
   display: inline-flex; align-items: center; height: 20px; padding: 0 8px; margin-inline-start: 8px;
   border-radius: var(--radius-full); font-size: 11px; line-height: 14px; font-weight: 500;

@@ -23,6 +23,7 @@ Claude's and OpenAI's keys now go only to api.anthropic.com and api.openai.com: 
 
 ### Fixed
 
+- Memory no longer keeps the same thing twice. Before the AI keeps a new note, it looks over any that read alike and any kept since the chat began (which some models no longer have in front of them a reply later), and saves only what none of them says, in whatever words or language. A note it already has word for word changes nothing, and notes are written in the person's language.
 - A reply's stream sends a keep-alive line every 20 seconds, so Cloudflare and other proxies that cut a silent connection after about 100 seconds no longer cut off a model thinking quietly or running a long tool.
 
 ### Security

@@ -13,7 +13,7 @@ import type { MessageRow } from "./chat-store.ts";
 import { chatBases, searchKnowledge, usableBases } from "./knowledge.ts";
 import { accountMessage, callTool, canUseServer, declareTools, getServer, offToolsOf, runsUnasked, serversFor, type McpServerRow } from "./mcp.ts";
 import { accountState, type AccountState } from "./mcp-auth.ts";
-import { cleanMemory, deleteMemory, keptMemory, memoryFull, memoryOn, saveMemory } from "./memory.ts";
+import { checkFirst, cleanMemory, deleteMemory, keptMemory, memoryFull, memoryOn, notesToCheck, saveMemory } from "./memory.ts";
 import type { Source, ToolCall, ToolOutcome, ToolSpec } from "./providers/types.ts";
 import { db } from "./db.ts";
 import { t } from "./i18n.ts";
@@ -62,7 +62,7 @@ export type ToolUse = {
 export const MEMORY_TOOL: ToolSpec = {
   name: "memory",
   description:
-    "Keep notes about the person between chats. action \"save\" stores one lasting fact or preference as a short sentence in the third person, like \"Teaches chemistry to 14-year-olds\". action \"delete\" removes a note by its id, from your notes or from an earlier save in this chat.",
+    "Keep notes about the person between chats. action \"save\" stores one lasting fact or preference as a short sentence in the third person, in the language the person writes in, like \"Teaches chemistry to 14-year-olds\". Don't save what a note already says, in any words or language; to change a note, delete it and save the new one. action \"delete\" removes a note by its id, from your notes or from an earlier save in this chat.",
   parameters: {
     type: "object",
     properties: {
@@ -229,6 +229,8 @@ export function chatToolkit(opts: ToolkitOptions) {
   let outside = opts.context.outside;
   /** Calls the person turned down or left unanswered in this reply, with what the model was told. */
   const refused = new Map<string, ToolOutcome>();
+  /** Notes the model was asked to check for repeats in this reply: saving one again keeps it. */
+  const checkedNotes = new Set<string>();
 
   /** Something from outside the person came in: from here on, notes wait for their OK. */
   const tookIn = () => void (outside = true);
@@ -340,9 +342,21 @@ export function chatToolkit(opts: ToolkitOptions) {
         }
         const text = cleanMemory(input.text);
         if (!text) return { content: "Write the note to save in text", isError: true };
+        const same = keptMemory(opts.userId, text);
+        if (same) return { content: `That's note ${same.id} already, so nothing changed` };
+        // Before a new note is kept, the model looks over any it may repeat: a note learnt earlier
+        // can come back in other words or another language, and the model may not have it in front of it.
+        if (!checkedNotes.has(text.toLowerCase())) {
+          const conv = db.prepare("SELECT system_prompt FROM conversations WHERE id = ?").get(opts.conversationId) as { system_prompt: string | null } | undefined;
+          const check = notesToCheck(opts.userId, text, conv?.system_prompt ?? "");
+          if (check.length) {
+            checkedNotes.add(text.toLowerCase());
+            return { content: checkFirst(check) };
+          }
+        }
         // Once the chat has taken in something from outside, a new note could be someone else's
         // words steering every later chat, so the person says yes first.
-        if (outside && !keptMemory(opts.userId, text)) {
+        if (outside) {
           const full = memoryFull(opts.userId);
           if (full) return { content: full, isError: true };
           const no = await askFirst(

@@ -1,10 +1,10 @@
 // How many notes memory keeps for someone (server/memory.ts): 200, or 1,000 with a verified address
-// on a domain the site rewards, for as long as it's rewarded.
+// on a domain the site rewards, for as long as it's rewarded. And how alike two notes read.
 import "./helpers/temp-env.ts";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { db, nowIso, saveSettings } from "../server/db.ts";
-import { MAX_MEMORIES, MAX_MEMORIES_VERIFIED, memoryLimit, saveMemory } from "../server/memory.ts";
+import { likeness, MAX_MEMORIES, MAX_MEMORIES_VERIFIED, memoryLimit, saveMemory } from "../server/memory.ts";
 
 function person(email: string, verified: string | null = null): number {
   return Number(
@@ -47,5 +47,19 @@ describe("memory limit", () => {
     assert.equal(memoryLimit(pupil), MAX_MEMORIES);
     assert.deepEqual(saveMemory(pupil, "Another", null), full(MAX_MEMORIES));
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM memories WHERE user_id = ?").get(pupil) as { n: number }).n, MAX_MEMORIES_VERIFIED);
+  });
+});
+
+describe("how alike two notes read", () => {
+  test("is high for the same thing in other words, in Chinese or English", () => {
+    assert.ok(likeness("名字是寻寻，代词 she/her", "名字叫寻寻，代词是 she/her") >= 0.55);
+    assert.ok(likeness("Prefers British English", "Wants answers in British English") >= 0.55);
+    assert.equal(likeness("Likes cats", "likes cats, and dogs"), 1);
+  });
+
+  test("is low for different things", () => {
+    assert.ok(likeness("Prefers short answers", "Teaches chemistry") < 0.55);
+    assert.ok(likeness("喜欢猫", "喜欢狗") < 0.55);
+    assert.equal(likeness("", "Teaches chemistry"), 0);
   });
 });

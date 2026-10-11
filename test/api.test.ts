@@ -16,6 +16,7 @@ import { Agent, fetch as undiciFetch } from "undici";
 import { mcpServer } from "./helpers/mcp-server.ts";
 import { chunk, completionStream, json, mockServer, modelList, usageChunk, type MockServer } from "./helpers/mock-server.ts";
 import { zipOf } from "./helpers/zip.ts";
+import { codeAt, stepNow } from "../server/totp.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), "parley-api-"));
@@ -1039,6 +1040,79 @@ describe("api", () => {
     assert.equal((await admin.json("PATCH", "/api/admin/settings", { privacyNotice: false })).body.settings.privacyNotice, false);
     assert.equal((await member.json("GET", "/api/policy")).body.privacyNotice, false);
     assert.equal((await admin.json("PATCH", "/api/admin/settings", { privacyNotice: true })).body.settings.privacyNotice, true);
+  });
+
+  test("with an authenticator app set up, signing in takes its code or a recovery code", async () => {
+    const email = "two-step@example.com";
+    const password = "two-step password";
+    const owner = new Visitor();
+    assert.equal((await owner.json("POST", "/api/auth/signup", { email, password })).status, 200);
+    assert.deepEqual((await owner.json("GET", "/api/auth/two-step")).body, { on: false, totp: false, passkeys: [], recoveryLeft: 0 });
+
+    // Setting it up takes the password, then the app's first code.
+    assert.deepEqual(await owner.json("POST", "/api/auth/two-step/totp/start", { password: "not it" }), {
+      status: 400,
+      body: { error: "That password isn't right", field: "password" },
+    });
+    const started = (await owner.json("POST", "/api/auth/two-step/totp/start", { password })).body;
+    assert.match(started.secret, /^[A-Z2-7]{32}$/);
+    assert.match(started.uri, /^otpauth:\/\/totp\//);
+    assert.match(started.qr, /^data:image\/svg\+xml;base64,/);
+    assert.equal((await owner.json("POST", "/api/auth/two-step/totp/confirm", { code: "000000" })).status, 400);
+    const firstStep = stepNow();
+    const confirmed = (await owner.json("POST", "/api/auth/two-step/totp/confirm", { code: codeAt(started.secret, firstStep) })).body;
+    assert.equal(confirmed.recoveryCodes.length, 10);
+    assert.match(confirmed.recoveryCodes[0], /^[a-z2-7]{5}-[a-z2-7]{5}$/);
+    assert.deepEqual([confirmed.twoStep.on, confirmed.twoStep.totp, confirmed.twoStep.recoveryLeft], [true, true, 10]);
+
+    // The password alone gives a ticket, not a session.
+    const later = new Visitor();
+    const first = (await later.json("POST", "/api/auth/login", { email, password })).body;
+    assert.deepEqual([first.twoStep.totp, first.twoStep.passkey], [true, false]);
+    assert.equal((await later.json("GET", "/api/auth/me")).status, 401);
+    assert.deepEqual(await later.json("POST", "/api/auth/login/code", { ticket: first.twoStep.ticket, code: "123456" }), {
+      status: 400,
+      body: { error: "That code isn't right", field: "code" },
+    });
+    // The code used to set it up doesn't count again; the next one does.
+    assert.equal((await later.json("POST", "/api/auth/login/code", { ticket: first.twoStep.ticket, code: codeAt(started.secret, firstStep) })).status, 400);
+    assert.deepEqual(await later.json("POST", "/api/auth/login/code", { ticket: first.twoStep.ticket, code: codeAt(started.secret, firstStep + 1) }), {
+      status: 200,
+      body: { ok: true, recoveryLeft: null },
+    });
+    assert.equal((await later.json("GET", "/api/auth/me")).body.user.email, email);
+    assert.equal((await later.json("POST", "/api/auth/login/code", { ticket: first.twoStep.ticket, code: "000000" })).status, 410, "a ticket is used once");
+
+    // A recovery code works once.
+    const lost = new Visitor();
+    const ticket = (await lost.json("POST", "/api/auth/login", { email, password })).body.twoStep.ticket;
+    assert.deepEqual(await lost.json("POST", "/api/auth/login/code", { ticket, code: confirmed.recoveryCodes[3].toUpperCase() }), {
+      status: 200,
+      body: { ok: true, recoveryLeft: 9 },
+    });
+    const again = (await new Visitor().json("POST", "/api/auth/login", { email, password })).body.twoStep.ticket;
+    assert.equal((await new Visitor().json("POST", "/api/auth/login/code", { ticket: again, code: confirmed.recoveryCodes[3] })).status, 400);
+
+    // A passkey's options take the password too.
+    assert.equal((await owner.json("POST", "/api/auth/two-step/passkeys/options", { password: "not it" })).status, 400);
+    const options = (await owner.json("POST", "/api/auth/two-step/passkeys/options", { password })).body.options;
+    assert.equal(options.rp.name, "Parley");
+    assert.ok(options.challenge);
+
+    // A reset link sets the password but doesn't sign in past the second step.
+    const from = server.log().length;
+    assert.equal((await forgot(email, "203.0.113.70")).status, 200);
+    const token = await resetToken(email, from);
+    assert.deepEqual(await new Visitor().json("POST", "/api/auth/reset", { token, password: "new two-step password" }), { status: 200, body: { ok: true, signIn: true } });
+
+    // An admin turns it off for someone locked out; then the password is enough.
+    const person = (await admin.json("GET", "/api/admin/users")).body.users.find((u: { email: string }) => u.email === email);
+    assert.deepEqual(person.twoStep, { on: true, totp: true, passkeys: 0 });
+    assert.equal((await member.json("POST", `/api/admin/users/${person.id}/two-step/off`, {})).status, 403);
+    assert.equal((await admin.json("POST", `/api/admin/users/${person.id}/two-step/off`, {})).status, 200);
+    const plain = new Visitor();
+    assert.deepEqual(await plain.json("POST", "/api/auth/login", { email, password: "new two-step password" }), { status: 200, body: { ok: true } });
+    assert.equal((await admin.json("GET", "/api/admin/audit")).body.entries[0].action, "turn_off_two_step");
   });
 
   // Last: lowering the limit signs the admin out of their other sign-ins too.

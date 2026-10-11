@@ -217,6 +217,32 @@ CREATE TABLE IF NOT EXISTS signup_codes (
 `);
 addColumn("users", "email_verified_at", "TEXT");
 
+// Two-step verification (server/two-step.ts). An authenticator app's secret, encrypted like API
+// keys, with the last 30-second step whose code was used (so none counts twice); passkeys, each a
+// public key the person's device signs with; and one-time recovery codes, hashed.
+addColumn("users", "totp_secret", "TEXT");
+addColumn("users", "totp_last_step", "INTEGER");
+addColumn("users", "totp_added_at", "TEXT");
+db.exec(`
+CREATE TABLE IF NOT EXISTS passkeys (
+  id           TEXT PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  public_key   BLOB NOT NULL,
+  counter      INTEGER NOT NULL DEFAULT 0,
+  transports   TEXT,
+  name         TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS passkeys_user ON passkeys(user_id);
+CREATE TABLE IF NOT EXISTS recovery_codes (
+  user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  used_at   TEXT,
+  PRIMARY KEY (user_id, code_hash)
+);
+`);
+
 // Forgotten passwords: the link last emailed to each person (a newer one replaces it), kept as
 // the hash of its token. It's deleted when it's used or the password changes.
 db.exec(`

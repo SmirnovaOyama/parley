@@ -11,6 +11,7 @@ import { db } from "./db.ts";
 import { env } from "./env.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { twoStepRoutes } from "./routes/two-step.ts";
 import { chatRoutes } from "./routes/chat.ts";
 import { connectionRoutes } from "./routes/connections.ts";
 import { sharedRoutes } from "./routes/shared.ts";
@@ -83,6 +84,7 @@ const jsonLimit = bodyLimit({ maxSize: MAX_JSON_BYTES, onError: (c) => c.json({ 
 app.use("/api/*", (c, next) => (c.req.method === "PUT" && RAW_UPLOAD.test(c.req.path) ? next() : jsonLimit(c, next)));
 app.use("/api/*", sameOriginGuard, sessionMiddleware);
 app.route("/api/auth", authRoutes);
+app.route("/api/auth/two-step", twoStepRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/admin", adminToolRoutes);
 // Shared chat links, readable without an account when the site allows it (before the signed-in routes).

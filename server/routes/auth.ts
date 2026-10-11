@@ -11,6 +11,7 @@ import { DEAD_LINK, findReset, linkOrigin, RESEND_AFTER_S, sendResetLink, takeRe
 import { modelLabel } from "../providers/catalog.ts";
 import { endSessionByRef, sessionRef, sessionsOf } from "../sessions.ts";
 import { RESEND_AFTER_S as CODE_RESEND_S, sendSignupCode, SignupCodeError, signupNeedsCode, takeSignupCode } from "../signup-codes.ts";
+import { finishWithCode, finishWithPasskey, signInPasskeyOptions, startSecondStep, ticketOf, twoStepOf, twoStepOn } from "../two-step.ts";
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -42,6 +43,22 @@ function noteFailure(email: string, lock: { count: number; until: number } | und
 /** Forgets the failed sign-ins for `email`, once its account has a new password. */
 export function clearFailures(email: string) {
   failures.delete(email);
+}
+
+const TOO_MANY = "Too many attempts. Try again in 15 minutes";
+const locked = (lock: { count: number; until: number } | undefined) => !!lock && lock.count >= MAX_FAILURES && lock.until > Date.now();
+
+/**
+ * Checks the password of someone signed in, before a change that takes it (adding or removing a
+ * way of two-step verification). Misses count with failed sign-ins. Returns what's wrong, if anything.
+ */
+export async function confirmPassword(userId: number, password: unknown): Promise<string | null> {
+  const row = db.prepare("SELECT email, password_hash FROM users WHERE id = ?").get(userId) as { email: string; password_hash: string };
+  const lock = failures.get(row.email);
+  if (locked(lock)) return TOO_MANY;
+  if (await verifyPassword(String(password ?? ""), row.password_hash)) return null;
+  noteFailure(row.email, lock);
+  return "That password isn't right";
 }
 
 function userCount(): number {
@@ -136,8 +153,59 @@ authRoutes.post("/login", async (c) => {
   }
   if (user.disabled) return c.json({ error: "This account is turned off. Ask an admin" }, 403);
 
+  // With two-step verification on, the password only opens the second step (server/two-step.ts).
+  if (twoStepOn(user.id)) return c.json({ ok: true, twoStep: startSecondStep(user.id, email) });
   failures.delete(email);
   startSession(c, user.id);
+  return c.json({ ok: true });
+});
+
+// ── The second step: a code from the app, a recovery code, or a passkey ──
+
+const SIGN_IN_AGAIN = "That sign-in has run out. Sign in again";
+
+/** The ticket from the password, if it's still good, the account still on and not locked. */
+function secondStep(ticket: unknown) {
+  const entry = ticketOf(ticket);
+  if (!entry) return { error: SIGN_IN_AGAIN, status: 410 as const };
+  if (locked(failures.get(entry.email))) return { error: TOO_MANY, status: 429 as const };
+  const user = db.prepare("SELECT disabled FROM users WHERE id = ?").get(entry.userId) as { disabled: number } | undefined;
+  if (!user || user.disabled) return { error: "This account is turned off. Ask an admin", status: 403 as const };
+  return { entry, ticket: String(ticket) };
+}
+
+authRoutes.post("/login/code", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const step = secondStep(body.ticket);
+  if (!step.entry) return c.json({ error: step.error }, step.status);
+  const how = finishWithCode(step.ticket, step.entry, body.code);
+  if (!how) {
+    noteFailure(step.entry.email, failures.get(step.entry.email));
+    return c.json({ error: "That code isn't right", field: "code" }, 400);
+  }
+  failures.delete(step.entry.email);
+  startSession(c, step.entry.userId);
+  // A recovery code used: the page says how many are left.
+  return c.json({ ok: true, recoveryLeft: how === "recovery" ? twoStepOf(step.entry.userId).recoveryLeft : null });
+});
+
+authRoutes.post("/login/passkey/options", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const step = secondStep(body.ticket);
+  if (!step.entry) return c.json({ error: step.error }, step.status);
+  return c.json({ options: await signInPasskeyOptions(c, step.entry) });
+});
+
+authRoutes.post("/login/passkey", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const step = secondStep(body.ticket);
+  if (!step.entry) return c.json({ error: step.error }, step.status);
+  if (!(await finishWithPasskey(c, step.ticket, step.entry, body.response))) {
+    noteFailure(step.entry.email, failures.get(step.entry.email));
+    return c.json({ error: "That passkey didn't work. Try again, or use a code" }, 400);
+  }
+  failures.delete(step.entry.email);
+  startSession(c, step.entry.userId);
   return c.json({ ok: true });
 });
 
@@ -230,6 +298,8 @@ authRoutes.post("/reset", async (c) => {
   // Whoever had the old password is signed out everywhere; the person who set the new one is in.
   db.prepare("DELETE FROM sessions WHERE user_id = ?").run(reset.userId);
   clearFailures(reset.email);
+  // A link by email doesn't get round two-step verification: they sign in, second step and all.
+  if (twoStepOn(reset.userId)) return c.json({ ok: true, signIn: true });
   startSession(c, reset.userId);
   return c.json({ ok: true });
 });

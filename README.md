@@ -161,6 +161,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 | `PORT` | The API's port (default 8787). |
 | `SMTP_URL`, `MAIL_FROM` | Outgoing email, for password reset links and the optional email rewards. |
 | `PUBLIC_URL` | The address people reach Parley at, like `https://chat.example.com`. Password reset emails link to it, so resetting a password by email works only once it's set. MCP servers people sign in to send them back here afterwards; for those, Parley otherwise uses the address in the browser, which is right unless a proxy in front changes it. |
+| `TUNNEL_TOKEN` | Only for `docker-compose.yml`'s Cloudflare Tunnel (see [Running it for real](#running-it-for-real)): the tunnel's token. Parley itself doesn't read it. |
 | `ALLOW_FAKE_IP` | Set to `1` only if the server reaches the internet through a proxy that answers every name with a 198.18.x.x stand-in address (Clash, Surge, sing-box and the like in fake-IP mode). Off by default: the page reader for other models' web search refuses those addresses, because behind such a proxy it can't check where a name really leads, and a name that points inside the network would be read. |
 
 ## Running it for real
@@ -172,6 +173,13 @@ Set in `.env` (see [`.env.example`](.env.example)):
     reverse_proxy localhost:8787
   }
   ```
+- **Cloudflare.** A [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) puts Parley online with no port open and HTTPS from Cloudflare. With Docker Compose, make a tunnel in Cloudflare's dashboard (Zero Trust, Networks, Tunnels), give its public hostname the service `http://parley:8787`, put its token in `.env` as `TUNNEL_TOKEN`, and run `docker compose --profile tunnel up -d`. Then:
+  - Set `PUBLIC_URL` to the tunnel's address, like `https://chat.example.com`.
+  - Change `docker-compose.yml`'s ports line to `"127.0.0.1:8787:8787"` (or `docker run -p 127.0.0.1:8787:8787`), so nobody reaches the site around Cloudflare.
+  - Let cloudflared reach Parley directly, with no other proxy between them. Parley reads where each visitor connects from in the last entry of `X-Forwarded-For`, which Cloudflare adds, from a proxy on the same machine or network; another proxy in between would put its own address there.
+  - Leave Rocket Loader off (Speed, Optimization). It rewrites the page's scripts, which the site's Content-Security-Policy then refuses, and the page stays blank. Other features that add scripts to the page, like Web Analytics' automatic setup, are refused the same way.
+  - On the Free and Pro plans Cloudflare takes uploads up to 100 MB, so an export bigger than that can't be imported through it. Import the `conversations.json` inside it instead, or on the server's own address.
+  - Replies stream through it as they do anywhere. A reply's stream sends a keep-alive line every 20 seconds, so a model thinking quietly isn't cut off by Cloudflare's 100-second limit.
 - **Backups.** Back up the data folder or volume, and keep `KEY_ENCRYPTION_SECRET` with them: a backup without the secret has keys nobody can read. To copy the database while it runs, use `sqlite3 chat.db ".backup backup.db"`.
 - **Updating.** With Docker, see [Versions and updates](#versions-and-updates). From source, `git pull`, then `npm install && npm run build` and a restart. The database updates itself on start.
 

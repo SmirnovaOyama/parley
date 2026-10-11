@@ -10,6 +10,7 @@ Claude's and OpenAI's keys now go only to api.anthropic.com and api.openai.com: 
 
 - Where you're signed in, under Account: each browser or program signed in to your account, the address it was last used from and when, and a button to sign out any of them or every other one.
 - Admins see the same on each person's page under Admin → People, with how many networks this week's sign-ins came from, and can sign them out of one device or all of them. The People list marks someone signed in on three devices or more, or from a program rather than a browser. Signing someone out is written to the activity log.
+- `docker compose --profile tunnel up -d` runs a Cloudflare Tunnel next to Parley, with the tunnel's token in `.env` as `TUNNEL_TOKEN`. The README's "Running it for real" says what else to set for Cloudflare.
 - A limit on how many devices one account can be signed in on, under Admin → Settings → Signing in: 5 unless you change it, or empty for none. Signing in on one more signs out the one used longest ago, and a lower number holds as soon as it's saved, except for the admin's own device that saved it.
 
 ### Fixed

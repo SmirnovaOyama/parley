@@ -161,6 +161,7 @@ API（端口 8787）会同时提供 `dist/` 里构建好的网页。
 | `PORT` | API 端口（默认 8787）。 |
 | `SMTP_URL`、`MAIL_FROM` | 发信设置，重设密码的链接和邮箱奖励功能要用。 |
 | `PUBLIC_URL` | 大家访问 Parley 用的地址，比如 `https://chat.example.com`。重设密码的邮件里的链接指向这个地址，所以设了它才能通过邮件重设密码。在 MCP 服务的登录页登录之后，也会跳回这个地址；这种情况下不设的话，Parley 用浏览器里的地址，只有前面的代理改了地址时才需要设。 |
+| `TUNNEL_TOKEN` | 只给 `docker-compose.yml` 里的 Cloudflare Tunnel 用（见[正式使用时](#正式使用时)）：tunnel 的 token。Parley 本身不读它。 |
 | `ALLOW_FAKE_IP` | 只有当服务器经由给每个域名都返回 198.18.x.x 替身地址的代理上网时（Clash、Surge、sing-box 等的 fake-IP 模式），才设为 `1`。默认关闭：给其他模型联网用的网页阅读会拒绝这些地址，因为在这种代理后面，它没法确认域名真正指向哪里，指向内网的域名也会被读取。 |
 
 ## 正式使用时
@@ -172,6 +173,13 @@ API（端口 8787）会同时提供 `dist/` 里构建好的网页。
     reverse_proxy localhost:8787
   }
   ```
+- **Cloudflare**：用 [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) 上线，服务器不用开放端口，HTTPS 由 Cloudflare 提供。用 Docker Compose 的话：在 Cloudflare 后台（Zero Trust → Networks → Tunnels）建一个 tunnel，把它公开主机名的服务填成 `http://parley:8787`，把 token 写进 `.env` 的 `TUNNEL_TOKEN`，然后运行 `docker compose --profile tunnel up -d`。之后：
+  - 把 `PUBLIC_URL` 设成 tunnel 的地址，比如 `https://chat.example.com`。
+  - 把 `docker-compose.yml` 里的端口改成 `"127.0.0.1:8787:8787"`（或者 `docker run -p 127.0.0.1:8787:8787`），别人就没法绕过 Cloudflare 直接访问。
+  - 让 cloudflared 直接连 Parley，中间不要再加别的代理。Parley 从同一台机器或内网里的代理发来的 `X-Forwarded-For` 最后一项读取访问者的地址，这一项是 Cloudflare 加的；中间再隔一层代理，这里就会变成那个代理的地址。
+  - 不要开 Rocket Loader（Speed → Optimization）。它会改写页面里的脚本，被网站的 Content-Security-Policy 拦下，页面会一片空白。其他往页面里加脚本的功能，比如 Web Analytics 的自动安装，也会同样被拦下。
+  - Cloudflare 的 Free 和 Pro 套餐上传最多 100 MB，更大的导出文件没法经 Cloudflare 导入。可以改为导入压缩包里的 `conversations.json`，或者通过服务器自己的地址导入。
+  - 回复照常流式显示。回复的数据流每 20 秒发一行保活，模型安静思考时也不会被 Cloudflare 的 100 秒限制断开。
 - **备份**：备份数据文件夹或数据卷，并把 `KEY_ENCRYPTION_SECRET` 一起保存好。没有这个密钥，备份里的 key 谁也解不开。运行中要复制数据库，可以用 `sqlite3 chat.db ".backup backup.db"`。
 - **升级**：用 Docker 的话见[版本和升级](#版本和升级)；从源码运行的话，`git pull` 后运行 `npm install && npm run build` 再重启。数据库会在启动时自动升级。
 

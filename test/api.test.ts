@@ -57,6 +57,13 @@ async function startServer() {
 class Visitor {
   cookie = "";
 
+  /** Headers on every request, like the browser's User-Agent or the network it's on. */
+  sends: Record<string, string>;
+
+  constructor(sends: Record<string, string> = {}) {
+    this.sends = sends;
+  }
+
   async request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
     const raw = body instanceof Uint8Array;
     const res = await fetch(server.url + path, {
@@ -66,6 +73,7 @@ class Visitor {
         ...(this.cookie ? { cookie: this.cookie } : {}),
         // What a browser says about a change asked for from one of the site's pages.
         ...(method === "GET" || method === "HEAD" ? {} : { origin: server.url, "sec-fetch-site": "same-origin" }),
+        ...this.sends,
         ...headers,
       },
       body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
@@ -896,4 +904,101 @@ describe("api", () => {
     assert.equal((await member.chat({ text: "One more" })).at(-2)?.event, "done");
   });
 
+  // A browser on a laptop and one on a phone, as their User-Agents say, and the networks they're on.
+  // The server reads the network from X-Forwarded-For, which it trusts from this machine.
+  const LAPTOP = { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36" };
+  const PHONE = { "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1" };
+  type Device = { id: string; device: string; browser: boolean; address: string | null; current: boolean };
+  const byDevice = (sessions: Device[]): Record<string, Device> => Object.fromEntries(sessions.map((s) => [s.device, s]));
+
+  test("each sign-in shows what it's used in and from where, and its owner can sign any of them out", async () => {
+    const email = "devices@example.com";
+    const laptop = new Visitor({ ...LAPTOP, "x-forwarded-for": "203.0.113.5" });
+    // As through Cloudflare: whatever the visitor sent, then the address it connected from.
+    const phone = new Visitor({ ...PHONE, "x-forwarded-for": "10.9.8.7, 198.51.100.20" });
+    const script = new Visitor({ "user-agent": "python-requests/2.32.3", "x-forwarded-for": "192.0.2.9" });
+    assert.equal((await laptop.json("POST", "/api/auth/signup", { email, password: "laptop password" })).status, 200);
+    for (const v of [phone, script]) assert.equal((await v.json("POST", "/api/auth/login", { email, password: "laptop password" })).status, 200);
+
+    const { sessions, limit } = (await laptop.json("GET", "/api/auth/sessions")).body;
+    assert.equal(limit, 5);
+    const seen = byDevice(sessions);
+    assert.deepEqual(
+      Object.entries(seen).map(([device, s]) => [device, s.browser, s.address, s.current]).sort(),
+      [
+        ["Chrome on macOS", true, "203.0.113.5", true],
+        ["Safari on iOS", true, "198.51.100.20", false],
+        ["python-requests", false, "192.0.2.9", false],
+      ],
+    );
+    assert.match(seen["Safari on iOS"].id, /^[0-9a-f]{16}$/);
+
+    // One other device, then all the others, then this one.
+    assert.deepEqual(await laptop.json("DELETE", `/api/auth/sessions/${seen["python-requests"].id}`), { status: 200, body: { ok: true, signedOut: false } });
+    assert.equal((await script.json("GET", "/api/auth/me")).status, 401);
+    assert.equal((await phone.json("GET", "/api/auth/me")).status, 200);
+    assert.equal((await laptop.json("DELETE", `/api/auth/sessions/${seen["python-requests"].id}`)).status, 404);
+    assert.equal((await laptop.json("DELETE", "/api/auth/sessions")).status, 200);
+    assert.equal((await phone.json("GET", "/api/auth/me")).status, 401);
+    assert.deepEqual((await laptop.json("GET", "/api/auth/sessions")).body.sessions.map((s: { device: string }) => s.device), ["Chrome on macOS"]);
+    assert.deepEqual(await laptop.json("DELETE", `/api/auth/sessions/${seen["Chrome on macOS"].id}`), { status: 200, body: { ok: true, signedOut: true } });
+    assert.equal((await laptop.json("GET", "/api/auth/me")).status, 401);
+  });
+
+  test("admins see where someone is signed in, and can sign them out of one device or everywhere", async () => {
+    const email = "passed-around@example.com";
+    const home = new Visitor({ ...LAPTOP, "x-forwarded-for": "203.0.113.40" });
+    const relay = new Visitor({ "x-forwarded-for": "192.0.2.50" });
+    assert.equal((await home.json("POST", "/api/auth/signup", { email, password: "home password" })).status, 200);
+    assert.equal((await relay.json("POST", "/api/auth/login", { email, password: "home password" })).status, 200);
+
+    const person = (await admin.json("GET", "/api/admin/users")).body.users.find((u: { email: string }) => u.email === email);
+    assert.deepEqual([person.devices, person.networks, person.programs], [2, 2, 1]);
+    const found = (await admin.json("GET", `/api/admin/users/${person.id}/sessions`)).body;
+    assert.deepEqual([found.devices, found.networks, found.programs, found.limit], [2, 2, 1, 5]);
+    const seen = byDevice(found.sessions);
+    // Node's fetch says it's "node": a program, not a browser.
+    assert.deepEqual([seen.node.browser, seen.node.address, seen.node.current], [false, "192.0.2.50", false]);
+
+    assert.equal((await admin.json("DELETE", `/api/admin/users/${person.id}/sessions/${seen.node.id}`)).status, 200);
+    assert.equal((await relay.json("GET", "/api/auth/me")).status, 401);
+    assert.equal((await home.json("GET", "/api/auth/me")).status, 200);
+    assert.equal((await admin.json("DELETE", `/api/admin/users/${person.id}/sessions`)).status, 200);
+    assert.equal((await home.json("GET", "/api/auth/me")).status, 401);
+    const entries = (await admin.json("GET", "/api/admin/audit")).body.entries.slice(0, 2);
+    assert.deepEqual(entries.map((e: { action: string; target: string }) => [e.action, e.target]), [["sign_out_user", email], ["sign_out_device", email]]);
+
+    const me = (await admin.json("GET", "/api/auth/me")).body.user;
+    assert.deepEqual(await admin.json("DELETE", `/api/admin/users/${me.id}/sessions`), { status: 400, body: { error: "Sign out your own devices under Account" } });
+    assert.equal((await member.json("GET", `/api/admin/users/${person.id}/sessions`)).status, 403);
+  });
+
+  // Last: lowering the limit signs the admin out of their other sign-ins too.
+  test("signing in on more devices than the site allows signs out the one used longest ago", async () => {
+    // A sign-in newer than the admin's, so the admin's is the one used longest ago, as far as the
+    // server has written down (it notes each use at most every few minutes).
+    const other = new Visitor();
+    assert.equal((await other.json("POST", "/api/auth/login", { email: "admin@example.com", password: "correct horse" })).status, 200);
+    assert.deepEqual(await admin.json("PATCH", "/api/admin/settings", { maxSessions: 0 }), {
+      status: 400,
+      body: { error: "Allow from 1 to 100 devices for each account, or leave it empty for no limit" },
+    });
+    assert.equal((await admin.json("PATCH", "/api/admin/settings", { maxSessions: 2 })).body.settings.maxSessions, 2);
+
+    const email = "three-devices@example.com";
+    const [first, second, third] = [new Visitor(), new Visitor(), new Visitor()];
+    assert.equal((await first.json("POST", "/api/auth/signup", { email, password: "three devices" })).status, 200);
+    for (const v of [second, third]) {
+      // A moment apart, so which sign-in is the newest is never a tie.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.equal((await v.json("POST", "/api/auth/login", { email, password: "three devices" })).status, 200);
+    }
+    assert.deepEqual(await Promise.all([first, second, third].map(async (v) => (await v.json("GET", "/api/auth/me")).status)), [401, 200, 200]);
+
+    // Lowered, it holds at once, except that whoever lowered it keeps the device they did it from.
+    assert.equal((await admin.json("PATCH", "/api/admin/settings", { maxSessions: 1 })).status, 200);
+    assert.deepEqual(await Promise.all([second, third].map(async (v) => (await v.json("GET", "/api/auth/me")).status)), [401, 200]);
+    assert.deepEqual(await Promise.all([admin, other].map(async (v) => (await v.json("GET", "/api/auth/me")).status)), [200, 401]);
+    assert.equal((await admin.json("PATCH", "/api/admin/settings", { maxSessions: "" })).body.settings.maxSessions, null);
+  });
 });

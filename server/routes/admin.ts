@@ -22,6 +22,7 @@ import {
 } from "../keys.ts";
 import { clearFailures, MIN_PASSWORD } from "./auth.ts";
 import { enforceRetention, purgeConversations } from "../retention.ts";
+import { endSessionByRef, keepEveryoneWithinLimit, sessionsOf, spreadOf } from "../sessions.ts";
 
 export const adminRoutes = new Hono<AppEnv>();
 adminRoutes.use("*", requireAdmin);
@@ -375,6 +376,8 @@ adminRoutes.get("/users", (c) => {
       /** Tokens the email reward adds to their monthly limit right now. */
       bonusTokens: u.bonus_email && rewardDomain(u.bonus_email, bonusDomains) ? bonusTokens : null,
       bonusSpend: u.bonus_email && rewardDomain(u.bonus_email, bonusDomains) ? bonusSpend : null,
+      /** How many devices they're signed in on, the networks this week's came from, and how many aren't browsers. */
+      ...spreadOf(sessionsOf(u.id)),
     })),
   });
 });
@@ -512,6 +515,35 @@ adminRoutes.post("/users/:id/password", async (c) => {
   // Guesses at the old password don't keep them out of the new one.
   clearFailures(target.email);
   audit(c.var.user!.id, "set_password", target.email);
+  return c.json({ ok: true });
+});
+
+// Where someone is signed in: their devices, the address each was last used from, and when. An
+// admin can sign them out of one or all. Your own are under Account, which keeps this one.
+adminRoutes.get("/users/:id/sessions", (c) => {
+  const id = Number(c.req.param("id"));
+  if (!db.prepare("SELECT 1 FROM users WHERE id = ?").get(id)) return c.json({ error: "This person doesn't exist" }, 404);
+  const sessions = sessionsOf(id, c.var.sessionId);
+  return c.json({ sessions, ...spreadOf(sessions), limit: getSettings().maxSessions });
+});
+
+adminRoutes.delete("/users/:id/sessions", (c) => {
+  const id = Number(c.req.param("id"));
+  const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
+  if (!target) return c.json({ error: "This person doesn't exist" }, 404);
+  if (id === c.var.user!.id) return c.json({ error: "Sign out your own devices under Account" }, 400);
+  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(id);
+  audit(c.var.user!.id, "sign_out_user", target.email);
+  return c.json({ ok: true });
+});
+
+adminRoutes.delete("/users/:id/sessions/:session", (c) => {
+  const id = Number(c.req.param("id"));
+  const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
+  if (!target) return c.json({ error: "This person doesn't exist" }, 404);
+  if (id === c.var.user!.id) return c.json({ error: "Sign out your own devices under Account" }, 400);
+  if (!endSessionByRef(id, c.req.param("session"))) return c.json({ error: "That device is already signed out" }, 404);
+  audit(c.var.user!.id, "sign_out_device", target.email);
   return c.json({ ok: true });
 });
 
@@ -981,7 +1013,17 @@ adminRoutes.patch("/settings", async (c) => {
     }
     next[field] = n;
   }
+  // Devices one account can be signed in on: a whole number, or empty for no limit.
+  if (body.maxSessions !== undefined) {
+    const n = body.maxSessions === null || body.maxSessions === "" ? null : Number(body.maxSessions);
+    if (n !== null && (!Number.isInteger(n) || n < 1 || n > 100)) {
+      return c.json({ error: "Allow from 1 to 100 devices for each account, or leave it empty for no limit" }, 400);
+    }
+    next.maxSessions = n;
+  }
   saveSettings(next);
+  // A lower limit signs people out of their devices used longest ago now, not at their next sign-in.
+  if (next.maxSessions != null) keepEveryoneWithinLimit(c.var.sessionId);
   // A shorter time to keep chats takes effect now, not at the next hourly pass.
   if (next.retainChatsDays !== undefined || next.retainDeletedDays !== undefined) enforceRetention();
   audit(c.var.user!.id, "edit_settings");

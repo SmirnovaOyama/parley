@@ -6,8 +6,10 @@ import { bonusOf, BonusError, pendingCode, rewardDomain, sendCode, verifyCode } 
 import { db, getSettings, nowIso } from "../db.ts";
 import { getInstructions } from "../instructions.ts";
 import { mailMode } from "../mail.ts";
-import { clientAddress, DEAD_LINK, findReset, linkOrigin, RESEND_AFTER_S, sendResetLink, takeReset, tooSoon } from "../password-reset.ts";
+import { clientAddress } from "../network.ts";
+import { DEAD_LINK, findReset, linkOrigin, RESEND_AFTER_S, sendResetLink, takeReset, tooSoon } from "../password-reset.ts";
 import { modelLabel } from "../providers/catalog.ts";
+import { endSessionByRef, sessionRef, sessionsOf } from "../sessions.ts";
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -104,6 +106,29 @@ authRoutes.post("/logout", (c) => {
 });
 
 authRoutes.get("/me", requireUser, (c) => c.json({ user: c.var.user }));
+
+// ── Where you're signed in (server/sessions.ts) ──
+
+authRoutes.get("/sessions", requireUser, (c) => {
+  return c.json({ sessions: sessionsOf(c.var.user!.id, c.var.sessionId), limit: getSettings().maxSessions });
+});
+
+/** Signs out every device but this one. */
+authRoutes.delete("/sessions", requireUser, (c) => {
+  db.prepare("DELETE FROM sessions WHERE user_id = ? AND id != ?").run(c.var.user!.id, c.var.sessionId);
+  return c.json({ ok: true });
+});
+
+/** Signs out one device; this one too, the same as signing out. */
+authRoutes.delete("/sessions/:id", requireUser, (c) => {
+  const ref = c.req.param("id");
+  if (ref === sessionRef(c.var.sessionId!)) {
+    endSession(c);
+    return c.json({ ok: true, signedOut: true });
+  }
+  if (!endSessionByRef(c.var.user!.id, ref)) return c.json({ error: "That device is already signed out" }, 404);
+  return c.json({ ok: true, signedOut: false });
+});
 
 authRoutes.post("/password", requireUser, async (c) => {
   const body = await c.req.json().catch(() => ({}));

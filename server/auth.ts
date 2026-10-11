@@ -3,9 +3,11 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { db, nowIso } from "./db.ts";
 import { hashToken, newToken } from "./crypto.ts";
 import { env } from "./env.ts";
+import { keepWithinLimit, noteUse, seenFrom } from "./sessions.ts";
 
 export type SessionUser = { id: number; email: string; role: "admin" | "user" };
-export type AppEnv = { Variables: { user: SessionUser | null } };
+/** user: who's signed in, if anyone. sessionId: the session their request came with (its id in the database). */
+export type AppEnv = { Variables: { user: SessionUser | null; sessionId: string | null } };
 
 const COOKIE = "sid";
 const SESSION_DAYS = 30;
@@ -14,12 +16,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export function startSession(c: Context<AppEnv>, userId: number) {
   const token = newToken();
   const expires = new Date(Date.now() + SESSION_DAYS * DAY_MS);
-  db.prepare("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)").run(
-    hashToken(token),
-    userId,
-    expires.toISOString(),
-    nowIso(),
-  );
+  const now = nowIso();
+  const { address, userAgent } = seenFrom(c);
+  db.prepare(
+    "INSERT INTO sessions (id, user_id, expires_at, created_at, last_seen_at, address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(hashToken(token), userId, expires.toISOString(), now, now, address, userAgent);
+  // One device more than the site allows signs out the one used longest ago.
+  keepWithinLimit(userId);
   setCookie(c, COOKIE, token, {
     httpOnly: true,
     sameSite: "Lax",
@@ -35,21 +38,29 @@ export function endSession(c: Context<AppEnv>) {
   deleteCookie(c, COOKIE, { path: "/" });
 }
 
-/** Loads the signed-in user (or null) into c.var.user and slides the session expiry forward. */
+/**
+ * Loads the signed-in user (or null) into c.var.user, slides the session expiry forward, and notes
+ * where and in what the session was used (server/sessions.ts).
+ */
 export const sessionMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
   c.set("user", null);
+  c.set("sessionId", null);
   const token = getCookie(c, COOKIE);
   if (token) {
     const id = hashToken(token);
     const row = db
       .prepare(
-        `SELECT s.expires_at, u.id, u.email, u.role, u.disabled
+        `SELECT s.expires_at, s.last_seen_at, s.address, s.user_agent, u.id, u.email, u.role, u.disabled
          FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?`,
       )
-      .get(id) as { expires_at: string; id: number; email: string; role: "admin" | "user"; disabled: number } | undefined;
+      .get(id) as
+      | { expires_at: string; last_seen_at: string | null; address: string | null; user_agent: string | null; id: number; email: string; role: "admin" | "user"; disabled: number }
+      | undefined;
     const expiresAt = row ? Date.parse(row.expires_at) : 0;
     if (row && !row.disabled && expiresAt > Date.now()) {
       c.set("user", { id: row.id, email: row.email, role: row.role });
+      c.set("sessionId", id);
+      noteUse(c, { id, last_seen_at: row.last_seen_at, address: row.address, user_agent: row.user_agent });
       if (expiresAt - Date.now() < (SESSION_DAYS / 2) * DAY_MS) {
         const expires = new Date(Date.now() + SESSION_DAYS * DAY_MS);
         db.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?").run(expires.toISOString(), id);

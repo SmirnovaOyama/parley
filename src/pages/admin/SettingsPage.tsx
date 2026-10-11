@@ -23,6 +23,7 @@ type Settings = {
   memory: boolean;
   retainChatsDays: number | null;
   retainDeletedDays: number | null;
+  maxSessions: number | null;
 };
 type MailMode = "smtp" | "dev" | "off";
 type AuditEntry = { id: number; action: string; target: string | null; createdAt: string; admin: string };
@@ -90,6 +91,8 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+
+      <DevicesForm saved={settings.maxSessions} onSave={(maxSessions) => update({ maxSessions })} />
 
       <OptionList<SharingMode>
         label="Who can open shared chats"
@@ -195,6 +198,54 @@ export function SettingsPage() {
 }
 
 const daysText = (n: number | null) => (n == null ? "" : String(n));
+
+/**
+ * How many devices one account can be signed in on. Signing in on one more signs out the one used
+ * longest ago, so an account passed around a class keeps signing its people out of each other.
+ */
+function DevicesForm({ saved, onSave }: { saved: number | null; onSave: (limit: number | null) => Promise<boolean> }) {
+  const [limit, setLimit] = useState(daysText(saved));
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const dirty = limit !== daysText(saved);
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const ok = await onSave(limit.trim() === "" ? null : Number(limit));
+    setBusy(false);
+    setDone(ok);
+  };
+
+  return (
+    <div className="oy-group">
+      <p className="oy-overline">Signing in</p>
+      <form className="form-page" onSubmit={save}>
+        <LineField
+          id="max-sessions"
+          label="Devices each account can be signed in on"
+          inputMode="numeric"
+          autoComplete="off"
+          value={limit}
+          onChange={(e) => {
+            setLimit(e.target.value.replace(/[^\d]/g, ""));
+            setDone(false);
+          }}
+          hint="Leave empty for no limit"
+        />
+        <div className="form-actions">
+          <p className="oy-field-hint">
+            Signing in on one more signs out the one used longest ago, and a lower number holds as soon as it's saved. Each
+            person's page shows where they're signed in
+          </p>
+          <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
+            {done && !dirty ? "Saved" : "Save"}
+          </BusyButton>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 /**
  * How long chats are kept: ones nobody touches, and ones people deleted (which admins can still read

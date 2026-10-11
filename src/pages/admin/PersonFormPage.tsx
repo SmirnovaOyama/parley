@@ -2,12 +2,14 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useParams } from "react-router";
 import { BusyButton } from "../../components/BusyButton.tsx";
 import { CheckList, OptionList, Switch } from "../../components/Controls.tsx";
+import { DangerRow } from "../../components/DangerRow.tsx";
+import { DeviceList } from "../../components/DeviceList.tsx";
 import { Advisory, Spinner } from "../../components/Feedback.tsx";
 import { LineField } from "../../components/LineField.tsx";
 import { PageHeader } from "../../components/PageHeader.tsx";
 import { SlideLink } from "../../components/SlideLink.tsx";
-import { api } from "../../lib/api.ts";
-import { amountInput, amountText, formatCost } from "../../lib/format.ts";
+import { api, type Device } from "../../lib/api.ts";
+import { amountInput, amountText, formatCost, plural } from "../../lib/format.ts";
 import { useSession } from "../../lib/session.tsx";
 import { useSlideNavigate } from "../../lib/slide.ts";
 import type { ApiKey } from "./KeysPage.tsx";
@@ -44,6 +46,8 @@ export function PersonFormPage() {
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Counts the times they were signed out everywhere here, so the devices are read again. */
+  const [signedOut, setSignedOut] = useState(0);
 
   useEffect(() => {
     Promise.all([
@@ -265,7 +269,25 @@ export function PersonFormPage() {
                 </div>
               </div>
             ) : (
-              <NewPassword person={person} />
+              <NewPassword person={person} onSet={() => setSignedOut((n) => n + 1)} />
+            )}
+          </div>
+        )}
+
+        {person && (
+          <div className="oy-group settings-group">
+            <p className="oy-overline">Devices</p>
+            {isSelf ? (
+              <div className="settings-panel">
+                <p className="settings-text">Yours are under Account, which keeps you signed in here</p>
+                <div className="form-page-actions">
+                  <SlideLink to="/account/devices" direction="forward" className="btn-secondary">
+                    See where you're signed in
+                  </SlideLink>
+                </div>
+              </div>
+            ) : (
+              <PersonDevices key={signedOut} person={person} />
             )}
           </div>
         )}
@@ -278,7 +300,7 @@ export function PersonFormPage() {
  * A new password for someone who can't sign in (when the site can't email them a link, say), set
  * apart from the form above. It unfolds in place into a field and the line that says what it does.
  */
-function NewPassword({ person }: { person: Person }) {
+function NewPassword({ person, onSet }: { person: Person; onSet: () => void }) {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -302,6 +324,7 @@ function NewPassword({ person }: { person: Person }) {
     try {
       await api.post(`/admin/users/${person.id}/password`, { password });
       fold(true);
+      onSet();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -363,5 +386,71 @@ function NewPassword({ person }: { person: Person }) {
         </span>
       </div>
     </form>
+  );
+}
+
+type Spread = { sessions: Device[]; devices: number; networks: number; programs: number };
+
+/** Where they're signed in, as sentences: how many devices and networks, and any that aren't browsers. */
+function spreadText(d: Spread): string {
+  if (!d.devices) return "Not signed in anywhere";
+  const parts = [`On ${plural(d.devices, "device", "devices")}${d.networks ? `, used from ${plural(d.networks, "network", "networks")} this week` : ""}`];
+  if (d.programs) {
+    parts.push(
+      `${d.programs === 1 ? "One is a program, not a browser" : `${d.programs} are programs, not browsers`}: their sign-in used by a script, which can pass this site's models on to other apps or people`,
+    );
+  }
+  return parts.join(". ");
+}
+
+/**
+ * The devices someone is signed in on, the address each was last used from, and signing them out of
+ * one or all. Many devices or networks can mean an account passed around; a program, a relay.
+ */
+function PersonDevices({ person }: { person: Person }) {
+  const [data, setData] = useState<Spread | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => api.get<Spread>(`/admin/users/${person.id}/sessions`).then(setData, (err) => setError((err as Error).message));
+  useEffect(() => {
+    void load();
+  }, [person.id]);
+
+  if (!data) return error ? <Advisory>{error}</Advisory> : <Spinner />;
+  return (
+    <>
+      <p className="group-intro">{spreadText(data)}</p>
+      {error && <Advisory>{error}</Advisory>}
+      {data.sessions.length > 0 && (
+        <>
+          <DeviceList
+            devices={data.sessions}
+            onSignOut={async (d) => {
+              setError(null);
+              try {
+                await api.del(`/admin/users/${person.id}/sessions/${d.id}`);
+              } catch (err) {
+                setError((err as Error).message);
+              }
+              void load();
+            }}
+          />
+          <DangerRow
+            label="Sign out everywhere"
+            confirmLabel={`Sign ${person.email} out of every device?`}
+            action="Sign out"
+            onConfirm={async () => {
+              setError(null);
+              try {
+                await api.del(`/admin/users/${person.id}/sessions`);
+              } catch (err) {
+                setError((err as Error).message);
+              }
+              void load();
+            }}
+          />
+        </>
+      )}
+    </>
   );
 }

@@ -30,7 +30,14 @@ export type Person = {
   bonusActive: boolean;
   bonusTokens: number | null;
   bonusSpend: number | null;
+  /** How many devices they're signed in on, the networks this week's were used from, and how many are programs, not browsers. */
+  devices: number;
+  networks: number;
+  programs: number;
 };
+
+/** From this many devices on, the list says how many: more than one person has, say a phone and a laptop. */
+const MANY_DEVICES = 3;
 
 /** The limit they're held to this month with the reward added, or null for none. */
 const spendCap = (p: Person) => (p.spendLimit == null ? null : p.spendLimit + (p.bonusSpend ?? 0));
@@ -76,6 +83,8 @@ export function PeoplePage() {
                   {p.disabled && <span className="tag is-warning">Off</span>}
                   {!p.disabled && atLimit && <span className="tag is-warning">At limit</span>}
                   {p.bonusActive && <span className="tag">Verified</span>}
+                  {p.devices >= MANY_DEVICES && <span className="tag">{plural(p.devices, "device", "devices")}</span>}
+                  {p.programs > 0 && <span className="tag is-warning">Not a browser</span>}
                 </p>
                 <div className="desc">
                   Spent {formatCost(p.spentThisMonth)}

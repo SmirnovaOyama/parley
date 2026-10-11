@@ -33,6 +33,7 @@ Parley has a quiet, hand-drawn look and a few firm rules:
 - Text fields are lines, not boxes, with no glow or coloured focus ring.
 - Copy is in sentence case, written as plain sentences. No full stop on titles, and no "·" between facts.
 - Icons and illustrations are original hand-drawn line art (`src/icons/`), never a company's logo.
+- Every string people read goes through `t()`, `tn()` or `tx()` (`src/lib/i18n.ts` in the page, `server/i18n.ts` on the server), keyed by its English as a whole sentence, so it can be translated without splicing fragments. `node scripts/i18n-check.ts` lists the ones `locales/zh.json` has no Chinese for; leave those for a translator rather than guessing.
 
 ## License of contributions
 

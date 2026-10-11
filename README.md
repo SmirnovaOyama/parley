@@ -48,6 +48,7 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - See where you're signed in, and sign out any device.
 - Two-step verification: after your password, a six-digit code from an authenticator app or a passkey, with recovery codes for a lost phone.
 - Add it to your phone's home screen, or install it from a desktop browser, and it opens as an app of its own.
+- Use it in English or Chinese: it follows your browser's language, or the one you pick under Settings.
 
 **For admins**
 - API keys: stored encrypted, checked with the provider before they're saved, with a backup key for when one fails.

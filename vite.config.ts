@@ -9,6 +9,7 @@ export default defineConfig({
     port: Number(process.env.PORT ?? 5173),
     proxy: {
       "/api": { target: `http://localhost:${process.env.API_PORT ?? 8787}` },
+      "/manifest.webmanifest": { target: `http://localhost:${process.env.API_PORT ?? 8787}` },
     },
   },
 });

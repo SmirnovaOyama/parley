@@ -46,6 +46,7 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - Share a read-only link to a chat.
 - Reset a forgotten password with a link by email, when the site can send email, or ask an admin to set a new one.
 - See where you're signed in, and sign out any device.
+- Add it to your phone's home screen, or install it from a desktop browser, and it opens as an app of its own.
 
 **For admins**
 - API keys: stored encrypted, checked with the provider before they're saved, with a backup key for when one fails.

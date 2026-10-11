@@ -3,8 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#ffffff" />
+    <!-- The page's background in each theme, for the browser's and the phone's bars (public/theme.js). -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#181714" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Added to a home screen, it opens as an app of its own (server/index.ts serves the manifest). -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <script src="/theme.js"></script>
     <title>Parley</title>
   </head>

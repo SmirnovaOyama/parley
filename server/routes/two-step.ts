@@ -3,6 +3,7 @@
 // so someone who only has a signed-in browser can't add a way in of their own or take one away.
 import { Hono } from "hono";
 import { requireUser, type AppEnv } from "../auth.ts";
+import { t } from "../i18n.ts";
 import { deviceOf } from "../sessions.ts";
 import {
   addPasskey,
@@ -29,16 +30,16 @@ twoStepRoutes.post("/totp/start", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const wrong = await confirmPassword(user.id, body.password);
   if (wrong) return c.json({ error: wrong, field: "password" }, 400);
-  if (twoStepOf(user.id).totp) return c.json({ error: "An authenticator app is set up already. Remove it first to use another" }, 409);
+  if (twoStepOf(user.id).totp) return c.json({ error: t("An authenticator app is set up already. Remove it first to use another") }, 409);
   return c.json(await startTotp(user.id, user.email));
 });
 
 twoStepRoutes.post("/totp/confirm", async (c) => {
   const userId = c.var.user!.id;
   const body = await c.req.json().catch(() => ({}));
-  if (!totpPending(userId)) return c.json({ error: "That took too long. Start again" }, 410);
+  if (!totpPending(userId)) return c.json({ error: t("That took too long. Start again") }, 410);
   const result = confirmTotp(userId, String(body.code ?? ""));
-  if (!result.ok) return c.json({ error: "That code isn't right. Check the app's clock, then type the code it shows now", field: "code" }, 400);
+  if (!result.ok) return c.json({ error: t("That code isn't right. Check the app's clock, then type the code it shows now"), field: "code" }, 400);
   return c.json({ ok: true, recoveryCodes: result.recoveryCodes, twoStep: twoStepOf(userId) });
 });
 
@@ -65,8 +66,8 @@ twoStepRoutes.post("/passkeys", async (c) => {
   const userId = c.var.user!.id;
   const body = await c.req.json().catch(() => ({}));
   const { device, browser } = deviceOf(c.req.header("user-agent") ?? null);
-  const result = await addPasskey(c, userId, body.response, browser ? `Passkey made in ${device}` : "Passkey");
-  if (!result.ok) return c.json({ error: "That passkey couldn't be added. Try again" }, 400);
+  const result = await addPasskey(c, userId, body.response, browser ? t("Passkey made in {device}", { device }) : t("Passkey"));
+  if (!result.ok) return c.json({ error: t("That passkey couldn't be added. Try again") }, 400);
   return c.json({ ok: true, recoveryCodes: result.recoveryCodes, twoStep: twoStepOf(userId) });
 });
 
@@ -75,7 +76,7 @@ twoStepRoutes.post("/passkeys/:id/remove", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const wrong = await confirmPassword(userId, body.password);
   if (wrong) return c.json({ error: wrong, field: "password" }, 400);
-  if (!removePasskey(userId, c.req.param("id"))) return c.json({ error: "That passkey is gone already" }, 404);
+  if (!removePasskey(userId, c.req.param("id"))) return c.json({ error: t("That passkey is gone already") }, 404);
   return c.json({ ok: true, twoStep: twoStepOf(userId) });
 });
 
@@ -85,6 +86,6 @@ twoStepRoutes.post("/recovery-codes", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const wrong = await confirmPassword(userId, body.password);
   if (wrong) return c.json({ error: wrong, field: "password" }, 400);
-  if (!twoStepOn(userId)) return c.json({ error: "Set up an authenticator app or a passkey first" }, 409);
+  if (!twoStepOn(userId)) return c.json({ error: t("Set up an authenticator app or a passkey first") }, 409);
   return c.json({ recoveryCodes: newRecoveryCodes(userId), twoStep: twoStepOf(userId) });
 });

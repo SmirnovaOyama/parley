@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Icon } from "../icons/Icon.tsx";
 import { api, shareUrl, type Share, type SharingMode } from "../lib/api.ts";
 import { longDate } from "../lib/format.ts";
+import { t } from "../lib/i18n.ts";
 import { BusyButton } from "./BusyButton.tsx";
 import { LineField } from "./LineField.tsx";
 
@@ -19,9 +20,9 @@ type Props = {
 };
 
 const WHO: Record<SharingMode, string> = {
-  anyone: "Anyone with the link",
-  "signed-in": "People signed in here",
-  off: "Nobody",
+  anyone: t("Anyone with the link"),
+  "signed-in": t("People signed in here"),
+  off: t("Nobody"),
 };
 
 /**
@@ -78,16 +79,16 @@ export function SharePanel({ conversationId, share, upToDate, sharing, busy, emp
       <div className="settings-panel">
         <p className="settings-text">
           {stopped
-            ? "Sharing stopped. The old link no longer opens"
+            ? t("Sharing stopped. The old link no longer opens")
             : empty
-              ? "Once there's something in this chat, you can make a read-only link to it"
-              : `Make a read-only link to this chat as it is now. ${WHO[sharing]} can open it. What you send later stays private until you update the link`}
+              ? t("Once there's something in this chat, you can make a read-only link to it")
+              : t("Make a read-only link to this chat as it is now. {WHO} can open it. What you send later stays private until you update the link", { WHO: WHO[sharing] })}
         </p>
         {error && <p className="settings-text text-danger">{error}</p>}
         {!empty && (
           <div className="form-page-actions">
             <BusyButton type="button" className="btn-secondary" busy={working} disabled={busy} onClick={() => void create()}>
-              {stopped ? "Share again" : "Create link"}
+              {stopped ? t("Share again") : t("Create link")}
             </BusyButton>
           </div>
         )}
@@ -97,16 +98,16 @@ export function SharePanel({ conversationId, share, upToDate, sharing, busy, emp
 
   const status =
     sharing === "off"
-      ? "An admin has turned sharing off, so the link doesn't open for now"
+      ? t("An admin has turned sharing off, so the link doesn't open for now")
       : upToDate
-        ? `Shared on ${longDate(share.sharedAt)}. ${WHO[sharing]} can read it`
-        : `Shared on ${longDate(share.sharedAt)}. The chat has changed since, so the link shows the earlier version`;
+        ? t("Shared on {sharedAt}. {WHO} can read it", { sharedAt: longDate(share.sharedAt), WHO: WHO[sharing] })
+        : t("Shared on {sharedAt}. The chat has changed since, so the link shows the earlier version", { sharedAt: longDate(share.sharedAt) });
 
   return (
     <div className="settings-panel">
       <LineField
         id="share-link"
-        label="Link"
+        label={t("Link")}
         value={url}
         readOnly
         spellCheck={false}
@@ -120,28 +121,28 @@ export function SharePanel({ conversationId, share, upToDate, sharing, busy, emp
           <span className="swap">
             <span className="reserve" aria-hidden="true">
               <Icon name="check" size={16} />
-              Copied
+              {t("Copied")}
             </span>
             <span className="reserve" aria-hidden="true">
-              Copy link
+              {t("Copy link")}
             </span>
             {copied ? (
               <span>
                 <Icon name="check" size={16} className="draw-in" />
-                Copied
+                {t("Copied")}
               </span>
             ) : (
-              <span>Copy link</span>
+              <span>{t("Copy link")}</span>
             )}
           </span>
         </button>
         {!upToDate && sharing !== "off" && (
           <button type="button" className="btn-secondary" disabled={working || busy} onClick={() => void create()}>
-            Update link
+            {t("Update link")}
           </button>
         )}
         <button type="button" className="btn-ghost share-stop" disabled={working} onClick={() => void stop()}>
-          Stop sharing
+          {t("Stop sharing")}
         </button>
       </div>
     </div>

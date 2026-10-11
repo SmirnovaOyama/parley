@@ -5,6 +5,7 @@ import { DOMAIN_RE, rewardDomain } from "../bonus.ts";
 import { DECLINED_SQL, getConversation, tx, viewPath } from "../chat-store.ts";
 import { encryptSecret, decryptSecret, hashPassword } from "../crypto.ts";
 import { audit, db, getSettings, nowIso, saveSettings, SHARING_MODES, startOfMonthIso, type Settings } from "../db.ts";
+import { t } from "../i18n.ts";
 import { EFFORT_LABELS, OFF_BY_DEFAULT, PROVIDERS, SERVICES, featuresOf, findModel, findProvider, modelLabel, serviceName } from "../providers/catalog.ts";
 import { mailMode } from "../mail.ts";
 import { sweepCredentials } from "../mcp.ts";
@@ -34,7 +35,7 @@ adminRoutes.use("*", requireAdmin);
  */
 function parseModels(value: unknown, known: string[], startModel: string): string | null | { error: string } {
   if (value === undefined || value === null) return null;
-  if (!Array.isArray(value)) return { error: "Pick which models people can use" };
+  if (!Array.isArray(value)) return { error: t("Pick which models people can use") };
   const list = [...new Set([startModel, ...value.map(String).filter((id) => known.includes(id))])];
   return JSON.stringify(list);
 }
@@ -60,7 +61,7 @@ function parseEndpoint(value: unknown): Endpoint | { error: string } {
     // Not an address.
   }
   if (!url || (url.protocol !== "https:" && url.protocol !== "http:")) {
-    return { error: "Type the service's address, starting with https://" };
+    return { error: t("Type the service's address, starting with https://") };
   }
   const models: EndpointModel[] = [];
   for (const raw of Array.isArray(v.models) ? (v.models as Record<string, unknown>[]) : []) {
@@ -68,11 +69,11 @@ function parseEndpoint(value: unknown): Endpoint | { error: string } {
     if (!id || models.some((m) => m.id === id)) continue;
     const input = parsePrice(raw.input);
     const output = parsePrice(raw.output);
-    if (input === undefined || output === undefined) return { error: `Write ${id}'s prices in dollars per million tokens, like 0.5` };
+    if (input === undefined || output === undefined) return { error: t("Write {id}'s prices in dollars per million tokens, like 0.5", { id }) };
     models.push({ id, input, output });
   }
-  if (!models.length) return { error: "Add the name of at least one model it serves" };
-  if (models.length > MAX_ENDPOINT_MODELS) return { error: `A key can list up to ${MAX_ENDPOINT_MODELS} models` };
+  if (!models.length) return { error: t("Add the name of at least one model it serves") };
+  if (models.length > MAX_ENDPOINT_MODELS) return { error: t("A key can list up to {MAX_ENDPOINT_MODELS} models", { MAX_ENDPOINT_MODELS }) };
   return { baseUrl, models, images: v.images === true };
 }
 
@@ -81,22 +82,22 @@ const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 function verifyMessage(err: unknown, baseUrl?: string): string {
   const status = (err as { status?: number })?.status;
   const message = err instanceof Error ? err.message : "";
-  if (status === 401 || status === 403) return "The provider rejected this key";
-  if (status === 404) return "This key can't use the selected model";
+  if (status === 401 || status === 403) return t("The provider rejected this key");
+  if (status === 404) return t("This key can't use the selected model");
   if (!status && /connection|timed? ?out|fetch failed|ENOTFOUND|ECONNREFUSED/i.test(message)) {
-    return baseUrl ? `Couldn't reach ${serviceName(baseUrl)}. Check the address and try again` : "Couldn't reach the provider. Try again";
+    return baseUrl ? t("Couldn't reach {serviceName}. Check the address and try again", { serviceName: serviceName(baseUrl) }) : t("Couldn't reach the provider. Try again");
   }
   // Some providers answer a bad key with a 400 that says so.
-  if ((status === 400 || status === 422) && message) return `The provider turned it down: ${message.replace(/^\d{3}\s+/, "")}`;
+  if ((status === 400 || status === 422) && message) return t("The provider turned it down: {replace}", { replace: message.replace(/^\d{3}\s+/, "") });
   if (message && !status) return message;
-  return "Couldn't check the key with the provider. Try again";
+  return t("Couldn't check the key with the provider. Try again");
 }
 
 /** A backup key must exist and be a different key. Returns an error sentence, or null when fine. */
 function badFallback(fallbackKeyId: number | null, selfId?: number): string | null {
   if (fallbackKeyId == null) return null;
-  if (fallbackKeyId === selfId) return "A key can't be its own backup";
-  if (!db.prepare("SELECT 1 FROM api_keys WHERE id = ?").get(fallbackKeyId)) return "That backup key doesn't exist";
+  if (fallbackKeyId === selfId) return t("A key can't be its own backup");
+  if (!db.prepare("SELECT 1 FROM api_keys WHERE id = ?").get(fallbackKeyId)) return t("That backup key doesn't exist");
   return null;
 }
 
@@ -183,8 +184,8 @@ adminRoutes.post("/keys", async (c) => {
   const effort = String(body.effort ?? "");
   const apiKey = String(body.apiKey ?? "").trim();
 
-  if (!label) return c.json({ error: "Give the key a name" }, 400);
-  if (!provider) return c.json({ error: "Pick a provider" }, 400);
+  if (!label) return c.json({ error: t("Give the key a name") }, 400);
+  if (!provider) return c.json({ error: t("Pick a provider") }, 400);
   // Another service brings its own address and models.
   let endpoint: Endpoint | null = null;
   if (provider.custom) {
@@ -194,10 +195,10 @@ adminRoutes.post("/keys", async (c) => {
   }
   const draft = { provider: provider.id, endpoint: endpoint && JSON.stringify(endpoint) };
   const modelInfo = keyModel(draft, model);
-  if (!modelInfo) return c.json({ error: "Pick the model new chats start on" }, 400);
-  if (!modelInfo.efforts.includes(effort)) return c.json({ error: "Pick a thinking level this model supports" }, 400);
+  if (!modelInfo) return c.json({ error: t("Pick the model new chats start on") }, 400);
+  if (!modelInfo.efforts.includes(effort)) return c.json({ error: t("Pick a thinking level this model supports") }, 400);
   // A service on the server itself (Ollama, say) may need no key.
-  if (!provider.custom && apiKey.length < 12) return c.json({ error: "Paste the full API key" }, 400);
+  if (!provider.custom && apiKey.length < 12) return c.json({ error: t("Paste the full API key") }, 400);
 
   try {
     await getProvider(provider.id).verify(apiKey, model, endpoint?.baseUrl);
@@ -237,7 +238,7 @@ adminRoutes.post("/keys", async (c) => {
 adminRoutes.patch("/keys/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const key = db.prepare("SELECT * FROM api_keys WHERE id = ?").get(id) as KeyRow | undefined;
-  if (!key) return c.json({ error: "This key doesn't exist" }, 404);
+  if (!key) return c.json({ error: t("This key doesn't exist") }, 404);
   const body = await c.req.json().catch(() => ({}));
   const provider = findProvider(key.provider)!;
 
@@ -246,7 +247,7 @@ adminRoutes.patch("/keys/:id", async (c) => {
   const effort = body.effort !== undefined ? String(body.effort) : key.effort;
   const newKey = body.apiKey ? String(body.apiKey).trim() : null;
 
-  if (!label) return c.json({ error: "Give the key a name" }, 400);
+  if (!label) return c.json({ error: t("Give the key a name") }, 400);
   let endpoint = endpointOf(key);
   if (provider.custom && body.endpoint !== undefined) {
     const parsed = parseEndpoint(body.endpoint);
@@ -255,8 +256,8 @@ adminRoutes.patch("/keys/:id", async (c) => {
   }
   const draft = { provider: provider.id, endpoint: endpoint && JSON.stringify(endpoint) };
   const modelInfo = keyModel(draft, model);
-  if (!modelInfo) return c.json({ error: "Pick the model new chats start on" }, 400);
-  if (!modelInfo.efforts.includes(effort)) return c.json({ error: "Pick a thinking level this model supports" }, 400);
+  if (!modelInfo) return c.json({ error: t("Pick the model new chats start on") }, 400);
+  if (!modelInfo.efforts.includes(effort)) return c.json({ error: t("Pick a thinking level this model supports") }, 400);
 
   const moved = endpoint?.baseUrl !== endpointOf(key)?.baseUrl;
   if (newKey || model !== key.model || moved) {
@@ -309,7 +310,7 @@ adminRoutes.delete("/keys/:id", (c) => {
   const key = db.prepare("SELECT label, is_default FROM api_keys WHERE id = ?").get(id) as
     | { label: string; is_default: number }
     | undefined;
-  if (!key) return c.json({ error: "This key doesn't exist" }, 404);
+  if (!key) return c.json({ error: t("This key doesn't exist") }, 404);
   db.prepare("DELETE FROM api_keys WHERE id = ?").run(id);
   // Keep a default in place if any key is left.
   if (key.is_default) db.prepare("UPDATE api_keys SET is_default = 1 WHERE id = (SELECT MIN(id) FROM api_keys)").run();
@@ -390,10 +391,10 @@ adminRoutes.post("/users", async (c) => {
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "");
   const role = body.role === "admin" ? "admin" : "user";
-  if (!EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
-  if (password.length < MIN_PASSWORD) return c.json({ error: `Use at least ${MIN_PASSWORD} characters for the password` }, 400);
+  if (!EMAIL_RE.test(email)) return c.json({ error: t("Enter a valid email address") }, 400);
+  if (password.length < MIN_PASSWORD) return c.json({ error: t("Use at least {MIN_PASSWORD} characters for the password", { MIN_PASSWORD }) }, 400);
   if (db.prepare("SELECT 1 FROM users WHERE email = ?").get(email)) {
-    return c.json({ error: "An account with this email already exists" }, 409);
+    return c.json({ error: t("An account with this email already exists") }, 409);
   }
   const result = db
     .prepare("INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)")
@@ -407,26 +408,26 @@ adminRoutes.patch("/users/:id", async (c) => {
   const target = db.prepare("SELECT id, email, role, disabled FROM users WHERE id = ?").get(id) as
     | { id: number; email: string; role: string; disabled: number }
     | undefined;
-  if (!target) return c.json({ error: "This person doesn't exist" }, 404);
+  if (!target) return c.json({ error: t("This person doesn't exist") }, 404);
   const body = await c.req.json().catch(() => ({}));
   const self = id === c.var.user!.id;
 
   const role = body.role === undefined ? target.role : body.role === "admin" ? "admin" : "user";
   const disabled = body.disabled === undefined ? !!target.disabled : !!body.disabled;
   if (self && (role !== "admin" || disabled)) {
-    return c.json({ error: "You can't remove your own admin access or turn off your own account" }, 400);
+    return c.json({ error: t("You can't remove your own admin access or turn off your own account") }, 400);
   }
   if (target.role === "admin" && (role !== "admin" || disabled)) {
     const { n } = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0").get() as { n: number };
-    if (n <= 1) return c.json({ error: "Keep at least one active admin" }, 400);
+    if (n <= 1) return c.json({ error: t("Keep at least one active admin") }, 400);
   }
 
   let keyIds: number[] | undefined;
   if (body.keyIds !== undefined) {
-    if (!Array.isArray(body.keyIds)) return c.json({ error: "Pick the models this person can use" }, 400);
+    if (!Array.isArray(body.keyIds)) return c.json({ error: t("Pick the models this person can use") }, 400);
     keyIds = [...new Set((body.keyIds as unknown[]).map(Number))];
     const known = new Set((db.prepare("SELECT id FROM api_keys").all() as { id: number }[]).map((k) => k.id));
-    if (keyIds.some((k) => !known.has(k))) return c.json({ error: "One of those keys doesn't exist" }, 400);
+    if (keyIds.some((k) => !known.has(k))) return c.json({ error: t("One of those keys doesn't exist") }, 400);
   }
 
   // The model new chats start with must be one this person can use.
@@ -440,24 +441,24 @@ adminRoutes.patch("/users/:id", async (c) => {
       const granted = keyIds
         ? keyIds.includes(apiKeyId)
         : !!db.prepare("SELECT 1 FROM user_keys WHERE user_id = ? AND api_key_id = ?").get(id, apiKeyId);
-      if (!k) return c.json({ error: "That key doesn't exist" }, 400);
-      if (!k.shared && !k.is_default && !granted) return c.json({ error: "Let this person use that model first" }, 400);
+      if (!k) return c.json({ error: t("That key doesn't exist") }, 400);
+      if (!k.shared && !k.is_default && !granted) return c.json({ error: t("Let this person use that model first") }, 400);
     }
   }
   let limit: number | null | undefined;
   if (body.monthlyTokenLimit !== undefined) {
     limit = body.monthlyTokenLimit === null || body.monthlyTokenLimit === "" ? null : Math.max(0, Math.floor(Number(body.monthlyTokenLimit)));
-    if (limit !== null && !Number.isFinite(limit)) return c.json({ error: "Enter the limit as a number of tokens" }, 400);
+    if (limit !== null && !Number.isFinite(limit)) return c.json({ error: t("Enter the limit as a number of tokens") }, 400);
   }
   // Their spending limit: the site's for members, their own amount, or none.
   const spendMode = body.spendLimitMode === undefined ? undefined : SPEND_LIMIT_MODES.find((m) => m === body.spendLimitMode);
-  if (body.spendLimitMode !== undefined && !spendMode) return c.json({ error: "Choose which spending limit applies" }, 400);
+  if (body.spendLimitMode !== undefined && !spendMode) return c.json({ error: t("Choose which spending limit applies") }, 400);
   let ownSpend: number | null | undefined;
   if (body.monthlySpendLimit !== undefined) {
     ownSpend = parseDollars(body.monthlySpendLimit);
-    if (ownSpend === undefined) return c.json({ error: "Enter the spending limit in dollars, like 5 or 2.50" }, 400);
+    if (ownSpend === undefined) return c.json({ error: t("Enter the spending limit in dollars, like 5 or 2.50") }, 400);
   }
-  if (spendMode === "own" && ownSpend == null) return c.json({ error: "Enter their monthly spending limit in dollars" }, 400);
+  if (spendMode === "own" && ownSpend == null) return c.json({ error: t("Enter their monthly spending limit in dollars") }, 400);
 
   db.prepare(
     `UPDATE users SET role = ?, disabled = ?,
@@ -501,12 +502,12 @@ adminRoutes.patch("/users/:id", async (c) => {
 adminRoutes.post("/users/:id/password", async (c) => {
   const id = Number(c.req.param("id"));
   const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
-  if (!target) return c.json({ error: "This person doesn't exist" }, 404);
+  if (!target) return c.json({ error: t("This person doesn't exist") }, 404);
   // Your own is changed under Settings, which asks for the current one and keeps you signed in.
-  if (id === c.var.user!.id) return c.json({ error: "Change your own password under Settings" }, 400);
+  if (id === c.var.user!.id) return c.json({ error: t("Change your own password under Settings") }, 400);
   const body = await c.req.json().catch(() => ({}));
   const password = String(body.password ?? "");
-  if (password.length < MIN_PASSWORD) return c.json({ error: `Use at least ${MIN_PASSWORD} characters for the password` }, 400);
+  if (password.length < MIN_PASSWORD) return c.json({ error: t("Use at least {MIN_PASSWORD} characters for the password", { MIN_PASSWORD }) }, 400);
 
   const hash = await hashPassword(password);
   tx(() => {
@@ -525,7 +526,7 @@ adminRoutes.post("/users/:id/password", async (c) => {
 // admin can sign them out of one or all. Your own are under Settings, which keeps this one.
 adminRoutes.get("/users/:id/sessions", (c) => {
   const id = Number(c.req.param("id"));
-  if (!db.prepare("SELECT 1 FROM users WHERE id = ?").get(id)) return c.json({ error: "This person doesn't exist" }, 404);
+  if (!db.prepare("SELECT 1 FROM users WHERE id = ?").get(id)) return c.json({ error: t("This person doesn't exist") }, 404);
   const sessions = sessionsOf(id, c.var.sessionId);
   return c.json({ sessions, ...spreadOf(sessions), limit: getSettings().maxSessions });
 });
@@ -533,8 +534,8 @@ adminRoutes.get("/users/:id/sessions", (c) => {
 adminRoutes.delete("/users/:id/sessions", (c) => {
   const id = Number(c.req.param("id"));
   const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
-  if (!target) return c.json({ error: "This person doesn't exist" }, 404);
-  if (id === c.var.user!.id) return c.json({ error: "Sign out your own devices under Settings" }, 400);
+  if (!target) return c.json({ error: t("This person doesn't exist") }, 404);
+  if (id === c.var.user!.id) return c.json({ error: t("Sign out your own devices under Settings") }, 400);
   db.prepare("DELETE FROM sessions WHERE user_id = ?").run(id);
   audit(c.var.user!.id, "sign_out_user", target.email);
   return c.json({ ok: true });
@@ -543,9 +544,9 @@ adminRoutes.delete("/users/:id/sessions", (c) => {
 adminRoutes.delete("/users/:id/sessions/:session", (c) => {
   const id = Number(c.req.param("id"));
   const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
-  if (!target) return c.json({ error: "This person doesn't exist" }, 404);
-  if (id === c.var.user!.id) return c.json({ error: "Sign out your own devices under Settings" }, 400);
-  if (!endSessionByRef(id, c.req.param("session"))) return c.json({ error: "That device is already signed out" }, 404);
+  if (!target) return c.json({ error: t("This person doesn't exist") }, 404);
+  if (id === c.var.user!.id) return c.json({ error: t("Sign out your own devices under Settings") }, 400);
+  if (!endSessionByRef(id, c.req.param("session"))) return c.json({ error: t("That device is already signed out") }, 404);
   audit(c.var.user!.id, "sign_out_device", target.email);
   return c.json({ ok: true });
 });
@@ -555,8 +556,8 @@ adminRoutes.delete("/users/:id/sessions/:session", (c) => {
 adminRoutes.post("/users/:id/two-step/off", (c) => {
   const id = Number(c.req.param("id"));
   const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
-  if (!target) return c.json({ error: "This person doesn't exist" }, 404);
-  if (id === c.var.user!.id) return c.json({ error: "Change your own under Settings" }, 400);
+  if (!target) return c.json({ error: t("This person doesn't exist") }, 404);
+  if (id === c.var.user!.id) return c.json({ error: t("Change your own under Settings") }, 400);
   turnOffTwoStep(id);
   audit(c.var.user!.id, "turn_off_two_step", target.email);
   return c.json({ ok: true });
@@ -620,7 +621,7 @@ adminRoutes.get("/conversations", (c) => {
 
 adminRoutes.get("/conversations/:id", (c) => {
   const conv = getConversation(c.req.param("id"));
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   const owner = db.prepare("SELECT email FROM users WHERE id = ?").get(conv.user_id) as { email: string };
   // Browsing another branch (?via=) of a chat already open isn't logged again. Opening it at a
   // declined reply (?at=, from the review list) is a fresh open: it's logged, on that reply's branch.
@@ -650,7 +651,7 @@ adminRoutes.get("/conversations/:id", (c) => {
 
 adminRoutes.delete("/conversations/:id", (c) => {
   const conv = getConversation(c.req.param("id"));
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   // Its files go with it: the ones replies made and the ones people attached.
   purgeConversations([conv.id]);
   audit(c.var.user!.id, "delete_conversation", conv.title);
@@ -696,7 +697,7 @@ function declinedOut(r: DeclinedRow) {
     answeredBy: answered ? modelLabel(r.provider, r.model) : null,
     createdAt: r.created_at,
     reviewedAt: r.reviewed_at,
-    reviewer: r.reviewed_at ? r.reviewer ?? "Deleted account" : null,
+    reviewer: r.reviewed_at ? r.reviewer ?? t("Deleted account") : null,
     deletedByUser: !!r.deleted_at,
   };
 }
@@ -721,13 +722,13 @@ adminRoutes.get("/declined", (c) => {
 adminRoutes.post("/declined/review", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const ids: number[] = Array.isArray(body.ids) ? body.ids.map(Number).filter(Number.isInteger).slice(0, 500) : [];
-  if (!ids.length) return c.json({ error: "Choose at least one message" }, 400);
+  if (!ids.length) return c.json({ error: t("Choose at least one message") }, 400);
   const reviewed = body.reviewed !== false;
   const at = reviewed ? nowIso() : null;
   const by = reviewed ? c.var.user!.id : null;
   const mark = db.prepare(`UPDATE messages AS m SET reviewed_at = ?, reviewed_by = ? WHERE m.id = ? AND ${DECLINED_SQL}`);
   const changed = tx(() => ids.reduce((n, id) => n + Number(mark.run(at, by, id).changes), 0));
-  if (!changed) return c.json({ error: "Those messages aren't declined replies" }, 404);
+  if (!changed) return c.json({ error: t("Those messages aren't declined replies") }, 404);
   return c.json({ reviewedAt: at, reviewer: reviewed ? c.var.user!.email : null });
 });
 
@@ -890,11 +891,11 @@ adminRoutes.get("/usage", (c) => {
     SUM(cost_usd) AS cost`;
   const byUser = db
     .prepare(
-      `SELECT COALESCE(u.email, 'Deleted account') AS name, ${totals}
+      `SELECT COALESCE(u.email, ?) AS name, ${totals}
        FROM usage_events e LEFT JOIN users u ON u.id = e.user_id
        WHERE e.created_at >= ? GROUP BY e.user_id ORDER BY cost DESC`,
     )
-    .all(since);
+    .all(t("Deleted account"), since);
   const byKey = db
     .prepare(
       `SELECT e.key_label AS name, e.provider,
@@ -977,7 +978,7 @@ adminRoutes.patch("/settings", async (c) => {
   if (body.signupCode !== undefined) next.signupCode = body.signupCode === null ? null : !!body.signupCode;
   if (body.sharing !== undefined) {
     const mode = SHARING_MODES.find((m) => m === body.sharing);
-    if (!mode) return c.json({ error: "Choose who can open shared links" }, 400);
+    if (!mode) return c.json({ error: t("Choose who can open shared links") }, 400);
     next.sharing = mode;
   }
   if (body.showThinking !== undefined) next.showThinking = !!body.showThinking;
@@ -986,36 +987,36 @@ adminRoutes.patch("/settings", async (c) => {
     const raw: unknown[] = Array.isArray(body.bonusDomains) ? body.bonusDomains : String(body.bonusDomains).split(/[\s,]+/);
     const domains = [...new Set(raw.map((d) => String(d).trim().toLowerCase().replace(/^(\*\.|@)/, "").replace(/\.$/, "")).filter(Boolean))];
     const bad = domains.find((d) => !DOMAIN_RE.test(d));
-    if (bad) return c.json({ error: `“${bad}” isn't a domain. Write it like example.edu` }, 400);
-    if (domains.length > 100) return c.json({ error: "List at most 100 domains" }, 400);
+    if (bad) return c.json({ error: t("“{bad}” isn't a domain. Write it like example.edu", { bad }) }, 400);
+    if (domains.length > 100) return c.json({ error: t("List at most 100 domains") }, 400);
     next.bonusDomains = domains;
   }
   if (body.bonusTokens !== undefined) {
     const tokens = body.bonusTokens === null || body.bonusTokens === "" ? null : Number(body.bonusTokens);
     if (tokens !== null && (!Number.isInteger(tokens) || tokens < 0 || tokens > 1e12)) {
-      return c.json({ error: "Extra tokens must be a whole number, or empty for none" }, 400);
+      return c.json({ error: t("Extra tokens must be a whole number, or empty for none") }, 400);
     }
     next.bonusTokens = tokens || null;
   }
   if (body.bonusSpend !== undefined) {
     const spend = parseDollars(body.bonusSpend);
-    if (spend === undefined) return c.json({ error: "Enter the extra spending in dollars, or leave it empty for none" }, 400);
+    if (spend === undefined) return c.json({ error: t("Enter the extra spending in dollars, or leave it empty for none") }, 400);
     next.bonusSpend = spend || null;
   }
   if (body.spendLimit !== undefined) {
     const spend = parseDollars(body.spendLimit);
-    if (spend === undefined) return c.json({ error: "Enter the spending limit in dollars, like 5 or 2.50, or leave it empty for none" }, 400);
+    if (spend === undefined) return c.json({ error: t("Enter the spending limit in dollars, like 5 or 2.50, or leave it empty for none") }, 400);
     next.spendLimit = spend;
   }
   if (body.bonusKeyIds !== undefined) {
     const ids = Array.isArray(body.bonusKeyIds) ? body.bonusKeyIds.map(Number) : [];
     const known = new Set((db.prepare("SELECT id FROM api_keys").all() as { id: number }[]).map((k) => k.id));
-    if (ids.some((id: number) => !known.has(id))) return c.json({ error: "One of those models no longer exists" }, 400);
+    if (ids.some((id: number) => !known.has(id))) return c.json({ error: t("One of those models no longer exists") }, 400);
     next.bonusKeyIds = [...new Set<number>(ids)];
   }
   if (body.systemPrompt !== undefined) {
     const prompt = String(body.systemPrompt).trim();
-    if (prompt.length > 20_000) return c.json({ error: "The instructions are too long" }, 400);
+    if (prompt.length > 20_000) return c.json({ error: t("The instructions are too long") }, 400);
     next.systemPrompt = prompt;
   }
   if (body.memory !== undefined) next.memory = !!body.memory;
@@ -1026,7 +1027,7 @@ adminRoutes.patch("/settings", async (c) => {
     const raw = body[field];
     const n = raw === null || raw === "" ? null : Number(raw);
     if (n !== null && (!Number.isInteger(n) || n < (field === "retainChatsDays" ? 1 : 0) || n > 36500)) {
-      return c.json({ error: field === "retainChatsDays" ? "Keep chats for at least a day, or for good" : "Enter a number of days, 0 or more, or leave it empty" }, 400);
+      return c.json({ error: field === "retainChatsDays" ? t("Keep chats for at least a day, or for good") : t("Enter a number of days, 0 or more, or leave it empty") }, 400);
     }
     next[field] = n;
   }
@@ -1034,7 +1035,7 @@ adminRoutes.patch("/settings", async (c) => {
   if (body.maxSessions !== undefined) {
     const n = body.maxSessions === null || body.maxSessions === "" ? null : Number(body.maxSessions);
     if (n !== null && (!Number.isInteger(n) || n < 1 || n > 100)) {
-      return c.json({ error: "Allow from 1 to 100 devices for each account, or leave it empty for no limit" }, 400);
+      return c.json({ error: t("Allow from 1 to 100 devices for each account, or leave it empty for no limit") }, 400);
     }
     next.maxSessions = n;
   }
@@ -1050,9 +1051,11 @@ adminRoutes.patch("/settings", async (c) => {
 adminRoutes.get("/audit", (c) => {
   const rows = db
     .prepare(
-      `SELECT a.id, a.action, a.target, a.created_at, COALESCE(u.email, 'Deleted account') AS admin
+      `SELECT a.id, a.action, a.target, a.created_at, COALESCE(u.email, ?) AS admin
        FROM audit_log a LEFT JOIN users u ON u.id = a.admin_id ORDER BY a.id DESC LIMIT 100`,
     )
-    .all() as { id: number; action: string; target: string | null; created_at: string; admin: string }[];
-  return c.json({ entries: rows.map((r) => ({ id: r.id, action: r.action, target: r.target, createdAt: r.created_at, admin: r.admin })) });
+    .all(t("Deleted account")) as { id: number; action: string; target: string | null; created_at: string; admin: string }[];
+  // The search service turned off is kept as "Off" (admin-tools.ts) and shown in the reader's language.
+  const targetOf = (r: { action: string; target: string | null }) => (r.action === "edit_search" && r.target === "Off" ? t("Off") : r.target);
+  return c.json({ entries: rows.map((r) => ({ id: r.id, action: r.action, target: targetOf(r), createdAt: r.created_at, admin: r.admin })) });
 });

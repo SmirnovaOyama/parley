@@ -10,6 +10,7 @@ import type { AuthorizationServerMetadata, OAuthClientInformationMixed, OAuthCli
 import { decryptSecret, encryptSecret } from "./crypto.ts";
 import { db, nowIso } from "./db.ts";
 import { env } from "./env.ts";
+import { t } from "./i18n.ts";
 import { fetchOutside } from "./web-tools.ts";
 
 /** Whose account a server's tools act with: one shared (the admin's headers), each person signing in, or each pasting a token. */
@@ -357,13 +358,13 @@ function signInProvider(s: ServerAuth, redirectUrl: string, held?: Pending) {
 export function signInErrorMessage(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   if (/dynamic client registration/i.test(message)) {
-    return "Its sign-in service doesn't let Parley register itself. An admin can register Parley there and add the client ID on the server's page";
+    return t("Its sign-in service doesn't let Parley register itself. An admin can register Parley there and add the client ID on the server's page");
   }
-  if (err instanceof OAuthError) return `Its sign-in service turned the request down: ${message.slice(0, 200)}`;
+  if (err instanceof OAuthError) return t("Its sign-in service turned the request down: {message}", { message: message.slice(0, 200) });
   if (/ENOTFOUND|ECONNREFUSED|EHOSTUNREACH|fetch failed|timed? ?out|inside this server's network|stand-in address/i.test(message)) {
-    return "Couldn't reach its sign-in service";
+    return t("Couldn't reach its sign-in service");
   }
-  return `Its sign-in service answered with an error: ${message.slice(0, 200)}`;
+  return t("Its sign-in service answered with an error: {message}", { message: message.slice(0, 200) });
 }
 
 /**
@@ -373,9 +374,9 @@ export function signInErrorMessage(err: unknown): string {
 export async function startSignIn(s: ServerAuth, userId: number, redirectUrl: string, from: SignInFrom): Promise<string> {
   const { provider, out } = signInProvider(s, redirectUrl);
   const result = await auth(provider, { serverUrl: s.url, fetchFn: oauthFetch(s.url) });
-  if (result !== "REDIRECT" || !out.url || !out.state || !out.verifier || !out.client) throw new Error("It offered no sign-in page");
+  if (result !== "REDIRECT" || !out.url || !out.state || !out.verifier || !out.client) throw new Error(t("It offered no sign-in page"));
   // The browser goes there next, so it's a web page and nothing else.
-  if (out.url.protocol !== "https:" && out.url.protocol !== "http:") throw new Error("Its sign-in page isn't a web address");
+  if (out.url.protocol !== "https:" && out.url.protocol !== "http:") throw new Error(t("Its sign-in page isn't a web address"));
   const now = Date.now();
   for (const [key, p] of pending) if (p.expires < now) pending.delete(key);
   const theirs = [...pending].filter(([, p]) => p.userId === userId);
@@ -406,7 +407,7 @@ export function takeSignIn(state: string, userId: number | undefined): Pending |
 export async function finishSignIn(s: ServerAuth, held: Pending, code: string): Promise<void> {
   const { provider, out } = signInProvider(s, held.redirectUrl, held);
   const result = await auth(provider, { serverUrl: s.url, authorizationCode: code, fetchFn: oauthFetch(s.url) });
-  if (result !== "AUTHORIZED" || !out.tokens || !out.client || !out.discovery) throw new Error("It sent back no sign-in");
+  if (result !== "AUTHORIZED" || !out.tokens || !out.client || !out.discovery) throw new Error(t("It sent back no sign-in"));
   saveCredential(held.serverId, held.userId, {
     kind: "oauth",
     tokens: out.tokens,

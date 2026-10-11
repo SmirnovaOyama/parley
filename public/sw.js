@@ -4,7 +4,7 @@
 // deployed. Requests for the API, downloads and file previews included, pass by untouched.
 
 // A new name when offline.html changes, so a worker installed before fetches the new page.
-const CACHE = "offline-1";
+const CACHE = "offline-2";
 const OFFLINE = "/offline.html";
 
 self.addEventListener("install", (event) => {

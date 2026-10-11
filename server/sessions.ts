@@ -6,6 +6,7 @@
 import type { Context } from "hono";
 import { isIPv4, isIPv6 } from "node:net";
 import { db, getSettings, nowIso } from "./db.ts";
+import { t } from "./i18n.ts";
 import { clientAddress } from "./network.ts";
 
 /** A session's use is written down at most this often, unless its address or browser changes. */
@@ -86,11 +87,11 @@ const SYSTEMS: [RegExp, string][] = [
  * the site with someone's sign-in shows itself unless it pretends otherwise.
  */
 export function deviceOf(agent: string | null): { device: string; browser: boolean } {
-  if (!agent) return { device: "Unknown device", browser: false };
-  if (!agent.startsWith("Mozilla/")) return { device: agent.match(/^[^/\s;()]+/)?.[0] ?? "Unknown program", browser: false };
+  if (!agent) return { device: t("Unknown device"), browser: false };
+  if (!agent.startsWith("Mozilla/")) return { device: agent.match(/^[^/\s;()]+/)?.[0] ?? t("Unknown program"), browser: false };
   const browser = BROWSERS.find(([re]) => re.test(agent))?.[1];
   const system = SYSTEMS.find(([re]) => re.test(agent))?.[1];
-  const device = browser && system ? `${browser} on ${system}` : browser ? browser : system ? `A browser on ${system}` : "A browser";
+  const device = browser && system ? t("{browser} on {system}", { browser, system }) : browser ? browser : system ? t("A browser on {system}", { system }) : t("A browser");
   return { device, browser: true };
 }
 

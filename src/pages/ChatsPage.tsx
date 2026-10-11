@@ -6,8 +6,9 @@ import { SearchLine } from "../components/LineField.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
-import { plural, shortDate } from "../lib/format.ts";
+import { formatNumber, shortDate } from "../lib/format.ts";
 import { groupChats } from "../lib/groups.ts";
+import { t, tn } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
 import { useSlideNavigate } from "../lib/slide.ts";
 
@@ -37,26 +38,26 @@ export function ChatsPage() {
   return (
     <>
       <PageHeader
-        title="Chats"
-        subtitle={conversations.length ? `${conversations.length} ${conversations.length === 1 ? "chat" : "chats"}` : undefined}
+        title={t("Chats")}
+        subtitle={conversations.length ? tn(conversations.length, "{length} chat", "{length} chats", { length: conversations.length }) : undefined}
         trailing={
           <button type="button" className="btn-primary" onClick={() => open("/chat", "forward")}>
             <Icon name="compose" size={20} />
-            New chat
+            {t("New chat")}
           </button>
         }
       />
       <div className="oy-page-column page-body">
-        <SearchLine id="chats-search" label="Search your chats" value={query} onChange={search} className="chats-search" />
+        <SearchLine id="chats-search" label={t("Search your chats")} value={query} onChange={search} className="chats-search" />
 
         {query.trim() ? (
           !results ? (
-            <Spinner label="Searching" />
+            <Spinner label={t("Searching")} />
           ) : results.length === 0 ? (
-            <EmptyState title="No chats match">Try other words, or fewer of them</EmptyState>
+            <EmptyState title={t("No chats match")}>{t("Try other words, or fewer of them")}</EmptyState>
           ) : (
             <div className="oy-group">
-              <p className="oy-overline">{plural(results.length, "chat", "chats")}</p>
+              <p className="oy-overline">{tn(results.length, "{length} chat", "{length} chats", { length: formatNumber(results.length) })}</p>
               <div className="oy-section">
                 {results.map((r) => (
                   <button key={r.id} type="button" className="oy-row" onClick={() => open(`/chat/${r.id}`, "forward")}>
@@ -86,7 +87,7 @@ export function ChatsPage() {
               <SlideLink className="oy-row" to="/projects" direction="forward">
                 <Icon name="folder" size={20} />
                 <div className="text">
-                  <p className="title">Projects</p>
+                  <p className="title">{t("Projects")}</p>
                 </div>
                 <span className="trail tabular">{projects.length || ""}</span>
                 <Icon name="chevron-right" size={18} className="chevron" />
@@ -94,7 +95,7 @@ export function ChatsPage() {
               <SlideLink className="oy-row" to="/knowledge" direction="forward">
                 <Icon name="book" size={20} />
                 <div className="text">
-                  <p className="title">Knowledge</p>
+                  <p className="title">{t("Knowledge")}</p>
                 </div>
                 <Icon name="chevron-right" size={18} className="chevron" />
               </SlideLink>
@@ -103,14 +104,14 @@ export function ChatsPage() {
             {conversations.length === 0 ? (
               <EmptyState
                 doodle="chat"
-                title="No chats yet"
+                title={t("No chats yet")}
                 action={
                   <button type="button" className="btn-primary" onClick={() => open("/chat", "forward")}>
-                    Start a chat
+                    {t("Start a chat")}
                   </button>
                 }
               >
-                Start one and it shows up here
+                {t("Start one and it shows up here")}
               </EmptyState>
             ) : (
               groupChats(conversations).map((g) => (
@@ -124,7 +125,7 @@ export function ChatsPage() {
                           <p className="title truncate">
                             {c.title}
                             {projectName(c.projectId) && <span className="tag">{projectName(c.projectId)}</span>}
-                            {c.shared && <span className="tag">Shared</span>}
+                            {c.shared && <span className="tag">{t("Shared")}</span>}
                           </p>
                         </div>
                         {c.generating && <BusyMark />}

@@ -3,6 +3,7 @@
 // on the 1st (UTC), and a verified email reward raises each by its amount.
 import { bonusOf } from "./bonus.ts";
 import { db, getSettings, startOfMonthIso } from "./db.ts";
+import { locale, t } from "./i18n.ts";
 
 export type SpendLimitMode = "site" | "own" | "none";
 export const SPEND_LIMIT_MODES: readonly SpendLimitMode[] = ["site", "own", "none"];
@@ -84,12 +85,11 @@ export function allowanceOf(userId: number): Allowance {
   };
 }
 
-const resetFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
-
 /** Why a message can't be sent this month, for the composer; null while they're within limits. */
 export function overLimitMessage(a: Allowance): string | null {
-  const when = `It starts again on ${resetFmt.format(new Date(a.resetsAt))}, or an admin can raise it`;
-  if (a.over === "spend") return `You've reached this month's spending limit of $${a.spendLimit!.toFixed(2)}. ${when}`;
-  if (a.over === "tokens") return `You've used this month's tokens. ${when}`;
+  const resetFmt = new Intl.DateTimeFormat(locale(), { day: "numeric", month: "long", timeZone: "UTC" });
+  const when = t("It starts again on {value}, or an admin can raise it", { value: resetFmt.format(new Date(a.resetsAt)) });
+  if (a.over === "spend") return t("You've reached this month's spending limit of ${value}. {when}", { value: a.spendLimit!.toFixed(2), when });
+  if (a.over === "tokens") return t("You've used this month's tokens. {when}", { when });
   return null;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { Icon } from "../icons/Icon.tsx";
+import { t } from "../lib/i18n.ts";
 
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "placeholder"> & {
   id: string;
@@ -133,7 +134,7 @@ export function SearchLine({ id, label, value, onChange, className }: SearchProp
           <button
             type="button"
             className="search-line-clear"
-            aria-label="Clear the search"
+            aria-label={t("Clear the search")}
             onClick={() => {
               clear();
               ref.current?.focus();

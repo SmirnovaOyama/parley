@@ -6,6 +6,7 @@ import { PageHeader } from "../../components/PageHeader.tsx";
 import { Transcript } from "../../components/Transcript.tsx";
 import { api, type Message } from "../../lib/api.ts";
 import { dateTime } from "../../lib/format.ts";
+import { t } from "../../lib/i18n.ts";
 import { declinedSummary, useReviewedLine, type Declined } from "../../lib/declined.ts";
 import { useSlideNavigate } from "../../lib/slide.ts";
 
@@ -57,9 +58,9 @@ export function ChatViewPage() {
   return (
     <>
       <PageHeader
-        title={data?.conversation.title ?? "Chat"}
-        subtitle={data ? `Started by ${data.conversation.email} on ${dateTime(data.conversation.createdAt)}` : undefined}
-        back={declinedId ? { label: "Declined", to: "/admin/chats?view=declined" } : { label: "Chats", to: "/admin/chats" }}
+        title={data?.conversation.title ?? t("Chat")}
+        subtitle={data ? t("Started by {email} on {createdAt}", { email: data.conversation.email, createdAt: dateTime(data.conversation.createdAt) }) : undefined}
+        back={declinedId ? { label: t("Declined"), to: "/admin/chats?view=declined" } : { label: t("Chats"), to: "/admin/chats" }}
         below={review ? <ReviewLine review={review} onChange={setReview} /> : undefined}
       />
       <div className="oy-page-column page-body">
@@ -69,12 +70,12 @@ export function ChatViewPage() {
           <Spinner />
         ) : (
           <>
-            {data.conversation.deletedByUser && <Callout icon="eye">The owner deleted this chat. It's hidden from them</Callout>}
-            {data.conversation.shared && <Callout icon="eye">The owner shared a read-only link to this chat</Callout>}
+            {data.conversation.deletedByUser && <Callout icon="eye">{t("The owner deleted this chat. It's hidden from them")}</Callout>}
+            {data.conversation.shared && <Callout icon="eye">{t("The owner shared a read-only link to this chat")}</Callout>}
             <Transcript messages={data.messages} readOnly onSwitch={(messageId) => void showVersion(messageId)} />
             <DangerRow
-              label="Delete this chat for everyone"
-              confirmLabel="Delete it for everyone, including its owner? Usage numbers are kept"
+              label={t("Delete this chat for everyone")}
+              confirmLabel={t("Delete it for everyone, including its owner? Usage numbers are kept")}
               onConfirm={remove}
             />
           </>
@@ -110,7 +111,7 @@ function ReviewLine({ review, onChange }: { review: Declined; onChange: (next: D
   const text = error ?? (review.reviewedAt ? reviewedLine(review) : declinedSummary(review));
 
   return (
-    <div className="inline-confirm" role="group" aria-label="Review">
+    <div className="inline-confirm" role="group" aria-label={t("Review")}>
       {/* Marking it changes the words and the button but not the line's size: the summary holds its
           room under the "reviewed" words, and both buttons share one place. */}
       <span className={`swap${error ? " text-danger" : ""}`}>
@@ -128,7 +129,7 @@ function ReviewLine({ review, onChange }: { review: Declined; onChange: (next: D
           aria-hidden={!review.reviewedAt || undefined}
           tabIndex={review.reviewedAt ? undefined : -1}
         >
-          Undo
+          {t("Undo")}
         </button>
         <button
           type="button"
@@ -138,7 +139,7 @@ function ReviewLine({ review, onChange }: { review: Declined; onChange: (next: D
           aria-hidden={review.reviewedAt ? true : undefined}
           tabIndex={review.reviewedAt ? -1 : undefined}
         >
-          Mark reviewed
+          {t("Mark reviewed")}
         </button>
       </span>
     </div>

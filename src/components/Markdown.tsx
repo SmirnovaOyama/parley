@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { Icon } from "../icons/Icon.tsx";
+import { t } from "../lib/i18n.ts";
 import { prepareMath } from "../lib/math.ts";
 
 type Props = {
@@ -68,8 +69,8 @@ const LANGUAGE_NAMES: Record<string, string> = {
   php: "PHP", sh: "Shell", bash: "Bash", zsh: "Zsh", shell: "Shell", console: "Console", ps1: "PowerShell",
   powershell: "PowerShell", sql: "SQL", html: "HTML", xml: "XML", css: "CSS", scss: "SCSS", json: "JSON",
   yaml: "YAML", yml: "YAML", toml: "TOML", ini: "INI", md: "Markdown", markdown: "Markdown", diff: "Diff",
-  dockerfile: "Dockerfile", makefile: "Makefile", lua: "Lua", r: "R", math: "Math", latex: "LaTeX", tex: "LaTeX",
-  graphql: "GraphQL", text: "Text", plaintext: "Text", txt: "Text", csv: "CSV", tsv: "TSV", svg: "SVG",
+  dockerfile: "Dockerfile", makefile: "Makefile", lua: "Lua", r: "R", math: t("Math"), latex: "LaTeX", tex: "LaTeX",
+  graphql: "GraphQL", text: t("Text"), plaintext: t("Text"), txt: t("Text"), csv: "CSV", tsv: "TSV", svg: "SVG",
 };
 
 /** What a downloaded block is called, by language: a plain name and the usual extension. */
@@ -139,7 +140,7 @@ function CodeBlock({ node: _node, children, done, ...props }: ComponentProps<"pr
   const [previewing, setPreviewing] = useState(false);
   const code = Children.toArray(children).find(isValidElement) as { props?: { className?: string; children?: unknown } } | undefined;
   const lang = /language-([\w+#-]+)/.exec(code?.props?.className ?? "")?.[1]?.toLowerCase();
-  const label = lang ? (LANGUAGE_NAMES[lang] ?? lang) : "Code";
+  const label = lang ? (LANGUAGE_NAMES[lang] ?? lang) : t("Code");
   const source = () => textOf(code?.props?.children).replace(/\n$/, "");
   const kind = done ? previewKind(lang, source) : null;
 
@@ -173,15 +174,15 @@ function CodeBlock({ node: _node, children, done, ...props }: ComponentProps<"pr
             className="btn-ghost md-preview-toggle"
             aria-pressed={previewing}
             onClick={() => setPreviewing((p) => !p)}
-            title={previewing ? "Show the code" : "Run it here, sandboxed"}
+            title={previewing ? t("Show the code") : t("Run it here, sandboxed")}
           >
             <Icon name={previewing ? "code" : "eye"} size={14} />
             <span className="swap">
               <span className={previewing ? "reserve" : undefined} aria-hidden={previewing || undefined}>
-                Preview
+                {t("Preview")}
               </span>
               <span className={previewing ? undefined : "reserve"} aria-hidden={!previewing || undefined}>
-                Code
+                {t("Code")}
               </span>
             </span>
           </button>
@@ -192,23 +193,23 @@ function CodeBlock({ node: _node, children, done, ...props }: ComponentProps<"pr
             type="button"
             className={`btn-ghost msg-action md-copy${previewing ? "" : " is-resting"}`}
             onClick={() => openPreview(kind, source())}
-            aria-label="Open the preview in a new tab"
-            title="Open in a new tab"
+            aria-label={t("Open the preview in a new tab")}
+            title={t("Open in a new tab")}
             aria-hidden={!previewing || undefined}
             tabIndex={previewing ? undefined : -1}
           >
             <Icon name="expand" size={14} />
           </button>
         )}
-        <button type="button" className={`btn-ghost msg-action md-copy${kind ? "" : " md-download"}`} onClick={download} aria-label="Download as a file">
+        <button type="button" className={`btn-ghost msg-action md-copy${kind ? "" : " md-download"}`} onClick={download} aria-label={t("Download as a file")}>
           <Icon name="download" size={14} />
         </button>
         <button
           type="button"
           className="btn-ghost msg-action md-copy"
           onClick={copy}
-          aria-label={copied ? "Copied" : "Copy code"}
-          title={copied ? "Copied" : "Copy"}
+          aria-label={copied ? t("Copied") : t("Copy code")}
+          title={copied ? t("Copied") : t("Copy")}
         >
           <Icon name={copied ? "check" : "copy"} size={14} className={copied ? "draw-in" : undefined} />
         </button>
@@ -247,7 +248,7 @@ function PreviewFrame({ kind, code }: { kind: PreviewKind; code: string }) {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [kind, code]);
-  return <iframe ref={ref} className="md-preview" src={PREVIEW_URL} title="Preview" style={{ height }} onLoad={send} />;
+  return <iframe ref={ref} className="md-preview" src={PREVIEW_URL} title={t("Preview")} style={{ height }} onLoad={send} />;
 }
 
 /** The same preview in a tab of its own, handed the code once it's ready. */

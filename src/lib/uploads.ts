@@ -2,6 +2,7 @@
 // instant; the message carries their ids. Big photos are scaled down in the browser first.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, uploadFile, type Attachment } from "./api.ts";
+import { t } from "./i18n.ts";
 
 /** Files on one message, and the largest file the server takes (it says so too). */
 export const MAX_FILES = 10;
@@ -85,7 +86,7 @@ export function useUploads() {
       try {
         const ready = await prepare(file);
         if (!filesRef.current.some((f) => f.key === key)) return;
-        if (ready.size > MAX_BYTES) throw new Error(`Files can be up to ${MAX_BYTES / (1024 * 1024)} MB`);
+        if (ready.size > MAX_BYTES) throw new Error(t("Files can be up to {MAX_BYTES} MB", { MAX_BYTES: MAX_BYTES / (1024 * 1024) }));
         const job = uploadFile(ready, ready.name, (progress) => patch(key, (f) => ({ ...f, progress })));
         aborts.current.set(key, job.abort);
         const attachment = await job.promise;
@@ -109,7 +110,7 @@ export function useUploads() {
       if (!incoming.length) return;
       const room = MAX_FILES - filesRef.current.length;
       const taken = incoming.slice(0, Math.max(0, room));
-      setNotice(taken.length < incoming.length ? `A message can carry up to ${MAX_FILES} files` : null);
+      setNotice(taken.length < incoming.length ? t("A message can carry up to {MAX_FILES} files", { MAX_FILES }) : null);
       const entries = taken.map((file) => ({
         key: crypto.randomUUID(),
         name: file.name || "file",
@@ -167,7 +168,7 @@ export function useUploads() {
   const uploading = files.some((f) => !f.attachment && !f.error);
   const ready = files.flatMap((f) => (f.attachment ? [f.attachment] : []));
   const failed = files.find((f) => f.error);
-  const problem = failed ? `${failed.name} couldn't be added. ${failed.error}` : notice;
+  const problem = failed ? t("{name} couldn't be added. {error}", { name: failed.name, error: failed.error ?? "" }) : notice;
 
   return { files, ready, uploading, problem, add, remove, take, restore, release };
 }

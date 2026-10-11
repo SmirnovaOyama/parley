@@ -7,6 +7,7 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { db, getSettings, nowIso } from "./db.ts";
 import { env } from "./env.ts";
+import { t, tn } from "./i18n.ts";
 import { mailMode, sendMail } from "./mail.ts";
 import { recent } from "./password-reset.ts";
 
@@ -43,15 +44,15 @@ type CodeRow = { email: string; code_hash: string; expires_at: string; attempts:
 export async function sendSignupCode(email: string, network: string): Promise<void> {
   const now = Date.now();
   if (byNetwork.of(network, now).length >= ASKS_PER_HOUR) {
-    throw new SignupCodeError("Too many codes asked for from here. Try again in an hour", 429);
+    throw new SignupCodeError(t("Too many codes asked for from here. Try again in an hour"), 429);
   }
   const today = new Date(now).toISOString().slice(0, 10);
   const prev = db.prepare("SELECT * FROM signup_codes WHERE email = ?").get(email) as CodeRow | undefined;
   if (prev) {
     const wait = Date.parse(prev.sent_at) + RESEND_AFTER_S * 1000 - now;
-    if (wait > 0) throw new SignupCodeError(`Wait ${Math.ceil(wait / 1000)} seconds before asking for another code`, 429);
+    if (wait > 0) throw new SignupCodeError(t("Wait {ceil} seconds before asking for another code", { ceil: Math.ceil(wait / 1000) }), 429);
     if (prev.day === today && prev.sends_today >= SENDS_PER_DAY) {
-      throw new SignupCodeError(`That's ${SENDS_PER_DAY} codes for this address today. Try again tomorrow`, 429);
+      throw new SignupCodeError(t("That's {SENDS_PER_DAY} codes for this address today. Try again tomorrow", { SENDS_PER_DAY }), 429);
     }
   }
   byNetwork.note(network, now);
@@ -59,14 +60,14 @@ export async function sendSignupCode(email: string, network: string): Promise<vo
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   await sendMail({
     to: email,
-    subject: `Your ${env.appName} code: ${code}`,
-    text:
-      `Your code to create your ${env.appName} account is ${code}\n\n` +
-      `Type it on the sign-up page. It works for 10 minutes.\n\n` +
-      `If you didn't ask for this, you can ignore this email: no account is made without the code.`,
+    subject: t("Your {appName} code: {code}", { appName: env.appName, code }),
+    text: t(
+      "Your code to create your {appName} account is {code}\n\nType it on the sign-up page. It works for 10 minutes.\n\nIf you didn't ask for this, you can ignore this email: no account is made without the code.",
+      { appName: env.appName, code },
+    ),
   }).catch((err) => {
     console.error("[mail] sending failed:", err);
-    throw new SignupCodeError("Couldn't send the email. Try again in a moment", 503);
+    throw new SignupCodeError(t("Couldn't send the email. Try again in a moment"), 503);
   });
 
   const sendsToday = prev && prev.day === today ? prev.sends_today + 1 : 1;
@@ -82,16 +83,16 @@ export async function sendSignupCode(email: string, network: string): Promise<vo
 export function takeSignupCode(email: string, rawCode: unknown): void {
   const code = String(rawCode ?? "").replace(/\s+/g, "");
   const row = db.prepare("SELECT * FROM signup_codes WHERE email = ?").get(email) as CodeRow | undefined;
-  if (!row) throw new SignupCodeError("Send yourself a code first", 400);
-  if (Date.parse(row.expires_at) < Date.now()) throw new SignupCodeError("That code has expired. Send a new one", 400);
-  if (row.attempts >= MAX_ATTEMPTS) throw new SignupCodeError("Too many wrong codes. Send a new one", 429);
+  if (!row) throw new SignupCodeError(t("Send yourself a code first"), 400);
+  if (Date.parse(row.expires_at) < Date.now()) throw new SignupCodeError(t("That code has expired. Send a new one"), 400);
+  if (row.attempts >= MAX_ATTEMPTS) throw new SignupCodeError(t("Too many wrong codes. Send a new one"), 429);
 
   const ok = /^\d{6}$/.test(code) && timingSafeEqual(Buffer.from(row.code_hash, "hex"), hashCode(email, code));
   if (!ok) {
     db.prepare("UPDATE signup_codes SET attempts = attempts + 1 WHERE email = ?").run(email);
     const left = MAX_ATTEMPTS - row.attempts - 1;
     throw new SignupCodeError(
-      left > 0 ? `That code isn't right. ${left} ${left === 1 ? "try" : "tries"} left` : "Too many wrong codes. Send a new one",
+      left > 0 ? tn(left, "That code isn't right. {left} try left", "That code isn't right. {left} tries left", { left }) : t("Too many wrong codes. Send a new one"),
       left > 0 ? 400 : 429,
     );
   }

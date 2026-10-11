@@ -4,6 +4,7 @@ import { Icon, type IconName } from "../icons/Icon.tsx";
 import { Wordmark } from "../icons/Brand.tsx";
 import { groupChats } from "../lib/groups.ts";
 import { useSession } from "../lib/session.tsx";
+import { t } from "../lib/i18n.ts";
 import { isUnderChat } from "../lib/slide.ts";
 import { Marked, searchWords, useChatSearch } from "./ChatSearch.tsx";
 import { BusyMark, Spinner } from "./Feedback.tsx";
@@ -50,23 +51,23 @@ function Sidebar() {
   const isOpen = (id: string) => (pathname === `/chat/${id}` || pathname.startsWith(`/chat/${id}/`) ? "page" : undefined);
 
   return (
-    <nav className="oy-sidebar app-sidebar" aria-label="Main">
+    <nav className="oy-sidebar app-sidebar" aria-label={t("Main")}>
       <p className="wordmark">
         <Wordmark />
       </p>
       <div className="items">
-        <NavItem to="/chat" icon="compose" label="New chat" current={pathname === "/chat" && !search} accent />
-        <NavItem to="/projects" icon="folder" label="Projects" current={pathname.startsWith("/projects")} />
-        <NavItem to="/knowledge" icon="book" label="Knowledge" current={pathname.startsWith("/knowledge")} />
+        <NavItem to="/chat" icon="compose" label={t("New chat")} current={pathname === "/chat" && !search} accent />
+        <NavItem to="/projects" icon="folder" label={t("Projects")} current={pathname.startsWith("/projects")} />
+        <NavItem to="/knowledge" icon="book" label={t("Knowledge")} current={pathname.startsWith("/knowledge")} />
       </div>
-      {conversations.length > 0 && <SearchLine id="sidebar-search" label="Search chats" value={query} onChange={setQuery} className="sidebar-search" />}
+      {conversations.length > 0 && <SearchLine id="sidebar-search" label={t("Search chats")} value={query} onChange={setQuery} className="sidebar-search" />}
 
       <ChatList>
         {query.trim() ? (
           results && (
-            <section className="sidebar-group sidebar-results" aria-label="Search results">
+            <section className="sidebar-group sidebar-results" aria-label={t("Search results")}>
               {results.length === 0 ? (
-                <p className="sidebar-empty">No chats match</p>
+                <p className="sidebar-empty">{t("No chats match")}</p>
               ) : (
                 results.map((r) => (
                   <Link key={r.id} to={`/chat/${r.id}`} className="oy-nav-item sidebar-chat sidebar-hit" aria-current={isOpen(r.id)} title={r.title}>
@@ -85,8 +86,8 @@ function Sidebar() {
           )
         ) : conversations.length === 0 ? (
           <>
-            <p className="oy-overline sidebar-heading">Chats</p>
-            <p className="sidebar-empty">Your chats show up here</p>
+            <p className="oy-overline sidebar-heading">{t("Chats")}</p>
+            <p className="sidebar-empty">{t("Your chats show up here")}</p>
           </>
         ) : (
           groupChats(conversations).map((g) => (
@@ -105,9 +106,9 @@ function Sidebar() {
 
       <div className="items sidebar-footer">
         {user?.role === "admin" && (
-          <NavItem to="/admin" icon="gear" label="Admin" current={pathname.startsWith("/admin")} />
+          <NavItem to="/admin" icon="gear" label={t("Admin")} current={pathname.startsWith("/admin")} />
         )}
-        <NavItem to="/settings" icon="sliders" label="Settings" current={pathname === "/settings"} />
+        <NavItem to="/settings" icon="sliders" label={t("Settings")} current={pathname === "/settings"} />
       </div>
     </nav>
   );
@@ -175,11 +176,11 @@ function BottomNav() {
   const navigate = useNavigate();
 
   const items: { to: string; icon: IconName; label: string; current: boolean }[] = [
-    { to: "/chats", icon: "chats", label: "Chats", current: pathname === "/chats" || pathname.startsWith("/projects") || pathname.startsWith("/knowledge") },
+    { to: "/chats", icon: "chats", label: t("Chats"), current: pathname === "/chats" || pathname.startsWith("/projects") || pathname.startsWith("/knowledge") },
     ...(user?.role === "admin"
-      ? [{ to: "/admin", icon: "gear" as const, label: "Admin", current: pathname.startsWith("/admin") }]
+      ? [{ to: "/admin", icon: "gear" as const, label: t("Admin"), current: pathname.startsWith("/admin") }]
       : []),
-    { to: "/settings", icon: "sliders", label: "Settings", current: pathname === "/settings" },
+    { to: "/settings", icon: "sliders", label: t("Settings"), current: pathname === "/settings" },
   ];
 
   // One pill slides to the current tab; on pages no tab owns (a chat's settings) it fades out.
@@ -187,7 +188,7 @@ function BottomNav() {
 
   return (
     <div className="app-bottom-nav">
-      <nav className="oy-bottom-nav" aria-label="Main">
+      <nav className="oy-bottom-nav" aria-label={t("Main")}>
         <div className="row" style={{ "--at": Math.max(at, 0) } as CSSProperties}>
           <span className="nav-indicator" data-on={at >= 0 || undefined} aria-hidden="true" />
           {items.map((item) => (

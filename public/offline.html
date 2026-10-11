@@ -6,7 +6,7 @@
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#181714" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Offline</title>
+    <title>Offline / 网络已断开</title>
     <!-- Shown by public/sw.js when a page can't be reached. It has to stand alone, so its look is
          written here: the app's colours and type, light and dark. -->
     <style>
@@ -21,6 +21,7 @@
       main > svg { display: block; margin: 0 auto; }
       h1 { margin: 16px 0 8px; font-size: 22px; line-height: 28px; font-weight: 600; }
       p { margin: 0 0 24px; color: var(--muted); }
+      .zh { margin-top: -16px; }
       a {
         display: inline-block; padding: 10px 20px; border-radius: 999px; border: 1px solid var(--line);
         color: var(--accent); text-decoration: none; font-weight: 500;
@@ -63,9 +64,11 @@
       <path d="M11.2 58.6 C15.8 57.6 20.6 57.8 25.4 58.9"/>
       </g>
       </svg>
+      <!-- It can't run code to pick a language, so it says it in both. -->
       <h1>You're offline</h1>
       <p>This page needs a connection. Check yours, then try again</p>
-      <a href="/">Try again</a>
+      <p class="zh" lang="zh-CN">网络已断开。请检查网络连接后重试</p>
+      <a href="/">Try again / 重试</a>
     </main>
   </body>
 </html>

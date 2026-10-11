@@ -6,13 +6,14 @@ import { LineField } from "../components/LineField.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api, ApiError, type TwoStep } from "../lib/api.ts";
-import { atOrOn, plural } from "../lib/format.ts";
+import { atOrOn, formatNumber } from "../lib/format.ts";
+import { andText, t, tn, tx } from "../lib/i18n.ts";
 
 /** Where things stand, as a sentence: off, or on with what. */
 export function twoStepText(s: TwoStep): string {
-  if (!s.on) return "Off. Add a code from an app or a passkey after your password";
-  const ways = [s.totp && "an authenticator app", s.passkeys.length > 0 && plural(s.passkeys.length, "passkey", "passkeys")].filter(Boolean);
-  return `On, with ${ways.join(" and ")}`;
+  if (!s.on) return t("Off. Add a code from an app or a passkey after your password");
+  const ways = [s.totp && t("an authenticator app"), s.passkeys.length > 0 && tn(s.passkeys.length, "{count} passkey", "{count} passkeys", { count: formatNumber(s.passkeys.length) })].filter(Boolean) as string[];
+  return t("On, with {ways}", { ways: andText(ways) });
 }
 
 /**
@@ -38,7 +39,7 @@ export function TwoStepPage() {
 
   return (
     <>
-      <PageHeader title="Two-step verification" subtitle={state ? (state.on ? "On" : "Off") : undefined} back={{ label: "Settings", to: "/settings" }} />
+      <PageHeader title={t("Two-step verification")} subtitle={state ? (state.on ? t("On") : t("Off")) : undefined} back={{ label: t("Settings"), to: "/settings" }} />
       <div className="oy-page-column page-body">
         {error && <Advisory>{error}</Advisory>}
         {codes ? (
@@ -48,8 +49,9 @@ export function TwoStepPage() {
         ) : (
           <>
             <p className="group-intro">
-              After your password, a second step shows it's really you: a six-digit code from an authenticator app on your phone, or a
-              passkey, which your phone or computer unlocks with your face, fingerprint or screen lock
+              {t(
+                "After your password, a second step shows it's really you: a six-digit code from an authenticator app on your phone, or a passkey, which your phone or computer unlocks with your face, fingerprint or screen lock",
+              )}
             </p>
             <AuthenticatorGroup state={state} onChange={changed} />
             <PasskeysGroup state={state} onChange={changed} />
@@ -97,13 +99,13 @@ function WithPassword({ id, note, action, danger, onCancel, onConfirm }: {
         if (e.key === "Escape" && !e.nativeEvent.isComposing) onCancel();
       }}
     >
-      <LineField id={id} label="Your password" type="password" autoComplete="current-password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} hint={note} error={error} />
+      <LineField id={id} label={t("Your password")} type="password" autoComplete="current-password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} hint={note} error={error} />
       <div className="form-page-actions">
         <BusyButton type="submit" className={danger ? "btn-danger" : "btn-primary"} busy={busy} disabled={!password}>
           {action}
         </BusyButton>
         <button type="button" className="btn-secondary" onClick={onCancel}>
-          Cancel
+          {t("Cancel")}
         </button>
       </div>
     </form>
@@ -118,21 +120,21 @@ function AuthenticatorGroup({ state, onChange }: GroupProps) {
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">Authenticator app</p>
+      <p className="oy-overline">{t("Authenticator app")}</p>
       <div className="oy-section">
         <div className="oy-row">
           <Icon name="shield" size={20} />
           <div className="text">
-            <p className="title">{state.totp ? "Set up" : "Not set up"}</p>
+            <p className="title">{state.totp ? t("Set up") : t("Not set up")}</p>
             <div className="desc">
               {state.totp
-                ? "Signing in asks for the six-digit code it shows"
-                : "Google Authenticator, Microsoft Authenticator, 1Password, or the Passwords app on an iPhone"}
+                ? t("Signing in asks for the six-digit code it shows")
+                : t("Google Authenticator, Microsoft Authenticator, 1Password, or the Passwords app on an iPhone")}
             </div>
           </div>
           {step === "idle" && (
             <button type="button" className={state.totp ? "btn-secondary btn-sm" : "btn-tonal btn-sm"} onClick={() => setStep(state.totp ? "remove" : "password")}>
-              {state.totp ? "Remove" : "Set up"}
+              {state.totp ? t("Remove") : t("Set up")}
             </button>
           )}
         </div>
@@ -140,8 +142,8 @@ function AuthenticatorGroup({ state, onChange }: GroupProps) {
       {step === "password" && (
         <WithPassword
           id="totp-password"
-          note="To set up an app, type your password first"
-          action="Continue"
+          note={t("To set up an app, type your password first")}
+          action={t("Continue")}
           onCancel={() => setStep("idle")}
           onConfirm={async (password) => {
             setSetup(await api.post<{ secret: string; uri: string; qr: string }>("/auth/two-step/totp/start", { password }));
@@ -152,8 +154,8 @@ function AuthenticatorGroup({ state, onChange }: GroupProps) {
       {step === "remove" && (
         <WithPassword
           id="totp-remove"
-          note={state.passkeys.length ? "Signing in then takes a passkey alone" : "Two-step verification then goes off, and its recovery codes with it"}
-          action="Remove the app"
+          note={state.passkeys.length ? t("Signing in then takes a passkey alone") : t("Two-step verification then goes off, and its recovery codes with it")}
+          action={t("Remove the app")}
           danger
           onCancel={() => setStep("idle")}
           onConfirm={async (password) => {
@@ -192,13 +194,11 @@ function AuthenticatorSetup({ setup, onCancel, onDone }: {
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">Set up an authenticator app</p>
+      <p className="oy-overline">{t("Set up an authenticator app")}</p>
       <form className="settings-panel two-step-setup" onSubmit={confirm}>
-        <p className="settings-text">1. Scan this with your authenticator app</p>
-        <img className="two-step-qr" src={setup.qr} alt="QR code to scan with an authenticator app" width={184} height={184} />
-        <p className="settings-text">
-          On this phone? <a href={setup.uri}>Open it in your app</a>. Or type in this key:
-        </p>
+        <p className="settings-text">{t("1. Scan this with your authenticator app")}</p>
+        <img className="two-step-qr" src={setup.qr} alt={t("QR code to scan with an authenticator app")} width={184} height={184} />
+        <p className="settings-text">{tx("On this phone? <a>Open it in your app</a>. Or type in this key:", { a: (w) => <a href={setup.uri}>{w}</a> })}</p>
         <p className="two-step-secret">
           <code>{grouped}</code>
           <button
@@ -206,13 +206,13 @@ function AuthenticatorSetup({ setup, onCancel, onDone }: {
             className="btn-ghost btn-sm"
             onClick={() => void navigator.clipboard.writeText(setup.secret).then(() => setCopied(true))}
           >
-            {copied ? "Copied" : "Copy"}
+            {copied ? t("Copied") : t("Copy")}
           </button>
         </p>
-        <p className="settings-text">2. Type the six-digit code it shows</p>
+        <p className="settings-text">{t("2. Type the six-digit code it shows")}</p>
         <LineField
           id="totp-code"
-          label="Code"
+          label={t("Code")}
           inputMode="numeric"
           autoComplete="one-time-code"
           value={code}
@@ -221,10 +221,10 @@ function AuthenticatorSetup({ setup, onCancel, onDone }: {
         />
         <div className="form-page-actions">
           <BusyButton type="submit" className="btn-primary" busy={busy} disabled={code.length < 6}>
-            Turn it on
+            {t("Turn it on")}
           </BusyButton>
           <button type="button" className="btn-secondary" onClick={onCancel}>
-            Cancel
+            {t("Cancel")}
           </button>
         </div>
       </form>
@@ -240,7 +240,7 @@ function PasskeysGroup({ state, onChange }: GroupProps) {
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">Passkeys</p>
+      <p className="oy-overline">{t("Passkeys")}</p>
       {state.passkeys.length > 0 && (
         <div className="oy-section">
           {state.passkeys.map((p) => (
@@ -249,13 +249,14 @@ function PasskeysGroup({ state, onChange }: GroupProps) {
               <div className="text">
                 <p className="title truncate">{p.name}</p>
                 <div className="desc">
-                  Added {atOrOn(p.createdAt)}
-                  {p.lastUsedAt ? `, last used ${atOrOn(p.lastUsedAt)}` : ", not used yet"}
+                  {p.lastUsedAt
+                    ? t("Added {createdAt}, last used {lastUsedAt}", { createdAt: atOrOn(p.createdAt), lastUsedAt: atOrOn(p.lastUsedAt) })
+                    : t("Added {createdAt}, not used yet", { createdAt: atOrOn(p.createdAt) })}
                 </div>
               </div>
               {removing !== p.id && (
                 <button type="button" className="btn-secondary btn-sm" onClick={() => (setRemoving(p.id), setAdding(false))}>
-                  Remove
+                  {t("Remove")}
                 </button>
               )}
             </div>
@@ -265,8 +266,8 @@ function PasskeysGroup({ state, onChange }: GroupProps) {
       {removing && (
         <WithPassword
           id="passkey-remove"
-          note={state.passkeys.length > 1 || state.totp ? "It stops working here" : "Two-step verification then goes off, and its recovery codes with it"}
-          action="Remove the passkey"
+          note={state.passkeys.length > 1 || state.totp ? t("It stops working here") : t("Two-step verification then goes off, and its recovery codes with it")}
+          action={t("Remove the passkey")}
           danger
           onCancel={() => setRemoving(null)}
           onConfirm={async (password) => {
@@ -279,8 +280,8 @@ function PasskeysGroup({ state, onChange }: GroupProps) {
       {adding ? (
         <WithPassword
           id="passkey-password"
-          note="Then your browser asks where to keep the passkey"
-          action="Make a passkey"
+          note={t("Then your browser asks where to keep the passkey")}
+          action={t("Make a passkey")}
           onCancel={() => setAdding(false)}
           onConfirm={async (password) => {
             setError(null);
@@ -302,14 +303,14 @@ function PasskeysGroup({ state, onChange }: GroupProps) {
           <p className="settings-text">
             {supported
               ? state.passkeys.length
-                ? "Add one on each phone or computer you sign in on"
-                : "Your phone or computer keeps it, and unlocks it with your face, fingerprint or screen lock"
-              : "This browser can't make passkeys"}
+                ? t("Add one on each phone or computer you sign in on")
+                : t("Your phone or computer keeps it, and unlocks it with your face, fingerprint or screen lock")
+              : t("This browser can't make passkeys")}
           </p>
           {supported && (
             <div className="form-page-actions">
               <button type="button" className="btn-secondary" onClick={() => (setAdding(true), setRemoving(null))}>
-                Add a passkey
+                {t("Add a passkey")}
               </button>
             </div>
           )}
@@ -322,29 +323,29 @@ function PasskeysGroup({ state, onChange }: GroupProps) {
 /** What went wrong in the browser's own passkey prompt, in words. */
 export function passkeyProblem(err: unknown): string {
   const name = (err as { name?: string })?.name;
-  if (name === "NotAllowedError" || name === "AbortError") return "The passkey prompt was closed before it finished";
-  if (name === "InvalidStateError") return "This device has a passkey for your account already";
+  if (name === "NotAllowedError" || name === "AbortError") return t("The passkey prompt was closed before it finished");
+  if (name === "InvalidStateError") return t("This device has a passkey for your account already");
   if (err instanceof ApiError) return err.message;
-  return "The passkey couldn't be made here. Try another browser or device";
+  return t("The passkey couldn't be made here. Try another browser or device");
 }
 
 function RecoveryGroup({ state, onChange }: GroupProps) {
   const [asking, setAsking] = useState(false);
   return (
     <div className="oy-group">
-      <p className="oy-overline">Recovery codes</p>
+      <p className="oy-overline">{t("Recovery codes")}</p>
       <div className="oy-section">
         <div className="oy-row">
           <Icon name="note" size={20} />
           <div className="text">
-            <p className="title">{plural(state.recoveryLeft, "code left", "codes left")}</p>
+            <p className="title">{tn(state.recoveryLeft, "{recoveryLeft} code left", "{recoveryLeft} codes left", { recoveryLeft: formatNumber(state.recoveryLeft) })}</p>
             <div className={`desc${state.recoveryLeft <= 3 ? " text-warning" : ""}`}>
-              {state.recoveryLeft <= 3 ? "Running low. Make new ones before they run out" : "Each works once, in place of the second step, if you lose your phone"}
+              {state.recoveryLeft <= 3 ? t("Running low. Make new ones before they run out") : t("Each works once, in place of the second step, if you lose your phone")}
             </div>
           </div>
           {!asking && (
             <button type="button" className="btn-secondary btn-sm" onClick={() => setAsking(true)}>
-              Make new ones
+              {t("Make new ones")}
             </button>
           )}
         </div>
@@ -352,8 +353,8 @@ function RecoveryGroup({ state, onChange }: GroupProps) {
       {asking && (
         <WithPassword
           id="recovery-password"
-          note="The codes you have now stop working"
-          action="Make new codes"
+          note={t("The codes you have now stop working")}
+          action={t("Make new codes")}
           onCancel={() => setAsking(false)}
           onConfirm={async (password) => {
             onChange(await api.post<{ twoStep: TwoStep; recoveryCodes: string[] }>("/auth/two-step/recovery-codes", { password }));
@@ -370,13 +371,12 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
   const [copied, setCopied] = useState(false);
   return (
     <div className="oy-group">
-      <p className="oy-overline">Save your recovery codes</p>
+      <p className="oy-overline">{t("Save your recovery codes")}</p>
       <div className="settings-panel">
         <p className="settings-text">
-          If you lose your phone, each of these signs you in once in place of the second step. They're shown only now: keep them
-          somewhere safe, like a password manager
+          {t("If you lose your phone, each of these signs you in once in place of the second step. They're shown only now: keep them somewhere safe, like a password manager")}
         </p>
-        <ul className="recovery-codes" aria-label="Recovery codes">
+        <ul className="recovery-codes" aria-label={t("Recovery codes")}>
           {codes.map((code) => (
             <li key={code}>
               <code>{code}</code>
@@ -385,10 +385,10 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
         </ul>
         <div className="form-page-actions">
           <button type="button" className="btn-secondary" onClick={() => void navigator.clipboard.writeText(codes.join("\n")).then(() => setCopied(true))}>
-            {copied ? "Copied" : "Copy them"}
+            {copied ? t("Copied") : t("Copy them")}
           </button>
           <button type="button" className="btn-primary" onClick={onDone}>
-            I've saved them
+            {t("I've saved them")}
           </button>
         </div>
       </div>

@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Advisory, Spinner } from "../../components/Feedback.tsx";
 import { Icon } from "../../icons/Icon.tsx";
 import { api } from "../../lib/api.ts";
-import { compactNumber, formatCost, plural } from "../../lib/format.ts";
+import { compactNumber, formatCost, formatNumber, plural } from "../../lib/format.ts";
+import { t, tn } from "../../lib/i18n.ts";
 import { useSession } from "../../lib/session.tsx";
 import { useSlideNavigate } from "../../lib/slide.ts";
 
@@ -67,7 +68,7 @@ export function PeoplePage() {
         <p className="text-muted">{plural(people.length, "person", "people")}</p>
         <button type="button" className="btn-ghost is-accent" onClick={() => slideTo("/admin/people/new", "forward")}>
           <Icon name="plus" size={16} />
-          Add a person
+          {t("Add a person")}
         </button>
       </div>
       <div className="oy-section is-plain">
@@ -80,19 +81,23 @@ export function PeoplePage() {
               <div className="text">
                 <p className="title truncate">
                   {p.email}
-                  {p.id === me?.id && <span className="tag">You</span>}
-                  {p.role === "admin" && <span className="tag is-accent">Admin</span>}
-                  {p.disabled && <span className="tag is-warning">Off</span>}
-                  {!p.disabled && atLimit && <span className="tag is-warning">At limit</span>}
-                  {p.bonusActive && <span className="tag">Verified</span>}
+                  {p.id === me?.id && <span className="tag">{t("You")}</span>}
+                  {p.role === "admin" && <span className="tag is-accent">{t("Admin")}</span>}
+                  {p.disabled && <span className="tag is-warning">{t("Off")}</span>}
+                  {!p.disabled && atLimit && <span className="tag is-warning">{t("At limit")}</span>}
+                  {p.bonusActive && <span className="tag">{t("Verified")}</span>}
                   {p.devices >= MANY_DEVICES && <span className="tag">{plural(p.devices, "device", "devices")}</span>}
-                  {p.programs > 0 && <span className="tag is-warning">Not a browser</span>}
+                  {p.programs > 0 && <span className="tag is-warning">{t("Not a browser")}</span>}
                 </p>
                 <div className="desc">
-                  Spent {formatCost(p.spentThisMonth)}
-                  {spendLimit != null && ` of ${formatCost(spendLimit)}`}
-                  {tokenLimit != null && ` and ${compactNumber(p.tokensThisMonth)} of ${compactNumber(tokenLimit)} tokens`} this month and has{" "}
-                  {p.conversations === 0 ? "no chats yet" : `${plural(p.conversations, "chat", "chats")} in all`}
+                  {t("Spent {spentThisMonth}", { spentThisMonth: formatCost(p.spentThisMonth) })}
+                  {spendLimit != null && ` ${t("of {spendLimit}", { spendLimit: formatCost(spendLimit) })}`}
+                  {tokenLimit != null &&
+                    ` ${t("and {tokensThisMonth} of {tokenLimit} tokens", { tokensThisMonth: compactNumber(p.tokensThisMonth), tokenLimit: compactNumber(tokenLimit) })}`}{" "}
+                  {t("this month and has")}{" "}
+                  {p.conversations === 0
+                    ? t("no chats yet")
+                    : tn(p.conversations, "{conversations} chat in all", "{conversations} chats in all", { conversations: formatNumber(p.conversations) })}
                 </div>
               </div>
               <Icon name="chevron-right" size={18} className="chevron" />

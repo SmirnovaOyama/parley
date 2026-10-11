@@ -1,5 +1,6 @@
 // What admins can pick when they add a key. Prices are USD per million tokens and only feed
 // the usage estimates; DeepSeek bills peak hours at these rates and off-peak at half.
+import { t } from "../i18n.ts";
 
 export type ProviderId = "anthropic" | "deepseek" | "openai" | "gemini" | "xai" | "custom";
 
@@ -180,8 +181,8 @@ export function serviceName(baseUrl: string): string {
 
 /** What a provider's models can do, as admins see it when picking one. */
 export function featuresOf(p: ProviderInfo): string[] {
-  const reads = p.reads.map((k) => ({ image: "Images", pdf: "PDFs", text: "Text files" })[k]);
-  return p.tools ? [...reads, "Web search", "Making files"] : reads;
+  const reads = p.reads.map((k) => ({ image: t("Images"), pdf: t("PDFs"), text: t("Text files") })[k]);
+  return p.tools ? [...reads, t("Web search"), t("Making files")] : reads;
 }
 
 export function findProvider(id: string): ProviderInfo | undefined {

@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword } from "../crypto.ts";
 import { allowanceOf } from "../allowance.ts";
 import { bonusOf, BonusError, pendingCode, rewardDomain, sendCode, verifyCode } from "../bonus.ts";
 import { db, getSettings, nowIso } from "../db.ts";
+import { t } from "../i18n.ts";
 import { getInstructions } from "../instructions.ts";
 import { mailMode } from "../mail.ts";
 import { clientAddress } from "../network.ts";
@@ -45,7 +46,7 @@ export function clearFailures(email: string) {
   failures.delete(email);
 }
 
-const TOO_MANY = "Too many attempts. Try again in 15 minutes";
+const tooMany = () => t("Too many attempts. Try again in 15 minutes");
 const locked = (lock: { count: number; until: number } | undefined) => !!lock && lock.count >= MAX_FAILURES && lock.until > Date.now();
 
 /**
@@ -55,10 +56,10 @@ const locked = (lock: { count: number; until: number } | undefined) => !!lock &&
 export async function confirmPassword(userId: number, password: unknown): Promise<string | null> {
   const row = db.prepare("SELECT email, password_hash FROM users WHERE id = ?").get(userId) as { email: string; password_hash: string };
   const lock = failures.get(row.email);
-  if (locked(lock)) return TOO_MANY;
+  if (locked(lock)) return tooMany();
   if (await verifyPassword(String(password ?? ""), row.password_hash)) return null;
   noteFailure(row.email, lock);
-  return "That password isn't right";
+  return t("That password isn't right");
 }
 
 function userCount(): number {
@@ -80,11 +81,11 @@ authRoutes.get("/state", (c) => {
 authRoutes.post("/signup/code", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const email = String(body.email ?? "").trim().toLowerCase();
-  if (email.length > MAX_EMAIL || !EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
-  if (userCount() === 0 || !signupNeedsCode()) return c.json({ error: "Making an account here takes no code" }, 400);
-  if (!getSettings().allowSignup) return c.json({ error: "Sign-ups are closed. Ask an admin for an account" }, 403);
+  if (email.length > MAX_EMAIL || !EMAIL_RE.test(email)) return c.json({ error: t("Enter a valid email address") }, 400);
+  if (userCount() === 0 || !signupNeedsCode()) return c.json({ error: t("Making an account here takes no code") }, 400);
+  if (!getSettings().allowSignup) return c.json({ error: t("Sign-ups are closed. Ask an admin for an account") }, 403);
   if (db.prepare("SELECT 1 FROM users WHERE email = ?").get(email)) {
-    return c.json({ error: "An account with this email already exists" }, 409);
+    return c.json({ error: t("An account with this email already exists") }, 409);
   }
   try {
     await sendSignupCode(email, clientAddress(c));
@@ -99,14 +100,14 @@ authRoutes.post("/signup", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "");
-  if (email.length > MAX_EMAIL || !EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
-  if (password.length < MIN_PASSWORD) return c.json({ error: `Use at least ${MIN_PASSWORD} characters for the password` }, 400);
+  if (email.length > MAX_EMAIL || !EMAIL_RE.test(email)) return c.json({ error: t("Enter a valid email address") }, 400);
+  if (password.length < MIN_PASSWORD) return c.json({ error: t("Use at least {MIN_PASSWORD} characters for the password", { MIN_PASSWORD }) }, 400);
 
   // The very first account sets the site up and becomes its admin.
   const first = userCount() === 0;
-  if (!first && !getSettings().allowSignup) return c.json({ error: "Sign-ups are closed. Ask an admin for an account" }, 403);
+  if (!first && !getSettings().allowSignup) return c.json({ error: t("Sign-ups are closed. Ask an admin for an account") }, 403);
   if (db.prepare("SELECT 1 FROM users WHERE email = ?").get(email)) {
-    return c.json({ error: "An account with this email already exists" }, 409);
+    return c.json({ error: t("An account with this email already exists") }, 409);
   }
   const checked = !first && signupNeedsCode();
   if (checked) {
@@ -136,11 +137,11 @@ authRoutes.post("/login", async (c) => {
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "");
   // No account has an address this long; it isn't worth remembering as a failure either.
-  if (email.length > MAX_EMAIL) return c.json({ error: "That email and password don't match" }, 401);
+  if (email.length > MAX_EMAIL) return c.json({ error: t("That email and password don't match") }, 401);
 
   const lock = failures.get(email);
   if (lock && lock.count >= MAX_FAILURES && lock.until > Date.now()) {
-    return c.json({ error: "Too many attempts. Try again in 15 minutes" }, 429);
+    return c.json({ error: t("Too many attempts. Try again in 15 minutes") }, 429);
   }
 
   const user = db.prepare("SELECT id, password_hash, disabled FROM users WHERE email = ?").get(email) as
@@ -149,9 +150,9 @@ authRoutes.post("/login", async (c) => {
   const ok = user ? await verifyPassword(password, user.password_hash) : false;
   if (!user || !ok) {
     noteFailure(email, lock);
-    return c.json({ error: "That email and password don't match" }, 401);
+    return c.json({ error: t("That email and password don't match") }, 401);
   }
-  if (user.disabled) return c.json({ error: "This account is turned off. Ask an admin" }, 403);
+  if (user.disabled) return c.json({ error: t("This account is turned off. Ask an admin") }, 403);
 
   // With two-step verification on, the password only opens the second step (server/two-step.ts).
   if (twoStepOn(user.id)) return c.json({ ok: true, twoStep: startSecondStep(user.id, email) });
@@ -162,15 +163,15 @@ authRoutes.post("/login", async (c) => {
 
 // ── The second step: a code from the app, a recovery code, or a passkey ──
 
-const SIGN_IN_AGAIN = "That sign-in has run out. Sign in again";
+const signInAgain = () => t("That sign-in has run out. Sign in again");
 
 /** The ticket from the password, if it's still good, the account still on and not locked. */
 function secondStep(ticket: unknown) {
   const entry = ticketOf(ticket);
-  if (!entry) return { error: SIGN_IN_AGAIN, status: 410 as const };
-  if (locked(failures.get(entry.email))) return { error: TOO_MANY, status: 429 as const };
+  if (!entry) return { error: signInAgain(), status: 410 as const };
+  if (locked(failures.get(entry.email))) return { error: tooMany(), status: 429 as const };
   const user = db.prepare("SELECT disabled FROM users WHERE id = ?").get(entry.userId) as { disabled: number } | undefined;
-  if (!user || user.disabled) return { error: "This account is turned off. Ask an admin", status: 403 as const };
+  if (!user || user.disabled) return { error: t("This account is turned off. Ask an admin"), status: 403 as const };
   return { entry, ticket: String(ticket) };
 }
 
@@ -181,7 +182,7 @@ authRoutes.post("/login/code", async (c) => {
   const how = finishWithCode(step.ticket, step.entry, body.code);
   if (!how) {
     noteFailure(step.entry.email, failures.get(step.entry.email));
-    return c.json({ error: "That code isn't right", field: "code" }, 400);
+    return c.json({ error: t("That code isn't right"), field: "code" }, 400);
   }
   failures.delete(step.entry.email);
   startSession(c, step.entry.userId);
@@ -202,7 +203,7 @@ authRoutes.post("/login/passkey", async (c) => {
   if (!step.entry) return c.json({ error: step.error }, step.status);
   if (!(await finishWithPasskey(c, step.ticket, step.entry, body.response))) {
     noteFailure(step.entry.email, failures.get(step.entry.email));
-    return c.json({ error: "That passkey didn't work. Try again, or use a code" }, 400);
+    return c.json({ error: t("That passkey didn't work. Try again, or use a code") }, 400);
   }
   failures.delete(step.entry.email);
   startSession(c, step.entry.userId);
@@ -235,7 +236,7 @@ authRoutes.delete("/sessions/:id", requireUser, (c) => {
     endSession(c);
     return c.json({ ok: true, signedOut: true });
   }
-  if (!endSessionByRef(c.var.user!.id, ref)) return c.json({ error: "That device is already signed out" }, 404);
+  if (!endSessionByRef(c.var.user!.id, ref)) return c.json({ error: t("That device is already signed out") }, 404);
   return c.json({ ok: true, signedOut: false });
 });
 
@@ -243,12 +244,12 @@ authRoutes.post("/password", requireUser, async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const current = String(body.current ?? "");
   const next = String(body.next ?? "");
-  if (next.length < MIN_PASSWORD) return c.json({ error: `Use at least ${MIN_PASSWORD} characters for the new password` }, 400);
+  if (next.length < MIN_PASSWORD) return c.json({ error: t("Use at least {MIN_PASSWORD} characters for the new password", { MIN_PASSWORD }) }, 400);
 
   const userId = c.var.user!.id;
   const row = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(userId) as { password_hash: string };
   if (!(await verifyPassword(current, row.password_hash))) {
-    return c.json({ error: "The current password isn't right" }, 400);
+    return c.json({ error: t("The current password isn't right") }, 400);
   }
   db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(await hashPassword(next), userId);
   // Sign out every other device, then keep this one signed in with a fresh session. A reset link
@@ -263,10 +264,10 @@ authRoutes.post("/password", requireUser, async (c) => {
 
 authRoutes.post("/forgot", async (c) => {
   const origin = linkOrigin(c);
-  if (!origin) return c.json({ error: "Email isn't set up on this site. Ask an admin" }, 503);
+  if (!origin) return c.json({ error: t("Email isn't set up on this site. Ask an admin") }, 503);
   const body = await c.req.json().catch(() => ({}));
   const email = String(body.email ?? "").trim().toLowerCase();
-  if (email.length > MAX_EMAIL || !EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
+  if (email.length > MAX_EMAIL || !EMAIL_RE.test(email)) return c.json({ error: t("Enter a valid email address") }, 400);
   const wait = tooSoon(email, clientAddress(c));
   if (wait) return c.json({ error: wait }, 429);
   sendResetLink(email, origin);
@@ -274,14 +275,14 @@ authRoutes.post("/forgot", async (c) => {
   return c.json({ ok: true, resendIn: RESEND_AFTER_S, mail: mailMode });
 });
 
-const OFF = "This account is turned off. Ask an admin";
+const turnedOff = () => t("This account is turned off. Ask an admin");
 
 // The reset page asks first, so it can say a link is dead before anyone types a new password.
 authRoutes.post("/reset/check", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const reset = findReset(String(body.token ?? ""));
-  if (!reset) return c.json({ error: DEAD_LINK }, 410);
-  if (reset.disabled) return c.json({ error: OFF }, 403);
+  if (!reset) return c.json({ error: t(DEAD_LINK) }, 410);
+  if (reset.disabled) return c.json({ error: turnedOff() }, 403);
   return c.json({ email: reset.email });
 });
 
@@ -289,10 +290,10 @@ authRoutes.post("/reset", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const password = String(body.password ?? "");
   // Checked before the link is used up, so a short password doesn't cost it.
-  if (password.length < MIN_PASSWORD) return c.json({ error: `Use at least ${MIN_PASSWORD} characters for the password` }, 400);
+  if (password.length < MIN_PASSWORD) return c.json({ error: t("Use at least {MIN_PASSWORD} characters for the password", { MIN_PASSWORD }) }, 400);
   const reset = takeReset(String(body.token ?? ""));
-  if (!reset) return c.json({ error: DEAD_LINK }, 410);
-  if (reset.disabled) return c.json({ error: OFF }, 403);
+  if (!reset) return c.json({ error: t(DEAD_LINK) }, 410);
+  if (reset.disabled) return c.json({ error: turnedOff() }, 403);
 
   db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(await hashPassword(password), reset.userId);
   // Whoever had the old password is signed out everywhere; the person who set the new one is in.
@@ -337,7 +338,7 @@ const bonusFailure = (err: unknown) => {
 };
 
 authRoutes.post("/bonus/send", requireUser, async (c) => {
-  if (mailMode === "off") return c.json({ error: "Email isn't set up on this site" }, 503);
+  if (mailMode === "off") return c.json({ error: t("Email isn't set up on this site") }, 503);
   const body = await c.req.json().catch(() => ({}));
   try {
     const sent = await sendCode(c.var.user!.id, String(body.email ?? ""));

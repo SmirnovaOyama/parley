@@ -6,6 +6,7 @@ import { Transcript } from "../components/Transcript.tsx";
 import { api, ApiError, type Message } from "../lib/api.ts";
 import { APP_NAME } from "../lib/brand.ts";
 import { longDate } from "../lib/format.ts";
+import { t } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
 
 type Shared = { title: string; sharedAt: string; messages: Message[] };
@@ -32,7 +33,7 @@ export function SharePage() {
     api.get<Shared>(`/shared/${token}`).then(
       (shared) => {
         setData(shared);
-        document.title = `${shared.title} on ${APP_NAME}`;
+        document.title = t("{title} on {APP_NAME}", { title: shared.title, APP_NAME });
       },
       (err) => setError({ message: (err as Error).message, signIn: err instanceof ApiError && err.status === 401 }),
     );
@@ -43,35 +44,35 @@ export function SharePage() {
 
   return (
     <div className="share-page">
-      <PageHeader title={data?.title ?? "Shared chat"} subtitle={data ? `Shared on ${longDate(data.sharedAt)}` : undefined} />
+      <PageHeader title={data?.title ?? t("Shared chat")} subtitle={data ? t("Shared on {sharedAt}", { sharedAt: longDate(data.sharedAt) }) : undefined} />
       <div className="oy-page-column page-body">
         {error ? (
           error.signIn ? (
             <EmptyState
               doodle="chat"
-              title="Sign in to read this chat"
+              title={t("Sign in to read this chat")}
               action={
                 <Link className="btn-primary" to={`/login?next=${encodeURIComponent(`/share/${token}`)}`}>
-                  Sign in
+                  {t("Sign in")}
                 </Link>
               }
             >
-              It was shared with people who have an account on {APP_NAME}
+              {t("It was shared with people who have an account on {APP_NAME}", { APP_NAME })}
             </EmptyState>
           ) : (
-            <EmptyState doodle="link" title="This link doesn't open">
+            <EmptyState doodle="link" title={t("This link doesn't open")}>
               {error.message}
             </EmptyState>
           )
         ) : !data ? (
-          <Spinner label="Loading the chat" />
+          <Spinner label={t("Loading the chat")} />
         ) : (
           <>
             <Transcript messages={data.messages} fileUrl={(fileId) => `/api/shared/${token}/files/${fileId}`} />
             <div className="share-foot">
-              <p className="text-muted">A read-only copy, as the chat was when it was shared</p>
+              <p className="text-muted">{t("A read-only copy, as the chat was when it was shared")}</p>
               <Link className="btn-secondary" to="/chat">
-                {user ? "Go to your chats" : "Start your own chat"}
+                {user ? t("Go to your chats") : t("Start your own chat")}
               </Link>
             </div>
           </>

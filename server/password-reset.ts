@@ -6,6 +6,7 @@ import type { Context } from "hono";
 import { hashToken, newToken } from "./crypto.ts";
 import { db, nowIso } from "./db.ts";
 import { env } from "./env.ts";
+import { t } from "./i18n.ts";
 import { mailMode, sendMail } from "./mail.ts";
 
 export const LINK_MINUTES = 30;
@@ -67,11 +68,11 @@ const byNetwork = recent(HOUR_MS);
  */
 export function tooSoon(email: string, network: string): string | null {
   const now = Date.now();
-  if (byNetwork.of(network, now).length >= ASKS_PER_HOUR) return "Too many links asked for from here. Try again in an hour";
+  if (byNetwork.of(network, now).length >= ASKS_PER_HOUR) return t("Too many links asked for from here. Try again in an hour");
   byNetwork.note(network, now);
   const asked = byAddress.of(email, now);
-  if (asked.length && now - asked.at(-1)! < RESEND_AFTER_S * 1000) return "A link for that address was just asked for. Wait a minute before asking again";
-  if (asked.length >= LINKS_PER_DAY) return `Links for that address were asked for ${LINKS_PER_DAY} times today. Try again tomorrow`;
+  if (asked.length && now - asked.at(-1)! < RESEND_AFTER_S * 1000) return t("A link for that address was just asked for. Wait a minute before asking again");
+  if (asked.length >= LINKS_PER_DAY) return t("Links for that address were asked for {LINKS_PER_DAY} times today. Try again tomorrow", { LINKS_PER_DAY });
   byAddress.note(email, now);
   return null;
 }
@@ -101,10 +102,11 @@ export function sendResetLink(email: string, origin: string) {
   const link = `${origin}/reset-password#${token}`;
   sendMail({
     to: user.email,
-    subject: `Reset your ${env.appName} password`,
+    subject: t("Reset your {appName} password", { appName: env.appName }),
     text:
-      `Someone asked to reset the password of your ${env.appName} account, ${user.email}. To choose a new one, open this link:\n\n${link}\n\n` +
-      `It works once, for the next ${LINK_MINUTES} minutes.\n\nIf you didn't ask for this, you can ignore this email. Your password stays as it is.`,
+      t("Someone asked to reset the password of your {appName} account, {email}. To choose a new one, open this link:\n\n{link}", { appName: env.appName, email: user.email, link }) +
+      "\n\n" +
+      t("It works once, for the next {LINK_MINUTES} minutes.\n\nIf you didn't ask for this, you can ignore this email. Your password stays as it is.", { LINK_MINUTES }),
   }).catch((err) => console.error("[mail] sending failed:", err));
 }
 

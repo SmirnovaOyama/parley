@@ -17,6 +17,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { decryptSecret } from "./crypto.ts";
 import { db, nowIso } from "./db.ts";
 import { env } from "./env.ts";
+import { t } from "./i18n.ts";
 import {
   AccountError,
   accountErrorIn,
@@ -95,7 +96,7 @@ export function parseHeaders(raw: unknown): Record<string, string> | { error: st
   for (const line of lines) {
     const at = line.indexOf(":");
     const name = line.slice(0, at).trim();
-    if (at < 1 || !/^[A-Za-z0-9-]+$/.test(name)) return { error: "Write each header on its own line, like Authorization: Bearer abc123" };
+    if (at < 1 || !/^[A-Za-z0-9-]+$/.test(name)) return { error: t("Write each header on its own line, like Authorization: Bearer abc123") };
     out[name] = line.slice(at + 1).trim();
   }
   return out;
@@ -281,10 +282,10 @@ export function sweepCredentials() {
 export function mcpErrorMessage(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   const code = (err as { code?: unknown })?.code;
-  if (code === 401 || code === 403 || /\b(401|403)\b|unauthori[sz]ed|forbidden/i.test(message)) return "The server turned the request down. Check its token";
-  if (code === 404 || code === 405 || /\b404\b/.test(message)) return "Nothing answered at that address. Check the URL, which usually ends in /mcp";
-  if (/ENOTFOUND|ECONNREFUSED|EHOSTUNREACH|fetch failed|timed? ?out/i.test(message)) return "Couldn't reach the server. Check the address and that it's running";
-  return `The server answered with an error: ${message.slice(0, 200)}`;
+  if (code === 401 || code === 403 || /\b(401|403)\b|unauthori[sz]ed|forbidden/i.test(message)) return t("The server turned the request down. Check its token");
+  if (code === 404 || code === 405 || /\b404\b/.test(message)) return t("Nothing answered at that address. Check the URL, which usually ends in /mcp");
+  if (/ENOTFOUND|ECONNREFUSED|EHOSTUNREACH|fetch failed|timed? ?out/i.test(message)) return t("Couldn't reach the server. Check the address and that it's running");
+  return t("The server answered with an error: {message}", { message: message.slice(0, 200) });
 }
 
 /** The hints a server gave about a tool, the yes-or-no ones only. */
@@ -409,10 +410,10 @@ export async function refreshServer(s: McpServerRow, adminId: number, asAdded = 
     const error = !account
       ? mcpErrorMessage(err)
       : s.auth_mode === "oauth"
-        ? "Sign in to it with your own account first, so it can list its tools"
+        ? t("Sign in to it with your own account first, so it can list its tools")
         : account.reason === "missing"
-          ? "Add a token of your own first, so it can list its tools"
-          : "The server turned your token down. Add a new one, so it can list its tools";
+          ? t("Add a token of your own first, so it can list its tools")
+          : t("The server turned your token down. Add a new one, so it can list its tools");
     db.prepare("UPDATE mcp_servers SET checked_at = ?, error = ? WHERE id = ?").run(nowIso(), error, s.id);
   }
   forget(s.id);

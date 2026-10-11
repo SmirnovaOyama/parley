@@ -8,6 +8,7 @@ import { Icon, type IconName } from "../../icons/Icon.tsx";
 import { api, type SharingMode } from "../../lib/api.ts";
 import { AUDIT_ACTIONS } from "../../lib/audit.ts";
 import { compactNumber, formatCost, formatNumber, plural, shortDate } from "../../lib/format.ts";
+import { LOCALE, t } from "../../lib/i18n.ts";
 
 type Overview = {
   spend: { cost: number; replies: number; monthStart: string };
@@ -50,7 +51,7 @@ export function OverviewPage() {
   if (!data) return <Spinner />;
 
   const { spend, people, caching, shortcuts, volume } = data;
-  const dayOf = (i: number) => (i === volume.length - 1 ? "Today" : dayFmt.format(parseDay(volume[i].day)));
+  const dayOf = (i: number) => (i === volume.length - 1 ? t("Today") : dayFmt.format(parseDay(volume[i].day)));
   const nextMonth = new Date(spend.monthStart);
   nextMonth.setMonth(nextMonth.getMonth() + 1);
 
@@ -60,50 +61,50 @@ export function OverviewPage() {
       <div className="overview-actions">
         <SlideLink className="btn-ghost" to="/admin/keys/new" direction="forward">
           <Icon name="plus" size={16} />
-          Add a key
+          {t("Add a key")}
         </SlideLink>
         <SlideLink className="btn-ghost" to="/admin/people/new" direction="forward">
           <Icon name="users" size={16} />
-          Add a person
+          {t("Add a person")}
         </SlideLink>
       </div>
       <div className="stat-grid">
         <StatCard
-          label="Spend this month"
+          label={t("Spend this month")}
           tag={plural(spend.replies, "reply", "replies")}
           value={formatCost(spend.cost)}
           trend={{
-            label: "Spend per day, last 14 days",
+            label: t("Spend per day, last 14 days"),
             values: volume.map((d) => d.cost),
             describe: (i) => `${dayOf(i)}: ${formatCost(volume[i].cost)}`,
           }}
         >
-          Estimated from list prices. It starts over on {shortDate(nextMonth.toISOString())}
+          {t("Estimated from list prices. It starts over on {toISOString}", { toISOString: shortDate(nextMonth.toISOString()) })}
         </StatCard>
         <StatCard
-          label="Active people"
-          tag={people.allowSignup ? "Sign-ups open" : "Sign-ups closed"}
+          label={t("Active people")}
+          tag={people.allowSignup ? t("Sign-ups open") : t("Sign-ups closed")}
           value={formatNumber(people.active)}
           trend={{
-            label: "People active per day, last 14 days",
+            label: t("People active per day, last 14 days"),
             values: volume.map((d) => d.people),
-            describe: (i) => `${dayOf(i)}: ${volume[i].people} active`,
+            describe: (i) => t("{dayOf}: {people} active", { dayOf: dayOf(i), people: volume[i].people }),
           }}
         >
-          Of {plural(people.total, "account", "accounts")}
-          {people.joined > 0 && `, ${people.joined} of them new this month`}
+          {t("Of {plural}", { plural: plural(people.total, "account", "accounts") })}
+          {people.joined > 0 && t(", {joined} of them new this month", { joined: people.joined })}
         </StatCard>
         <StatCard
-          label="Prompt caching"
-          tag={caching.hitRate == null ? undefined : `${Math.round(caching.hitRate * 100)}% hit rate`}
+          label={t("Prompt caching")}
+          tag={caching.hitRate == null ? undefined : t("{round}% hit rate", { round: Math.round(caching.hitRate * 100) })}
           value={`~${formatCost(Math.max(caching.saved, 0))}`}
           trend={{
-            label: "Saved by caching per day, last 14 days",
+            label: t("Saved by caching per day, last 14 days"),
             values: volume.map((d) => Math.max(d.saved, 0)),
-            describe: (i) => `${dayOf(i)}: ~${formatCost(Math.max(volume[i].saved, 0))} saved`,
+            describe: (i) => t("{dayOf}: ~{max} saved", { dayOf: dayOf(i), max: formatCost(Math.max(volume[i].saved, 0)) }),
           }}
         >
-          Estimated saving, last 7 days
+          {t("Estimated saving, last 7 days")}
         </StatCard>
       </div>
 
@@ -111,9 +112,9 @@ export function OverviewPage() {
 
       <section className="overview-section">
         <div className="overview-head">
-          <h2 className="oy-overline">Models</h2>
+          <h2 className="oy-overline">{t("Models")}</h2>
           <Link className="text-link" to="/admin/keys">
-            Manage keys
+            {t("Manage keys")}
           </Link>
         </div>
         <div className="card-grid">
@@ -121,19 +122,19 @@ export function OverviewPage() {
             <SlideLink key={m.id} className="model-card" to={`/admin/keys/${m.id}`} direction="forward">
               <ModelArt model={m.model} />
               {/* On the band's corner, so the name below always keeps a line of its own. */}
-              {m.isDefault && <span className="model-card-badge">Default</span>}
+              {m.isDefault && <span className="model-card-badge">{t("Default")}</span>}
               <div className="model-card-body">
                 <p className="model-card-title">{m.providerLabel}</p>
                 <p className="model-card-key">{m.label}</p>
                 <div className="chip-row">
                   <span className="chip-quiet">{plural(m.modelCount, "model", "models")}</span>
                   <span className="chip-quiet">
-                    Starts on {m.modelLabel.replace(/^Claude /, "")}
+                    {t("Starts on {replace}", { replace: m.modelLabel.replace(/^Claude /, "") })}
                     {m.effortLabel !== "Default" && `, ${m.effortLabel.toLowerCase()}`}
                   </span>
-                  {m.webSearch && <span className="chip-quiet">Web search</span>}
-                  <span className="chip-quiet">{m.everyone ? "Everyone" : plural(m.granted, "person", "people")}</span>
-                  <span className="chip-quiet">{plural(m.replies, "reply", "replies")} this month</span>
+                  {m.webSearch && <span className="chip-quiet">{t("Web search")}</span>}
+                  <span className="chip-quiet">{m.everyone ? t("Everyone") : plural(m.granted, "person", "people")}</span>
+                  <span className="chip-quiet">{t("{plural} this month", { plural: plural(m.replies, "reply", "replies") })}</span>
                 </div>
               </div>
             </SlideLink>
@@ -141,41 +142,44 @@ export function OverviewPage() {
           {/* Always last: a way to add another model (an API key), drawn as an empty slot. */}
           <SlideLink className="model-card is-add" to="/admin/keys/new" direction="forward">
             <Icon name="plus" size={20} />
-            <span className="model-card-title">{data.models.length ? "Add a key" : "Add the first key"}</span>
-            <span className="model-card-key">Claude, OpenAI, Gemini, Grok or another service, for everyone or chosen people</span>
+            <span className="model-card-title">{data.models.length ? t("Add a key") : t("Add the first key")}</span>
+            <span className="model-card-key">{t("Claude, OpenAI, Gemini, Grok or another service, for everyone or chosen people")}</span>
           </SlideLink>
         </div>
       </section>
 
       <section className="overview-section">
         <div className="overview-head">
-          <h2 className="oy-overline">Shortcuts</h2>
+          <h2 className="oy-overline">{t("Shortcuts")}</h2>
         </div>
         <div className="card-grid">
           <Shortcut
             to="/admin/chats?view=declined"
             icon="alert"
-            title="Declined messages"
-            tag={shortcuts.declinedToReview > 0 ? `${shortcuts.declinedToReview} to review` : undefined}
+            title={t("Declined messages")}
+            tag={shortcuts.declinedToReview > 0 ? t("{declinedToReview} to review", { declinedToReview: shortcuts.declinedToReview }) : undefined}
           >
             {shortcuts.declinedToReview > 0
-              ? "Replies the AI refused. Check them without reading every chat"
-              : "Nothing waiting. Replies the AI refuses show up here"}
+              ? t("Replies the AI refused. Check them without reading every chat")
+              : t("Nothing waiting. Replies the AI refuses show up here")}
           </Shortcut>
-          <Shortcut to="/admin/chats" icon="share" title="Shared chats" tag={shortcuts.shared > 0 ? `${shortcuts.shared} shared` : undefined}>
+          <Shortcut to="/admin/chats" icon="share" title={t("Shared chats")} tag={shortcuts.shared > 0 ? t("{shared} shared", { shared: shortcuts.shared }) : undefined}>
             {shortcuts.sharing === "off"
-              ? "Sharing is off, so links don't open"
+              ? t("Sharing is off, so links don't open")
               : shortcuts.sharing === "signed-in"
-                ? "Links open only for people signed in here"
-                : "Anyone with a link can read the chat it shares"}
+                ? t("Links open only for people signed in here")
+                : t("Anyone with a link can read the chat it shares")}
           </Shortcut>
-          <Shortcut to="/admin/people" icon="users" title="People" tag={plural(people.total, "account", "accounts")}>
-            Add people, choose which models they can pick, and set monthly limits
+          <Shortcut to="/admin/people" icon="users" title={t("People")} tag={plural(people.total, "account", "accounts")}>
+            {t("Add people, choose which models they can pick, and set monthly limits")}
           </Shortcut>
-          <Shortcut to="/admin/settings" icon="eye" title="Activity log">
+          <Shortcut to="/admin/settings" icon="eye" title={t("Activity log")}>
             {shortcuts.lastAudit
-              ? `Last: ${(AUDIT_ACTIONS[shortcuts.lastAudit.action] ?? shortcuts.lastAudit.action).toLowerCase()}, ${shortDate(shortcuts.lastAudit.createdAt)}`
-              : "Every admin action, and every chat an admin opens, is listed here"}
+              ? t("Last: {toLowerCase}, {createdAt}", {
+                  toLowerCase: (AUDIT_ACTIONS[shortcuts.lastAudit.action] ?? shortcuts.lastAudit.action).toLowerCase(),
+                  createdAt: shortDate(shortcuts.lastAudit.createdAt),
+                })
+              : t("Every admin action, and every chat an admin opens, is listed here")}
           </Shortcut>
         </div>
       </section>
@@ -204,7 +208,7 @@ function StatCard({ label, tag, value, trend, children }: { label: string; tag?:
   );
 }
 
-const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" });
+const dayFmt = new Intl.DateTimeFormat(LOCALE, { weekday: "short", day: "numeric", month: "short" });
 const parseDay = (day: string) => {
   const [y, m, d] = day.split("-").map(Number);
   return new Date(y, m - 1, d);
@@ -225,9 +229,9 @@ function TokenVolume({ volume }: { volume: Overview["volume"] }) {
   return (
     <div className="stat-card volume-card">
       <div className="volume-figure">
-        <p className="stat-label">Token volume</p>
+        <p className="stat-label">{t("Token volume")}</p>
         <p className="stat-value">{compactNumber(picked ? picked.tokens : lastWeek)}</p>
-        <p className="stat-note">{picked ? (active === today ? "Today" : dayFmt.format(parseDay(picked.day))) : "Last 7 days"}</p>
+        <p className="stat-note">{picked ? (active === today ? t("Today") : dayFmt.format(parseDay(picked.day))) : t("Last 7 days")}</p>
       </div>
       <div className="volume-chart" onPointerLeave={() => setActive(null)}>
         <div className="volume-bars">
@@ -236,7 +240,7 @@ function TokenVolume({ volume }: { volume: Overview["volume"] }) {
               key={d.day}
               type="button"
               className={`volume-slot${i >= volume.length - 7 ? " is-recent" : ""}${active === i ? " is-active" : ""}`}
-              aria-label={`${i === today ? "Today" : dayFmt.format(parseDay(d.day))}: ${formatNumber(d.tokens)} tokens`}
+              aria-label={t("{value}: {tokens} tokens", { value: i === today ? t("Today") : dayFmt.format(parseDay(d.day)), tokens: formatNumber(d.tokens) })}
               onPointerEnter={() => setActive(i)}
               onFocus={() => setActive(i)}
               onBlur={() => setActive(null)}
@@ -247,7 +251,7 @@ function TokenVolume({ volume }: { volume: Overview["volume"] }) {
         </div>
         <div className="volume-axis">
           <span>{shortDate(parseDay(volume[0].day).toISOString())}</span>
-          <span>Today</span>
+          <span>{t("Today")}</span>
         </div>
       </div>
     </div>

@@ -23,6 +23,7 @@ import { allowanceOf, overLimitMessage } from "../allowance.ts";
 import { searchChats } from "../chat-search.ts";
 import { decryptSecret } from "../crypto.ts";
 import { db, getSettings, nowIso } from "../db.ts";
+import { t, tn } from "../i18n.ts";
 import { availableKeys, endpointOf, keyById, keyModel, keyModelLabel, opensOf, pickerChoices, startingKey, withChoice, type KeyRow } from "../keys.ts";
 import { estimateCost, hasTools, PROVIDERS } from "../providers/catalog.ts";
 import { describeProviderError, getProvider, shouldUseBackup } from "../providers/index.ts";
@@ -149,7 +150,7 @@ chatRoutes.get("/conversations/search", (c) => {
 
 chatRoutes.get("/conversations/:id", (c) => {
   const conv = ownConversation(c.req.param("id"), c.var.user!.id);
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   return c.json({
     conversation: {
       id: conv.id,
@@ -185,16 +186,16 @@ function shareInfo(conv: ConversationRow) {
 /** Makes a read-only link to the chat as it is now, or moves the existing link up to now. */
 chatRoutes.post("/conversations/:id/share", (c) => {
   const conv = ownConversation(c.req.param("id"), c.var.user!.id);
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
-  if (getSettings().sharing === "off") return c.json({ error: "An admin has turned sharing off" }, 403);
-  if (generating.has(conv.id)) return c.json({ error: "Wait for the reply to finish first" }, 409);
-  if (conv.head_id == null) return c.json({ error: "There's nothing to share yet" }, 400);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
+  if (getSettings().sharing === "off") return c.json({ error: t("An admin has turned sharing off") }, 403);
+  if (generating.has(conv.id)) return c.json({ error: t("Wait for the reply to finish first") }, 409);
+  if (conv.head_id == null) return c.json({ error: t("There's nothing to share yet") }, 400);
   return c.json({ share: shareOut(shareUpTo(conv)) });
 });
 
 chatRoutes.delete("/conversations/:id/share", (c) => {
   const conv = ownConversation(c.req.param("id"), c.var.user!.id);
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   stopSharing(conv.id);
   return c.json({ share: null });
 });
@@ -206,22 +207,22 @@ chatRoutes.delete("/conversations/:id/share", (c) => {
  */
 chatRoutes.get("/conversations/:id/export", (c) => {
   const conv = ownConversation(c.req.param("id"), c.var.user!.id);
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   const parts = [`# ${conv.title}`];
   for (const m of viewPath(conv)) {
     if (m.role === "user") {
-      const files = m.attachments.length ? `_Attached ${m.attachments.map((a) => a.name).join(", ")}_` : "";
-      parts.push(`**You**\n\n${[files, m.text].filter(Boolean).join("\n\n")}`);
+      const files = m.attachments.length ? t("_Attached {map}_", { map: m.attachments.map((a) => a.name).join(", ") }) : "";
+      parts.push(`**${t("You")}**\n\n${[files, m.text].filter(Boolean).join("\n\n")}`);
       continue;
     }
     let body = m.text.trim();
-    if (m.status === "declined") body = "_The AI declined to answer this message_";
-    else if (m.status === "failed") body = "_No reply came back_";
+    if (m.status === "declined") body = t("_The AI declined to answer this message_");
+    else if (m.status === "failed") body = t("_No reply came back_");
     else if (!body) continue;
-    if (m.sources.length) body += `\n\nSources:\n${m.sources.map((src, i) => `${i + 1}. [${src.title || src.url}](${src.url})`).join("\n")}`;
-    parts.push(`**${m.model || "AI"}**\n\n${body}`);
+    if (m.sources.length) body += `\n\n${t("Sources:")}\n${m.sources.map((src, i) => `${i + 1}. [${src.title || src.url}](${src.url})`).join("\n")}`;
+    parts.push(`**${m.model || t("AI")}**\n\n${body}`);
   }
-  const name = conv.title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "Chat";
+  const name = conv.title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || t("Chat");
   const ascii = name.replace(/[^\x20-\x7e]+/g, "").trim() || "chat";
   c.header("Content-Type", "text/markdown; charset=utf-8");
   c.header("Content-Disposition", `attachment; filename="${ascii.replace(/"/g, "")}.md"; filename*=UTF-8''${encodeURIComponent(name)}.md`);
@@ -237,7 +238,7 @@ chatRoutes.get("/files/:id", (c) => {
   const file = storedFile(c.req.param("id"));
   const user = c.var.user!;
   if (!file || (file.owner_id !== user.id && user.role !== "admin") || !existsSync(file.path)) {
-    return c.json({ error: "This file isn't here any more" }, 404);
+    return c.json({ error: t("This file isn't here any more") }, 404);
   }
   for (const [name, value] of Object.entries(fileHeaders(file, c.req.query("inline") === "1"))) c.header(name, value);
   return c.body(readFileSync(file.path));
@@ -250,11 +251,11 @@ chatRoutes.get("/files/:id", (c) => {
  */
 chatRoutes.put(
   "/uploads",
-  bodyLimit({ maxSize: MAX_BYTES, onError: (c) => c.json({ error: `Files can be up to ${MAX_BYTES / (1024 * 1024)} MB` }, 413) }),
+  bodyLimit({ maxSize: MAX_BYTES, onError: (c) => c.json({ error: t("Files can be up to {MAX_BYTES} MB", { MAX_BYTES: MAX_BYTES / (1024 * 1024) }) }, 413) }),
   async (c) => {
     const user = c.var.user!;
     if (rateLimited(user.id, recentUploads, UPLOADS_PER_MINUTE)) {
-      return c.json({ error: "You're adding files quickly. Wait a moment and try again" }, 429);
+      return c.json({ error: t("You're adding files quickly. Wait a moment and try again") }, 429);
     }
     let name = "file";
     try {
@@ -277,9 +278,9 @@ chatRoutes.delete("/uploads/:id", (c) => {
 /** This chat's own instructions. A change applies from the next message, as a system note. */
 chatRoutes.put("/conversations/:id/instructions", async (c) => {
   const conv = ownConversation(c.req.param("id"), c.var.user!.id);
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   const cleaned = cleanInstructions(await c.req.json().catch(() => ({})));
-  if (!cleaned) return c.json({ error: "Keep each instruction under 1500 characters" }, 400);
+  if (!cleaned) return c.json({ error: t("Keep each instruction under 1500 characters") }, 400);
   db.prepare("UPDATE conversations SET chat_instructions = ? WHERE id = ?").run(instructionsJson(cleaned), conv.id);
   return c.json(cleaned);
 });
@@ -287,11 +288,11 @@ chatRoutes.put("/conversations/:id/instructions", async (c) => {
 /** Shows another version of a message: the chat follows that version's newest branch. */
 chatRoutes.post("/conversations/:id/branch", async (c) => {
   const conv = ownConversation(c.req.param("id"), c.var.user!.id);
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
-  if (generating.has(conv.id)) return c.json({ error: "Wait for the reply to finish first" }, 409);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
+  if (generating.has(conv.id)) return c.json({ error: t("Wait for the reply to finish first") }, 409);
   const body = await c.req.json().catch(() => ({}));
   const message = getMessage(Number(body.messageId));
-  if (!message || message.conversation_id !== conv.id) return c.json({ error: "That message isn't in this chat" }, 400);
+  if (!message || message.conversation_id !== conv.id) return c.json({ error: t("That message isn't in this chat") }, 400);
   const head = newestLeaf(message.id);
   db.prepare("UPDATE conversations SET head_id = ? WHERE id = ?").run(head, conv.id);
   return c.json({ messages: viewPath({ ...conv, head_id: head }) });
@@ -301,17 +302,17 @@ chatRoutes.post("/conversations/:id/branch", async (c) => {
 chatRoutes.patch("/conversations/:id", async (c) => {
   const user = c.var.user!;
   const conv = ownConversation(c.req.param("id"), user.id);
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   const body = await c.req.json().catch(() => ({}));
   if (body.title !== undefined) {
     const title = String(body.title ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
-    if (!title) return c.json({ error: "Give the chat a name" }, 400);
+    if (!title) return c.json({ error: t("Give the chat a name") }, 400);
     // A name someone chose is never rewritten by the automatic titles.
     db.prepare("UPDATE conversations SET title = ?, title_auto = 0 WHERE id = ?").run(title, conv.id);
   }
   if (body.projectId !== undefined) {
     const project = body.projectId === null ? null : ownProject(body.projectId, user.id);
-    if (body.projectId !== null && !project) return c.json({ error: "That project doesn't exist" }, 404);
+    if (body.projectId !== null && !project) return c.json({ error: t("That project doesn't exist") }, 404);
     db.prepare("UPDATE conversations SET project_id = ? WHERE id = ?").run(project?.id ?? null, conv.id);
   }
   if (body.pinned !== undefined) {
@@ -324,11 +325,11 @@ chatRoutes.patch("/conversations/:id", async (c) => {
 chatRoutes.put("/conversations/:id/knowledge", async (c) => {
   const user = c.var.user!;
   const conv = ownConversation(c.req.param("id"), user.id);
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   const body = await c.req.json().catch(() => ({}));
   const ids = Array.isArray(body.knowledgeIds) ? [...new Set((body.knowledgeIds as unknown[]).map(String))] : null;
-  if (!ids) return c.json({ error: "Pick the knowledge bases for this chat" }, 400);
-  if (ids.some((id) => !canUse(getBase(id), user.id))) return c.json({ error: "One of those knowledge bases isn't yours to use" }, 400);
+  if (!ids) return c.json({ error: t("Pick the knowledge bases for this chat") }, 400);
+  if (ids.some((id) => !canUse(getBase(id), user.id))) return c.json({ error: t("One of those knowledge bases isn't yours to use") }, 400);
   tx(() => {
     db.prepare("DELETE FROM conversation_knowledge WHERE conversation_id = ?").run(conv.id);
     const add = db.prepare("INSERT INTO conversation_knowledge (conversation_id, kb_id) VALUES (?, ?)");
@@ -341,7 +342,7 @@ chatRoutes.put("/conversations/:id/knowledge", async (c) => {
 // for as long as the site's retention rules say.
 chatRoutes.delete("/conversations/:id", (c) => {
   const conv = ownConversation(c.req.param("id"), c.var.user!.id);
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   generating.get(conv.id)?.controller.abort();
   db.prepare("UPDATE conversations SET deleted_at = ? WHERE id = ?").run(nowIso(), conv.id);
   // A deleted chat's link stops working with it.
@@ -360,10 +361,10 @@ chatRoutes.post("/conversations/:id/stop", (c) => {
 /** The person's answer to a question the reply is waiting on (asks.ts): allow: true lets the tool run. */
 chatRoutes.post("/conversations/:id/asks/:askId", async (c) => {
   const conv = ownConversation(c.req.param("id"), c.var.user!.id);
-  if (!conv) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   const body = await c.req.json().catch(() => ({}));
-  if (typeof body.allow !== "boolean") return c.json({ error: "Say whether to allow it" }, 400);
-  if (!answerAsk(conv.id, c.req.param("askId"), body.allow)) return c.json({ error: "That isn't waiting for an answer any more" }, 409);
+  if (typeof body.allow !== "boolean") return c.json({ error: t("Say whether to allow it") }, 400);
+  if (!answerAsk(conv.id, c.req.param("askId"), body.allow)) return c.json({ error: t("That isn't waiting for an answer any more") }, 409);
   return c.json({ ok: true });
 });
 
@@ -382,17 +383,17 @@ chatRoutes.post("/chat", async (c) => {
   const regenerate = body.regenerate != null ? Number(body.regenerate) : null;
   const editing = regenerate == null && body.parentId !== undefined;
   const text = String(body.text ?? "").trim();
-  if (text.length > MAX_MESSAGE_CHARS) return c.json({ error: "That message is too long" }, 400);
+  if (text.length > MAX_MESSAGE_CHARS) return c.json({ error: t("That message is too long") }, 400);
 
   let conversationId = body.conversationId ? String(body.conversationId) : null;
   const existing = conversationId ? ownConversation(conversationId, user.id) : undefined;
-  if (conversationId && !existing) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (conversationId && !existing) return c.json({ error: t("This chat doesn't exist") }, 404);
   const files = regenerate == null ? pickAttachments(user.id, existing?.id ?? null, body.attachments) : [];
   if (!Array.isArray(files)) return c.json(files, 400);
-  if (regenerate == null && !text && !files.length) return c.json({ error: "Write a message first" }, 400);
-  if ((editing || regenerate != null) && !existing) return c.json({ error: "This chat doesn't exist" }, 404);
+  if (regenerate == null && !text && !files.length) return c.json({ error: t("Write a message first") }, 400);
+  if ((editing || regenerate != null) && !existing) return c.json({ error: t("This chat doesn't exist") }, 404);
   if (conversationId && generating.has(conversationId)) {
-    return c.json({ error: "A reply is still being written in this chat" }, 409);
+    return c.json({ error: t("A reply is still being written in this chat") }, 409);
   }
 
   // Where the new message (or regenerated reply) attaches in the tree.
@@ -400,14 +401,14 @@ chatRoutes.post("/chat", async (c) => {
   if (regenerate != null) {
     const prompt = getMessage(regenerate);
     if (!prompt || prompt.conversation_id !== conversationId || prompt.role !== "user") {
-      return c.json({ error: "That message isn't in this chat" }, 400);
+      return c.json({ error: t("That message isn't in this chat") }, 400);
     }
     parentId = prompt.id;
   } else if (editing) {
     parentId = body.parentId === null ? null : Number(body.parentId);
     const parent = parentId == null ? null : getMessage(parentId);
     if (parentId != null && (!parent || parent.conversation_id !== conversationId || parent.role !== "assistant")) {
-      return c.json({ error: "That message isn't in this chat" }, 400);
+      return c.json({ error: t("That message isn't in this chat") }, 400);
     }
   }
 
@@ -416,7 +417,7 @@ chatRoutes.post("/chat", async (c) => {
   const available = availableKeys(user.id);
   const requested = body.keyId != null ? Number(body.keyId) : (existing?.api_key_id ?? null);
   const picked = available.find((k) => k.id === requested) ?? startingKey(user.id, available);
-  if (!picked) return c.json({ error: "No AI model is set up yet. Ask an admin to add one" }, 409);
+  if (!picked) return c.json({ error: t("No AI model is set up yet. Ask an admin to add one") }, 409);
   const sameKey = existing?.api_key_id === picked.id;
   const key = withChoice(
     picked,
@@ -431,11 +432,11 @@ chatRoutes.post("/chat", async (c) => {
   const overLimit = overLimitMessage(allowanceOf(user.id));
   if (overLimit) return c.json({ error: overLimit }, 429);
   if (repliesUnderway(user.id) >= REPLIES_AT_ONCE) {
-    return c.json({ error: `${REPLIES_AT_ONCE} replies are being written for you already. Wait for one to finish` }, 429);
+    return c.json({ error: t("{REPLIES_AT_ONCE} replies are being written for you already. Wait for one to finish", { REPLIES_AT_ONCE }) }, 429);
   }
-  if (rateLimited(user.id)) return c.json({ error: "You're sending messages quickly. Wait a moment and try again" }, 429);
+  if (rateLimited(user.id)) return c.json({ error: t("You're sending messages quickly. Wait a moment and try again") }, 429);
   if (rateLimited(user.id, hourSends, MESSAGES_PER_HOUR, HOUR_MS)) {
-    return c.json({ error: `You've sent ${MESSAGES_PER_HOUR} messages in the last hour. Try again a little later` }, 429);
+    return c.json({ error: t("You've sent {MESSAGES_PER_HOUR} messages in the last hour. Try again a little later", { MESSAGES_PER_HOUR }) }, 429);
   }
 
   // A new chat starts with the instructions set on its page, or the person's defaults in Settings, in
@@ -443,13 +444,13 @@ chatRoutes.post("/chat", async (c) => {
   let startInstructions = getInstructions(user.id);
   if (!existing && body.instructions !== undefined) {
     const cleaned = cleanInstructions(body.instructions);
-    if (!cleaned) return c.json({ error: "Keep each instruction under 1500 characters" }, 400);
+    if (!cleaned) return c.json({ error: t("Keep each instruction under 1500 characters") }, 400);
     startInstructions = cleaned;
   }
   const startProject = !existing && body.projectId ? ownProject(body.projectId, user.id) : undefined;
-  if (!existing && body.projectId && !startProject) return c.json({ error: "That project doesn't exist" }, 404);
+  if (!existing && body.projectId && !startProject) return c.json({ error: t("That project doesn't exist") }, 404);
   const startKnowledge = !existing && Array.isArray(body.knowledgeIds) ? [...new Set((body.knowledgeIds as unknown[]).map(String))] : [];
-  if (startKnowledge.some((id) => !canUse(getBase(id), user.id))) return c.json({ error: "One of those knowledge bases isn't yours to use" }, 400);
+  if (startKnowledge.some((id) => !canUse(getBase(id), user.id))) return c.json({ error: t("One of those knowledge bases isn't yours to use") }, 400);
 
   const now = nowIso();
   const created = !conversationId;
@@ -668,7 +669,10 @@ chatRoutes.post("/chat", async (c) => {
         if (unreadable(messageFiles, backup, "", codeTool)) throw err;
         console.error(`[chat] ${key.provider}/${key.model} failed, trying backup "${backup.label}":`, err);
         used = backup;
-        const note = `Answered with ${keyModelLabel(backup, backup.model)} because ${keyModelLabel(key, key.model)} was unavailable`;
+        const note = t("Answered with {keyModelLabel} because {keyModelLabel2} was unavailable", {
+          keyModelLabel: keyModelLabel(backup, backup.model),
+          keyModelLabel2: keyModelLabel(key, key.model),
+        });
         notes.push(note);
         void send("notice", { message: note });
         result = await attempt(backup);
@@ -676,7 +680,7 @@ chatRoutes.post("/chat", async (c) => {
     } catch (err) {
       if (!controller.signal.aborted) {
         // Admins also see which key failed; everyone else never sees key names.
-        failure = describeProviderError(err) + (user.role === "admin" ? ` (key “${used.label}”)` : "");
+        failure = describeProviderError(err) + (user.role === "admin" ? ` ${t("(key “{label}”)", { label: used.label })}` : "");
         console.error(`[chat] ${used.provider}/${used.model} failed:`, err);
       }
     } finally {
@@ -718,7 +722,7 @@ chatRoutes.post("/chat", async (c) => {
       const kept = await keepFiles(used.provider, decryptSecret(used.encrypted_key), result.fileIds, saved.id, convId);
       saved.files = kept.files;
       if (kept.failed) {
-        const note = [saved.note, `${kept.failed === 1 ? "A file" : `${kept.failed} files`} it made couldn't be saved`]
+        const note = [saved.note, tn(kept.failed, "A file it made couldn't be saved", "{failed} files it made couldn't be saved", { failed: kept.failed })]
           .filter(Boolean)
           .join(". ");
         db.prepare("UPDATE messages SET note = ? WHERE id = ?").run(note, saved.id);
@@ -784,9 +788,9 @@ function saveOutcome({ convId, userId, userMessageId, key, partial, result, fail
         in_context: 1,
       };
     } else if (result && empty) {
-      row = { text: "", content: null, provider: key.provider, model: result.model, stop_reason: "error", error: "No reply came back. Try again", in_context: 0 };
+      row = { text: "", content: null, provider: key.provider, model: result.model, stop_reason: "error", error: t("No reply came back. Try again"), in_context: 0 };
     } else if (result?.refused) {
-      row = { text: partial, content: null, provider: key.provider, model: result.model, stop_reason: "refusal", error: "The AI declined to answer this message", in_context: 0 };
+      row = { text: partial, content: null, provider: key.provider, model: result.model, stop_reason: "refusal", error: t("The AI declined to answer this message"), in_context: 0 };
     } else if (failure) {
       row = { text: partial, content: null, provider: key.provider, model: key.model, stop_reason: "error", error: failure, in_context: 0 };
     } else {

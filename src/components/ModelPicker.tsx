@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "../icons/Icon.tsx";
 import type { Choice, ModelChoice } from "../lib/api.ts";
 import { compactNumber } from "../lib/format.ts";
+import { t } from "../lib/i18n.ts";
 import { OptionTitle, Tick } from "./Controls.tsx";
 import { EffortSlider } from "./EffortSlider.tsx";
 
@@ -66,7 +67,7 @@ export function ModelPicker({ choices, value, onChange, disabled, contextUsed }:
     <div ref={pickerRef} className="model-picker">
       {choices.length > 1 && (
         <div className="picker-pop is-model" data-open={open === "model"} inert={open !== "model"}>
-          <div className="oy-section is-plain model-options" role="radiogroup" aria-label="Model for this chat">
+          <div className="oy-section is-plain model-options" role="radiogroup" aria-label={t("Model for this chat")}>
             {choices.map((m) => (
               <button
                 key={`${m.keyId}:${m.model}`}
@@ -99,8 +100,8 @@ export function ModelPicker({ choices, value, onChange, disabled, contextUsed }:
         <div className="picker-pop is-context" data-open={open === "context"} inert={open !== "context"}>
           <div className="context-card" role="note">
             <p className="context-card-head">
-              <span>Context</span>
-              {ratio != null && <span className={`context-card-value${ratio >= CONTEXT_NEARLY_FULL ? " is-full" : ""}`}>{Math.max(1, Math.round(ratio * 100))}% full</span>}
+              <span>{t("Context")}</span>
+              {ratio != null && <span className={`context-card-value${ratio >= CONTEXT_NEARLY_FULL ? " is-full" : ""}`}>{t("{max}% full", { max: Math.max(1, Math.round(ratio * 100)) })}</span>}
             </p>
             {ratio != null && (
               <span className={`allowance-meter${ratio >= CONTEXT_NEARLY_FULL ? " is-full" : ""}`} aria-hidden="true">
@@ -109,11 +110,11 @@ export function ModelPicker({ choices, value, onChange, disabled, contextUsed }:
             )}
             <p className="context-card-text">
               {ratio != null
-                ? `This chat fills ${compactNumber(used)} of the ${compactNumber(current.context!)} tokens ${current.label} reads at once. `
-                : `This chat is about ${compactNumber(used)} tokens long so far. `}
+                ? `${t("This chat fills {used} of the {context} tokens {label} reads at once.", { used: compactNumber(used), context: compactNumber(current.context!), label: current.label })} `
+                : `${t("This chat is about {used} tokens long so far.", { used: compactNumber(used) })} `}
               {ratio != null && ratio >= CONTEXT_NEARLY_FULL
-                ? "It's nearly full, so start a new chat soon, maybe with a summary of this one"
-                : "Each message sends the whole chat again, so long chats cost more and early details can fade"}
+                ? t("It's nearly full, so start a new chat soon, maybe with a summary of this one")
+                : t("Each message sends the whole chat again, so long chats cost more and early details can fade")}
             </p>
           </div>
         </div>
@@ -124,7 +125,7 @@ export function ModelPicker({ choices, value, onChange, disabled, contextUsed }:
           type="button"
           className="model-line is-button model-name"
           aria-expanded={open === "model"}
-          aria-label={`Model: ${current.label}. Change`}
+          aria-label={t("Model: {label}. Change", { label: current.label })}
           onClick={() => toggle("model")}
           disabled={disabled}
         >
@@ -146,7 +147,7 @@ export function ModelPicker({ choices, value, onChange, disabled, contextUsed }:
           type="button"
           className={`model-line is-button context-line${ratio != null && ratio >= CONTEXT_NEARLY_FULL ? " is-full" : ""}`}
           aria-expanded={open === "context"}
-          aria-label={ratio != null ? `Context ${Math.round(ratio * 100)}% full. Details` : `About ${compactNumber(used)} tokens of context. Details`}
+          aria-label={ratio != null ? t("Context {round}% full. Details", { round: Math.round(ratio * 100) }) : t("About {used} tokens of context. Details", { used: compactNumber(used) })}
           onClick={() => toggle("context")}
         >
           <ContextRing ratio={ratio ?? 0} />
@@ -158,11 +159,11 @@ export function ModelPicker({ choices, value, onChange, disabled, contextUsed }:
           type="button"
           className="model-line is-button thinking-line"
           aria-expanded={open === "thinking"}
-          aria-label={`Thinking: ${effortLabel}. Change`}
+          aria-label={t("Thinking: {effortLabel}. Change", { effortLabel })}
           onClick={() => toggle("thinking")}
           disabled={disabled}
         >
-          <span className="model-line-muted">Thinking</span>
+          <span className="model-line-muted">{t("Thinking")}</span>
           {/* As wide as its longest level, so moving the slider never moves the button. */}
           <span className="swap">
             {current.efforts.map((e) => (

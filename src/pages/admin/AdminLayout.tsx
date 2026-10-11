@@ -2,16 +2,17 @@ import { useState, type ReactNode } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { Tabs } from "../../components/Controls.tsx";
 import { PageHeader } from "../../components/PageHeader.tsx";
+import { t } from "../../lib/i18n.ts";
 
 const TABS = [
-  { id: "overview", label: "Overview" },
-  { id: "keys", label: "API keys" },
-  { id: "people", label: "People" },
-  { id: "groups", label: "Groups" },
-  { id: "chats", label: "Chats" },
-  { id: "usage", label: "Usage" },
-  { id: "tools", label: "Tools" },
-  { id: "settings", label: "Settings" },
+  { id: "overview", label: t("Overview") },
+  { id: "keys", label: t("API keys") },
+  { id: "people", label: t("People") },
+  { id: "groups", label: t("Groups") },
+  { id: "chats", label: t("Chats") },
+  { id: "usage", label: t("Usage") },
+  { id: "tools", label: t("Tools") },
+  { id: "settings", label: t("Settings") },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -26,7 +27,7 @@ export function AdminLayout() {
   // reading column, so dashboards and tables have room and switching tabs never moves the header.
   return (
     <div className="admin-page">
-      <PageHeader title={overview ? greeting() : "Admin"} />
+      <PageHeader title={overview ? greeting() : t("Admin")} />
       <div className="oy-page-column page-body">
         <div className="admin-tabs">
           <Tabs tabs={TABS} value={current} onChange={(tab) => navigate(`/admin/${tab}`)} />
@@ -47,5 +48,5 @@ function TabView({ children }: { children: ReactNode }) {
 
 function greeting(): string {
   const hour = new Date().getHours();
-  return hour >= 5 && hour < 12 ? "Good morning" : hour >= 12 && hour < 18 ? "Good afternoon" : "Good evening";
+  return hour >= 5 && hour < 12 ? t("Good morning") : hour >= 12 && hour < 18 ? t("Good afternoon") : t("Good evening");
 }

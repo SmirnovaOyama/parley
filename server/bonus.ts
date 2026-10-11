@@ -5,6 +5,7 @@
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { db, getSettings, nowIso } from "./db.ts";
 import { env } from "./env.ts";
+import { t, tn } from "./i18n.ts";
 import { sendMail } from "./mail.ts";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -75,29 +76,32 @@ function takenByOther(userId: number, email: string): boolean {
 /** Emails a fresh 6-digit code to `rawEmail`. Returns when another may be asked for. */
 export async function sendCode(userId: number, rawEmail: string): Promise<{ email: string; resendInMs: number }> {
   const email = normalEmail(rawEmail);
-  if (!EMAIL_RE.test(email)) throw new BonusError("Enter a valid email address", 400);
-  if (!rewardDomain(email)) throw new BonusError("That address isn't on a domain that earns a reward here", 400);
-  if (takenByOther(userId, email)) throw new BonusError("That address is already verified on another account", 409);
+  if (!EMAIL_RE.test(email)) throw new BonusError(t("Enter a valid email address"), 400);
+  if (!rewardDomain(email)) throw new BonusError(t("That address isn't on a domain that earns a reward here"), 400);
+  if (takenByOther(userId, email)) throw new BonusError(t("That address is already verified on another account"), 409);
 
   const now = Date.now();
   const today = new Date().toISOString().slice(0, 10);
   const prev = db.prepare("SELECT * FROM email_codes WHERE user_id = ?").get(userId) as CodeRow | undefined;
   if (prev) {
     const wait = Date.parse(prev.sent_at) + RESEND_AFTER_MS - now;
-    if (wait > 0) throw new BonusError(`Wait ${Math.ceil(wait / 1000)} seconds before asking for another code`, 429);
+    if (wait > 0) throw new BonusError(t("Wait {ceil} seconds before asking for another code", { ceil: Math.ceil(wait / 1000) }), 429);
     if (prev.day === today && prev.sends_today >= SENDS_PER_DAY) {
-      throw new BonusError(`That's ${SENDS_PER_DAY} codes today. Try again tomorrow`, 429);
+      throw new BonusError(t("That's {SENDS_PER_DAY} codes today. Try again tomorrow", { SENDS_PER_DAY }), 429);
     }
   }
 
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   await sendMail({
     to: email,
-    subject: `Your ${env.appName} code: ${code}`,
-    text: `Your code is ${code}\n\nType it on the ${env.appName} page where you asked for it. It works for 10 minutes.\n\nIf you didn't ask for this, you can ignore this email.`,
+    subject: t("Your {appName} code: {code}", { appName: env.appName, code }),
+    text: t(
+      "Your code is {code}\n\nType it on the {appName} page where you asked for it. It works for 10 minutes.\n\nIf you didn't ask for this, you can ignore this email.",
+      { code, appName: env.appName },
+    ),
   }).catch((err) => {
     console.error("[mail] sending failed:", err);
-    throw new BonusError("Couldn't send the email. Try again in a moment", 503);
+    throw new BonusError(t("Couldn't send the email. Try again in a moment"), 503);
   });
 
   const sendsToday = prev && prev.day === today ? prev.sends_today + 1 : 1;
@@ -125,20 +129,23 @@ export function pendingCode(userId: number): { email: string; resendInMs: number
 export function verifyCode(userId: number, rawCode: string): string {
   const code = rawCode.replace(/\s+/g, "");
   const row = db.prepare("SELECT * FROM email_codes WHERE user_id = ?").get(userId) as CodeRow | undefined;
-  if (!row) throw new BonusError("Ask for a code first", 400);
-  if (Date.parse(row.expires_at) < Date.now()) throw new BonusError("That code has expired. Send a new one", 400);
-  if (row.attempts >= MAX_ATTEMPTS) throw new BonusError("Too many wrong codes. Send a new one", 429);
+  if (!row) throw new BonusError(t("Ask for a code first"), 400);
+  if (Date.parse(row.expires_at) < Date.now()) throw new BonusError(t("That code has expired. Send a new one"), 400);
+  if (row.attempts >= MAX_ATTEMPTS) throw new BonusError(t("Too many wrong codes. Send a new one"), 429);
 
   const expected = Buffer.from(row.code_hash, "hex");
   const ok = /^\d{6}$/.test(code) && timingSafeEqual(expected, hashCode(userId, row.email, code));
   if (!ok) {
     db.prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE user_id = ?").run(userId);
     const left = MAX_ATTEMPTS - row.attempts - 1;
-    throw new BonusError(left > 0 ? `That code isn't right. ${left} ${left === 1 ? "try" : "tries"} left` : "Too many wrong codes. Send a new one", left > 0 ? 400 : 429);
+    throw new BonusError(
+      left > 0 ? tn(left, "That code isn't right. {left} try left", "That code isn't right. {left} tries left", { left }) : t("Too many wrong codes. Send a new one"),
+      left > 0 ? 400 : 429,
+    );
   }
   // The domain list or another account may have changed since the code was sent.
-  if (!rewardDomain(row.email)) throw new BonusError("That address's domain no longer earns a reward here", 400);
-  if (takenByOther(userId, row.email)) throw new BonusError("That address is already verified on another account", 409);
+  if (!rewardDomain(row.email)) throw new BonusError(t("That address's domain no longer earns a reward here"), 400);
+  if (takenByOther(userId, row.email)) throw new BonusError(t("That address is already verified on another account"), 409);
 
   db.prepare("UPDATE users SET bonus_email = ?, bonus_verified_at = ? WHERE id = ?").run(row.email, nowIso(), userId);
   db.prepare("DELETE FROM email_codes WHERE user_id = ?").run(userId);

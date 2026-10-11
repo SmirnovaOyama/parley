@@ -7,6 +7,7 @@ import { Icon } from "../../icons/Icon.tsx";
 import { api, type SharingMode } from "../../lib/api.ts";
 import { AUDIT_ACTIONS as ACTIONS } from "../../lib/audit.ts";
 import { amountInput, amountText, dateTime } from "../../lib/format.ts";
+import { t } from "../../lib/i18n.ts";
 
 import type { ApiKey } from "./KeysPage.tsx";
 
@@ -80,15 +81,15 @@ export function SettingsPage() {
     <>
       {error && <Advisory>{error}</Advisory>}
       <div className="oy-group">
-        <p className="oy-overline">Sign-ups</p>
+        <p className="oy-overline">{t("Sign-ups")}</p>
         <div className="oy-section">
           <div className="oy-row">
             <Icon name="users" size={20} />
             <div className="text">
               <label className="title" htmlFor="allow-signup">
-                Let people create accounts
+                {t("Let people create accounts")}
               </label>
-              <div className="desc">When it's off, only admins can add people</div>
+              <div className="desc">{t("When it's off, only admins can add people")}</div>
             </div>
             <Switch id="allow-signup" checked={settings.allowSignup} onChange={(v) => void update({ allowSignup: v })} />
           </div>
@@ -96,7 +97,7 @@ export function SettingsPage() {
             <Icon name="mail" size={20} />
             <div className="text">
               <label className="title" htmlFor="signup-code">
-                Check new addresses with a code
+                {t("Check new addresses with a code")}
               </label>
               <div className="desc">{SIGNUP_CODE_NOTE[mail]}</div>
             </div>
@@ -113,29 +114,29 @@ export function SettingsPage() {
       <DevicesForm saved={settings.maxSessions} onSave={(maxSessions) => update({ maxSessions })} />
 
       <OptionList<SharingMode>
-        label="Who can open shared chats"
+        label={t("Who can open shared chats")}
         value={settings.sharing}
         onChange={(sharing) => {
           setSettings({ ...settings, sharing });
           void update({ sharing });
         }}
         options={[
-          { id: "anyone", label: "Anyone with the link", detail: "No account needed" },
-          { id: "signed-in", label: "People signed in here", detail: "A link asks for an account on this site first" },
-          { id: "off", label: "Nobody", detail: "People can't share chats, and existing links stop opening until it's back on" },
+          { id: "anyone", label: t("Anyone with the link"), detail: t("No account needed") },
+          { id: "signed-in", label: t("People signed in here"), detail: t("A link asks for an account on this site first") },
+          { id: "off", label: t("Nobody"), detail: t("People can't share chats, and existing links stop opening until it's back on") },
         ]}
       />
 
       <div className="oy-group">
-        <p className="oy-overline">Assistant</p>
+        <p className="oy-overline">{t("Assistant")}</p>
         <div className="oy-section">
           <div className="oy-row">
             <Icon name="eye" size={20} />
             <div className="text">
               <label className="title" htmlFor="show-thinking">
-                Show the AI's thinking
+                {t("Show the AI's thinking")}
               </label>
-              <div className="desc">Folded above each reply, for models that share it: a summary of their reasoning, or the reasoning itself</div>
+              <div className="desc">{t("Folded above each reply, for models that share it: a summary of their reasoning, or the reasoning itself")}</div>
             </div>
             <Switch id="show-thinking" checked={settings.showThinking} onChange={(v) => void update({ showThinking: v })} />
           </div>
@@ -143,15 +144,15 @@ export function SettingsPage() {
             <Icon name="note" size={20} />
             <div className="text">
               <label className="title" htmlFor="memory">
-                Memory
+                {t("Memory")}
               </label>
-              <div className="desc">The AI keeps short notes about each person between chats. People see and edit theirs, and can turn it off for themselves</div>
+              <div className="desc">{t("The AI keeps short notes about each person between chats. People see and edit theirs, and can turn it off for themselves")}</div>
             </div>
             <Switch id="memory" checked={settings.memory} onChange={(v) => void update({ memory: v })} />
           </div>
         </div>
         <label className="oy-field-label" htmlFor="system-prompt">
-          Instructions for the AI
+          {t("Instructions for the AI")}
         </label>
         <textarea
           id="system-prompt"
@@ -164,7 +165,7 @@ export function SettingsPage() {
           }}
         />
         <div className="form-actions">
-          <p className="oy-field-hint">Sent with every chat on every key. Changes apply to the next message</p>
+          <p className="oy-field-hint">{t("Sent with every chat on every key. Changes apply to the next message")}</p>
           <BusyButton
             type="button"
             className="btn-primary"
@@ -178,7 +179,7 @@ export function SettingsPage() {
               });
             }}
           >
-            {saved && prompt === settings.systemPrompt ? "Saved" : "Save"}
+            {saved && prompt === settings.systemPrompt ? t("Saved") : t("Save")}
           </BusyButton>
         </div>
       </div>
@@ -186,17 +187,18 @@ export function SettingsPage() {
       <SpendingForm saved={settings.spendLimit} onSave={(spendLimit) => update({ spendLimit })} />
 
       <div className="oy-group">
-        <p className="oy-overline">Privacy</p>
+        <p className="oy-overline">{t("Privacy")}</p>
         <div className="oy-section">
           <div className="oy-row">
             <Icon name="eye" size={20} />
             <div className="text">
               <label className="title" htmlFor="privacy-notice">
-                Tell people admins can read chats
+                {t("Tell people admins can read chats")}
               </label>
               <div className="desc">
-                Under Account, everyone sees that the people who run this site can open any chat, and that each time is logged. Off, it isn't
-                shown, but admins can still read chats and each time is still logged
+                {t(
+                  "Under Settings, everyone sees that the people who run this site can open any chat, and that each time is logged. Off, it isn't shown, but admins can still read chats and each time is still logged",
+                )}
               </div>
             </div>
             <Switch id="privacy-notice" checked={settings.privacyNotice} onChange={(v) => void update({ privacyNotice: v })} />
@@ -209,9 +211,9 @@ export function SettingsPage() {
       <RewardsForm settings={settings} mail={mail} onSave={saveRewards} />
 
       <div className="oy-group">
-        <p className="oy-overline">Recent admin activity</p>
+        <p className="oy-overline">{t("Recent admin activity")}</p>
         {audit.length === 0 ? (
-          <p className="text-muted">Nothing yet</p>
+          <p className="text-muted">{t("Nothing yet")}</p>
         ) : (
           <div className="oy-section is-plain">
             {audit.map((a) => (
@@ -222,7 +224,7 @@ export function SettingsPage() {
                     {a.target && <span className="audit-target"> {a.target}</span>}
                   </p>
                   <div className="desc">
-                    By {a.admin} on {dateTime(a.createdAt)}
+                    {t("By {admin} on {createdAt}", { admin: a.admin, createdAt: dateTime(a.createdAt) })}
                   </div>
                 </div>
               </div>
@@ -256,11 +258,11 @@ function DevicesForm({ saved, onSave }: { saved: number | null; onSave: (limit: 
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">Signing in</p>
+      <p className="oy-overline">{t("Signing in")}</p>
       <form className="form-page" onSubmit={save}>
         <LineField
           id="max-sessions"
-          label="Devices each account can be signed in on"
+          label={t("Devices each account can be signed in on")}
           inputMode="numeric"
           autoComplete="off"
           value={limit}
@@ -268,15 +270,16 @@ function DevicesForm({ saved, onSave }: { saved: number | null; onSave: (limit: 
             setLimit(e.target.value.replace(/[^\d]/g, ""));
             setDone(false);
           }}
-          hint="Leave empty for no limit"
+          hint={t("Leave empty for no limit")}
         />
         <div className="form-actions">
           <p className="oy-field-hint">
-            Signing in on one more signs out the one used longest ago, and a lower number holds as soon as it's saved. Each
-            person's page shows where they're signed in
+            {t(
+              "Signing in on one more signs out the one used longest ago, and a lower number holds as soon as it's saved. Each person's page shows where they're signed in",
+            )}
           </p>
           <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
-            {done && !dirty ? "Saved" : "Save"}
+            {done && !dirty ? t("Saved") : t("Save")}
           </BusyButton>
         </div>
       </form>
@@ -305,11 +308,11 @@ function RetentionForm({ settings, onSave }: { settings: Settings; onSave: (next
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">Keeping chats</p>
+      <p className="oy-overline">{t("Keeping chats")}</p>
       <form className="form-page" onSubmit={save}>
         <LineField
           id="retain-chats"
-          label="Delete chats nobody has touched for this many days"
+          label={t("Delete chats nobody has touched for this many days")}
           inputMode="numeric"
           autoComplete="off"
           value={chats}
@@ -317,11 +320,11 @@ function RetentionForm({ settings, onSave }: { settings: Settings; onSave: (next
             setChats(e.target.value.replace(/[^\d]/g, ""));
             setDone(false);
           }}
-          hint="Leave empty to keep them for good. Their files go with them; usage records stay"
+          hint={t("Leave empty to keep them for good. Their files go with them; usage records stay")}
         />
         <LineField
           id="retain-deleted"
-          label="Keep chats people deleted, for admins, this many days"
+          label={t("Keep chats people deleted, for admins, this many days")}
           inputMode="numeric"
           autoComplete="off"
           value={deleted}
@@ -329,12 +332,12 @@ function RetentionForm({ settings, onSave }: { settings: Settings; onSave: (next
             setDeleted(e.target.value.replace(/[^\d]/g, ""));
             setDone(false);
           }}
-          hint="Leave empty to keep them for good, or 0 to remove them as soon as they're deleted"
+          hint={t("Leave empty to keep them for good, or 0 to remove them as soon as they're deleted")}
         />
         <div className="form-actions">
-          <p className="oy-field-hint">Checked every hour, and right away when saved. People see these rules under Settings</p>
+          <p className="oy-field-hint">{t("Checked every hour, and right away when saved. People see these rules under Settings")}</p>
           <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
-            {done && !dirty ? "Saved" : "Save"}
+            {done && !dirty ? t("Saved") : t("Save")}
           </BusyButton>
         </div>
       </form>
@@ -365,11 +368,11 @@ function SpendingForm({ saved, onSave }: { saved: number | null; onSave: (limit:
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">Spending</p>
+      <p className="oy-overline">{t("Spending")}</p>
       <form className="form-page" onSubmit={save}>
         <LineField
           id="spend-limit"
-          label="Each member's monthly limit, in dollars"
+          label={t("Each member's monthly limit, in dollars")}
           inputMode="decimal"
           autoComplete="off"
           value={limit}
@@ -377,15 +380,16 @@ function SpendingForm({ saved, onSave }: { saved: number | null; onSave: (limit:
             setLimit(amountInput(e.target.value));
             setDone(false);
           }}
-          hint="Leave empty for no limit"
+          hint={t("Leave empty for no limit")}
         />
         <div className="form-actions">
           <p className="oy-field-hint">
-            Estimated from each model's price and counted from the 1st. Someone who reaches it can't send messages until
-            next month. Admins aren't held to it, and a person's page can set their own limit
+            {t(
+              "Estimated from each model's price and counted from the 1st. Someone who reaches it can't send messages until next month. Admins aren't held to it, and a person's page can set their own limit",
+            )}
           </p>
           <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
-            {done && !dirty ? "Saved" : "Save"}
+            {done && !dirty ? t("Saved") : t("Save")}
           </BusyButton>
         </div>
       </form>
@@ -394,15 +398,15 @@ function SpendingForm({ saved, onSave }: { saved: number | null; onSave: (limit:
 }
 
 const SIGNUP_CODE_NOTE: Record<MailMode, string> = {
-  smtp: "Before an account is made, a code goes to its address and has to be typed in, so nobody signs up with an address that isn't theirs",
-  dev: "Before an account is made, a code goes to its address. No email server is set up, so codes are printed in the server log",
-  off: "Needs email, which isn't set up yet: set SMTP_URL in the server's environment",
+  smtp: t("Before an account is made, a code goes to its address and has to be typed in, so nobody signs up with an address that isn't theirs"),
+  dev: t("Before an account is made, a code goes to its address. No email server is set up, so codes are printed in the server log"),
+  off: t("Needs email, which isn't set up yet: set SMTP_URL in the server's environment"),
 };
 
 const MAIL_NOTE: Record<MailMode, string> = {
-  smtp: "Codes go out by email through the server set in SMTP_URL",
-  dev: "No email server is set up, so codes are printed in the server log. That only works while developing; set SMTP_URL to send real email",
-  off: "No email server is set up, so nobody can verify yet. Set SMTP_URL in the server's environment",
+  smtp: t("Codes go out by email through the server set in SMTP_URL"),
+  dev: t("No email server is set up, so codes are printed in the server log. That only works while developing; set SMTP_URL to send real email"),
+  off: t("No email server is set up, so nobody can verify yet. Set SMTP_URL in the server's environment"),
 };
 
 /**
@@ -463,26 +467,27 @@ function RewardsForm({
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">Email rewards</p>
+      <p className="oy-overline">{t("Email rewards")}</p>
       <p className="group-intro">
-        People who prove they own an address on one of these domains, with a code sent to it, get the reward. It's
-        optional for them, and lasts while the domain stays listed
+        {t(
+          "People who prove they own an address on one of these domains, with a code sent to it, get the reward. It's optional for them, and lasts while the domain stays listed",
+        )}
       </p>
       <form className="form-page rewards-form" onSubmit={save}>
         <LineArea
           id="bonus-domains"
-          label="Domains that earn a reward"
+          label={t("Domains that earn a reward")}
           value={domains}
           spellCheck={false}
           onChange={(e) => {
             setDomains(e.target.value);
             setSaved(false);
           }}
-          hint="One per line, like example.edu. Its subdomains count too"
+          hint={t("One per line, like example.edu. Its subdomains count too")}
         />
         <LineField
           id="bonus-spend"
-          label="Extra spending each month, in dollars"
+          label={t("Extra spending each month, in dollars")}
           inputMode="decimal"
           autoComplete="off"
           value={spend}
@@ -490,11 +495,11 @@ function RewardsForm({
             setSpend(amountInput(e.target.value));
             setSaved(false);
           }}
-          hint="Added on top of each person's spending limit. Leave empty for none"
+          hint={t("Added on top of each person's spending limit. Leave empty for none")}
         />
         <LineField
           id="bonus-tokens"
-          label="Extra tokens each month"
+          label={t("Extra tokens each month")}
           inputMode="numeric"
           autoComplete="off"
           value={tokens}
@@ -502,13 +507,13 @@ function RewardsForm({
             setTokens(e.target.value);
             setSaved(false);
           }}
-          hint="Added on top of each person's monthly limit. Leave empty for none"
+          hint={t("Added on top of each person's monthly limit. Leave empty for none")}
         />
-        <div className="field" role="group" aria-label="Models they unlock">
-          <p className="oy-field-label">Models they unlock</p>
+        <div className="field" role="group" aria-label={t("Models they unlock")}>
+          <p className="oy-field-label">{t("Models they unlock")}</p>
           {offerable.length === 0 ? (
             <p className="oy-field-hint">
-              Every model is open to everyone. Set a key to “Only people you choose” to offer it as a reward
+              {t("Every model is open to everyone. Set a key to “Only people you choose” to offer it as a reward")}
             </p>
           ) : (
             <div className="oy-section is-plain">
@@ -526,7 +531,7 @@ function RewardsForm({
                 >
                   <span className="text">
                     <span className="title">{k.label}</span>
-                    <span className="desc">{k.shared ? `${k.modelLabel}. Everyone can pick it now` : k.modelLabel}</span>
+                    <span className="desc">{k.shared ? t("{modelLabel}. Everyone can pick it now", { modelLabel: k.modelLabel }) : k.modelLabel}</span>
                   </span>
                   <Tick on={keyIds.includes(k.id)} />
                 </button>
@@ -538,7 +543,7 @@ function RewardsForm({
         <div className="form-actions">
           <p className="oy-field-hint">{MAIL_NOTE[mail]}</p>
           <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
-            {saved && !dirty ? "Saved" : "Save"}
+            {saved && !dirty ? t("Saved") : t("Save")}
           </BusyButton>
         </div>
       </form>

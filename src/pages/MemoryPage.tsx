@@ -8,7 +8,8 @@ import { PageHeader } from "../components/PageHeader.tsx";
 import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api } from "../lib/api.ts";
-import { atOrOn, plural } from "../lib/format.ts";
+import { atOrOn, formatNumber } from "../lib/format.ts";
+import { t, tn, tx } from "../lib/i18n.ts";
 
 export type MemoryState = {
   site: boolean;
@@ -51,7 +52,7 @@ export function MemoryPage() {
 
   return (
     <>
-      <PageHeader title="Memory" subtitle="What the AI keeps about you between chats" back={{ label: "Settings", to: "/settings" }} />
+      <PageHeader title={t("Memory")} subtitle={t("What the AI keeps about you between chats")} back={{ label: t("Settings"), to: "/settings" }} />
       <div className="oy-page-column page-body">
         {!state ? (
           error ? <Advisory>{error}</Advisory> : <Spinner />
@@ -62,19 +63,19 @@ export function MemoryPage() {
                 <Icon name="note" size={20} />
                 <div className="text">
                   <label className="title" htmlFor="memory-on">
-                    Let the AI remember things about you
+                    {t("Let the AI remember things about you")}
                   </label>
                   {!state.site ? (
-                    <div className="desc">Your admins have turned memory off for this site</div>
+                    <div className="desc">{t("Your admins have turned memory off for this site")}</div>
                   ) : (
                     // Both lines sit in one place and the row keeps the taller one's size, so flipping
                     // the switch changes the words, never the spacing.
                     <div className="desc swap">
                       <span className={state.on ? undefined : "reserve"} aria-hidden={!state.on || undefined}>
-                        New chats start with these notes, and the AI adds to them when you tell it something worth keeping
+                        {t("New chats start with these notes, and the AI adds to them when you tell it something worth keeping")}
                       </span>
                       <span className={state.on ? "reserve" : undefined} aria-hidden={state.on || undefined}>
-                        New chats start without them, and nothing new is saved. Your notes stay until you delete them
+                        {t("New chats start without them, and nothing new is saved. Your notes stay until you delete them")}
                       </span>
                     </div>
                   )}
@@ -91,17 +92,17 @@ export function MemoryPage() {
             <form className="form-page memory-add" onSubmit={add}>
               <LineField
                 id="memory-new"
-                label="Add something for it to remember"
+                label={t("Add something for it to remember")}
                 value={adding}
                 maxLength={500}
                 autoComplete="off"
                 onChange={(e) => setAdding(e.target.value)}
-                hint="Like “I teach chemistry to 14-year-olds” or “Answer in British English”"
+                hint={t("Like “I teach chemistry to 14-year-olds” or “Answer in British English”")}
               />
               {/* Always there (resting while the field is empty), so typing never pushes the notes down. */}
               <div className="form-page-actions">
                 <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!adding.trim()}>
-                  Remember it
+                  {t("Remember it")}
                 </BusyButton>
               </div>
             </form>
@@ -109,9 +110,11 @@ export function MemoryPage() {
             {error && <Advisory>{error}</Advisory>}
 
             <div className="oy-group settings-group">
-              <p className="oy-overline">{state.memories.length ? plural(state.memories.length, "note", "notes") : "Notes"}</p>
+              <p className="oy-overline">
+                {state.memories.length ? tn(state.memories.length, "{count} note", "{count} notes", { count: formatNumber(state.memories.length) }) : t("Notes")}
+              </p>
               {state.memories.length === 0 ? (
-                <p className="group-empty">Nothing yet. Tell the AI something about yourself in a chat, or add it here</p>
+                <p className="group-empty">{t("Nothing yet. Tell the AI something about yourself in a chat, or add it here")}</p>
               ) : (
                 <div className="oy-section is-plain">
                   {state.memories.map((m) =>
@@ -126,7 +129,7 @@ export function MemoryPage() {
                       >
                         <LineField
                           id={`memory-${m.id}`}
-                          label="Note"
+                          label={t("Note")}
                           value={editing.text}
                           maxLength={500}
                           autoFocus
@@ -134,10 +137,10 @@ export function MemoryPage() {
                         />
                         <div className="form-page-actions">
                           <button type="submit" className="btn-primary btn-sm" disabled={!editing.text.trim()}>
-                            Save
+                            {t("Save")}
                           </button>
                           <button type="button" className="btn-secondary btn-sm" onClick={() => setEditing(null)}>
-                            Cancel
+                            {t("Cancel")}
                           </button>
                         </div>
                       </form>
@@ -146,29 +149,28 @@ export function MemoryPage() {
                         <div className="text">
                           <p className="title">{m.text}</p>
                           <div className="desc">
-                            {m.chat ? (
-                              <>
-                                Learnt in{" "}
-                                <SlideLink to={`/chat/${m.chat.id}`} direction="forward">
-                                  {m.chat.title}
-                                </SlideLink>{" "}
-                                {atOrOn(m.createdAt)}
-                              </>
-                            ) : (
-                              `Added ${atOrOn(m.createdAt)}`
-                            )}
+                            {m.chat
+                              ? tx("Learnt in <a>{title}</a> {createdAt}", {
+                                  a: () => (
+                                    <SlideLink to={`/chat/${m.chat!.id}`} direction="forward">
+                                      {m.chat!.title}
+                                    </SlideLink>
+                                  ),
+                                  createdAt: atOrOn(m.createdAt),
+                                })
+                              : t("Added {createdAt}", { createdAt: atOrOn(m.createdAt) })}
                           </div>
                         </div>
-                        <button type="button" className="btn-ghost icon-button" aria-label="Edit this note" title="Edit" onClick={() => setEditing({ id: m.id, text: m.text })}>
+                        <button type="button" className="btn-ghost icon-button" aria-label={t("Edit this note")} title={t("Edit")} onClick={() => setEditing({ id: m.id, text: m.text })}>
                           <Icon name="pencil" size={16} />
                         </button>
-                        <button type="button" className="btn-ghost icon-button" aria-label="Forget this note" title="Forget" onClick={() => setRemoving(m.id)}>
+                        <button type="button" className="btn-ghost icon-button" aria-label={t("Forget this note")} title={t("Forget")} onClick={() => setRemoving(m.id)}>
                           <Icon name="trash" size={16} />
                         </button>
                         {removing === m.id && (
                           <InlineConfirm
                             overlay
-                            message="Forget this?"
+                            message={t("Forget this?")}
                             onCancel={() => setRemoving(null)}
                             onConfirm={async () => {
                               await run(() => api.del<MemoryState>(`/memory/${m.id}`));
@@ -186,8 +188,8 @@ export function MemoryPage() {
             {state.memories.length > 0 && (
               <div className="settings-danger">
                 <DangerRow
-                  label="Forget everything"
-                  confirmLabel="Forget every note? Chats already started keep what they were told"
+                  label={t("Forget everything")}
+                  confirmLabel={t("Forget every note? Chats already started keep what they were told")}
                   onConfirm={async () => {
                     await run(() => api.del<MemoryState>("/memory"));
                   }}

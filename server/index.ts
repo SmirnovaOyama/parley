@@ -6,7 +6,7 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { Agent, setGlobalDispatcher } from "undici";
 import { sameOriginGuard, sessionMiddleware, type AppEnv } from "./auth.ts";
-import { langMiddleware } from "./i18n.ts";
+import { langMiddleware, t } from "./i18n.ts";
 import { clearStaleUploads } from "./attachments.ts";
 import { db } from "./db.ts";
 import { env } from "./env.ts";
@@ -76,15 +76,15 @@ app.use("/api/*", async (c, next) => {
   if (incoming && !incoming.readableEnded) incoming.removeAllListeners("data").resume();
 });
 
+// Everything said back, from here on, in the language the page asked for (server/i18n.ts).
+app.use("/api/*", langMiddleware);
 // A request's body is read whole, so a JSON one is held to 1 MB (the longest message is a few
 // hundred KB of it), before anyone has signed in. Files go up as raw bytes to their own routes,
 // which set their own limits once they know who's sending.
 const MAX_JSON_BYTES = 1024 * 1024;
 const RAW_UPLOAD = /^\/api\/(uploads|import|knowledge\/[^/]+\/docs)$/;
-const jsonLimit = bodyLimit({ maxSize: MAX_JSON_BYTES, onError: (c) => c.json({ error: "That request is too big" }, 413) });
+const jsonLimit = bodyLimit({ maxSize: MAX_JSON_BYTES, onError: (c) => c.json({ error: t("That request is too big") }, 413) });
 app.use("/api/*", (c, next) => (c.req.method === "PUT" && RAW_UPLOAD.test(c.req.path) ? next() : jsonLimit(c, next)));
-// Everything said back, from here on, in the language the page asked for (server/i18n.ts).
-app.use("/api/*", langMiddleware);
 app.use("/api/*", sameOriginGuard, sessionMiddleware);
 app.route("/api/auth", authRoutes);
 app.route("/api/auth/two-step", twoStepRoutes);
@@ -100,7 +100,7 @@ app.route("/api", knowledgeRoutes);
 app.route("/api", meRoutes);
 app.route("/api", personaRoutes);
 app.route("/api", chatRoutes);
-app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
+app.all("/api/*", (c) => c.json({ error: t("Not found") }, 404));
 
 // What a phone or browser needs to add the site to a home screen or install it as an app, under
 // the site's own name (set at run time, like the page's). The icons are in public/; their sources

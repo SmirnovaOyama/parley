@@ -1,4 +1,5 @@
 // What a person writes about themselves and how the AI should answer: a persona's, or one chat's own.
+import { t } from "./i18n.ts";
 
 export const MAX_INSTRUCTION_CHARS = 1500;
 
@@ -6,11 +7,11 @@ export const MAX_INSTRUCTION_CHARS = 1500;
  *  field never comes and goes as you type. */
 export const charsLeft = (text: string, otherwise: string) => {
   const left = MAX_INSTRUCTION_CHARS - text.length;
-  return left <= 200 ? `${left} characters left` : otherwise;
+  return left <= 200 ? t("{left} characters left", { left }) : otherwise;
 };
 
-export const ABOUT_HINT = "Your work, what you're learning, what you're after";
-export const STYLE_HINT = "Length, tone, language, format";
+export const ABOUT_HINT = t("Your work, what you're learning, what you're after");
+export const STYLE_HINT = t("Length, tone, language, format");
 
 /** A persona's words in a line, for its row. */
 export const instructionsSummary = (i: { aboutMe: string; answerStyle: string }) =>

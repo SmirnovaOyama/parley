@@ -6,6 +6,7 @@ import { MAX_DOLLARS } from "../allowance.ts";
 import { tx } from "../chat-store.ts";
 import { encryptSecret } from "../crypto.ts";
 import { audit, db, getSettings, nowIso, saveSearchKey, saveSettings, searchKeySealed, SEARCH_PROVIDERS } from "../db.ts";
+import { t } from "../i18n.ts";
 import {
   disconnectEveryone,
   fetchWithHeaders,
@@ -68,24 +69,24 @@ function knownIds(value: unknown, table: "users" | "api_keys" | "mcp_servers"): 
 /** Saves a group (new when id is null): its name, its members' limit, who's in it, and what it opens. */
 function saveGroup(id: number | null, body: Record<string, unknown>, adminId: number): { group: ReturnType<typeof groupOut> } | { error: string; status: 400 | 404 | 409 } {
   const existing = id == null ? undefined : (db.prepare("SELECT * FROM user_groups WHERE id = ?").get(id) as GroupRow | undefined);
-  if (id != null && !existing) return { error: "This group doesn't exist", status: 404 };
+  if (id != null && !existing) return { error: t("This group doesn't exist"), status: 404 };
   const name = body.name === undefined && existing ? existing.name : String(body.name ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
-  if (!name) return { error: "Give the group a name", status: 400 };
+  if (!name) return { error: t("Give the group a name"), status: 400 };
   const clash = db.prepare("SELECT id FROM user_groups WHERE name = ? AND id IS NOT ?").get(name, id) as { id: number } | undefined;
-  if (clash) return { error: "There's a group with that name already", status: 409 };
+  if (clash) return { error: t("There's a group with that name already"), status: 409 };
   let spend = existing?.spend_limit ?? null;
   if (body.spendLimit !== undefined) {
     if (body.spendLimit === null || body.spendLimit === "") spend = null;
     else {
       const n = Number(String(body.spendLimit).replace(/^\s*\$|[,\s]/g, ""));
-      if (!Number.isFinite(n) || n < 0 || n > MAX_DOLLARS) return { error: "Enter the spending limit in dollars, like 5 or 2.50, or leave it empty", status: 400 };
+      if (!Number.isFinite(n) || n < 0 || n > MAX_DOLLARS) return { error: t("Enter the spending limit in dollars, like 5 or 2.50, or leave it empty"), status: 400 };
       spend = Math.round(n * 100) / 100;
     }
   }
   const members = knownIds(body.memberIds, "users");
   const keys = knownIds(body.keyIds, "api_keys");
   const servers = knownIds(body.serverIds, "mcp_servers");
-  if (!members || !keys || !servers) return { error: "Some of those people, keys or servers don't exist any more", status: 400 };
+  if (!members || !keys || !servers) return { error: t("Some of those people, keys or servers don't exist any more"), status: 400 };
   const groupId = tx(() => {
     let gid = id;
     if (gid == null) {
@@ -122,7 +123,7 @@ adminToolRoutes.patch("/groups/:id", async (c) => {
 
 adminToolRoutes.delete("/groups/:id", (c) => {
   const g = db.prepare("SELECT * FROM user_groups WHERE id = ?").get(Number(c.req.param("id"))) as GroupRow | undefined;
-  if (!g) return c.json({ error: "This group doesn't exist" }, 404);
+  if (!g) return c.json({ error: t("This group doesn't exist") }, 404);
   db.prepare("DELETE FROM user_groups WHERE id = ?").run(g.id);
   sweepCredentials();
   audit(c.var.user!.id, "delete_group", g.name);
@@ -231,10 +232,10 @@ function clientFrom(body: Record<string, unknown>, before: McpServerRow | null):
   if (body.clientId === undefined) return before?.oauth_client ?? null;
   const id = String(body.clientId ?? "").trim();
   if (!id) return null;
-  if (id.length > 500) return { error: "That client ID is too long" };
+  if (id.length > 500) return { error: t("That client ID is too long") };
   const kept = before ? adminClient(before) : null;
   const secret = String(body.clientSecret ?? "").trim() || (kept?.client_id === id ? kept.client_secret : undefined);
-  if (secret && secret.length > 2000) return { error: "That client secret is too long" };
+  if (secret && secret.length > 2000) return { error: t("That client secret is too long") };
   return encryptSecret(JSON.stringify(secret ? { client_id: id, client_secret: secret } : { client_id: id }));
 }
 
@@ -270,16 +271,16 @@ adminToolRoutes.get("/mcp", (c) => {
 adminToolRoutes.post("/mcp", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const name = String(body.name ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
-  if (!name) return c.json({ error: "Give the server a name, like GitHub" }, 400);
+  if (!name) return c.json({ error: t("Give the server a name, like GitHub") }, 400);
   const url = parseServerUrl(body.url);
-  if (!url) return c.json({ error: "Type the server's address, starting with https://" }, 400);
+  if (!url) return c.json({ error: t("Type the server's address, starting with https://") }, 400);
   const mode = modeOf(body.authMode) ?? (body.authMode === undefined ? "shared" : null);
-  if (!mode) return c.json({ error: "Choose whose account it uses" }, 400);
+  if (!mode) return c.json({ error: t("Choose whose account it uses") }, 400);
   const headers = mode === "shared" ? parseHeaders(body.headers) : {};
   if ("error" in headers) return c.json(headers, 400);
   const own = mode === "token" ? ownTokenFrom(body.ownToken) : null;
   if (own && "error" in own) return c.json(own, 400);
-  if (mode === "token" && !own) return c.json({ error: "Paste a token of your own, so it can list its tools" }, 400);
+  if (mode === "token" && !own) return c.json({ error: t("Paste a token of your own, so it can list its tools") }, 400);
   const client = mode === "oauth" ? clientFrom(body, null) : null;
   if (client && typeof client === "object") return c.json(client, 400);
   let tools: Awaited<ReturnType<typeof listTools>> = [];
@@ -335,14 +336,14 @@ function modesFor(tools: ReturnType<typeof toolsOf>, runTools: string[]): Record
  */
 adminToolRoutes.patch("/mcp/:id", async (c) => {
   const s = getServer(Number(c.req.param("id")));
-  if (!s) return c.json({ error: "This server doesn't exist" }, 404);
+  if (!s) return c.json({ error: t("This server doesn't exist") }, 404);
   const body = await c.req.json().catch(() => ({}));
   const name = body.name === undefined ? s.name : String(body.name ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
-  if (!name) return c.json({ error: "Give the server a name" }, 400);
+  if (!name) return c.json({ error: t("Give the server a name") }, 400);
   const url = body.url === undefined ? s.url : parseServerUrl(body.url);
-  if (!url) return c.json({ error: "Type the server's address, starting with https://" }, 400);
+  if (!url) return c.json({ error: t("Type the server's address, starting with https://") }, 400);
   const mode = modeOf(body.authMode) ?? (body.authMode === undefined ? (s.auth_mode as AuthMode) : null);
-  if (!mode) return c.json({ error: "Choose whose account it uses" }, 400);
+  if (!mode) return c.json({ error: t("Choose whose account it uses") }, 400);
   const reconnect = personal(s) && (mode !== s.auth_mode || url !== s.url);
   // Headers left out (or empty with keepHeaders) stay as they are. Only a shared server keeps any.
   let sealed = mode === "shared" ? s.encrypted_headers : null;
@@ -353,7 +354,7 @@ adminToolRoutes.patch("/mcp/:id", async (c) => {
   }
   const own = mode === "token" ? ownTokenFrom(body.ownToken) : null;
   if (own && "error" in own) return c.json(own, 400);
-  if (mode === "token" && !own && url !== s.url) return c.json({ error: "Paste a token of your own for the new address, so it can list its tools" }, 400);
+  if (mode === "token" && !own && url !== s.url) return c.json({ error: t("Paste a token of your own for the new address, so it can list its tools") }, 400);
   const client = mode === "oauth" ? clientFrom(body, s) : null;
   if (client && typeof client === "object") return c.json(client, 400);
   // A new address, new headers or a new token of the admin's own may reach a different server, so
@@ -369,7 +370,7 @@ adminToolRoutes.patch("/mcp/:id", async (c) => {
     }
   }
   const now = getServer(s.id);
-  if (!now) return c.json({ error: "This server doesn't exist" }, 404);
+  if (!now) return c.json({ error: t("This server doesn't exist") }, 404);
   const kept = listed ? keptListing(now, listed) : now;
   const offTools = Array.isArray(body.offTools) ? JSON.stringify([...new Set(body.offTools.map(String))]) : s.off_tools;
   const toolModes = Array.isArray(body.runTools) ? JSON.stringify(modesFor(toolsOf(kept), body.runTools.map(String))) : s.tool_modes;
@@ -399,9 +400,9 @@ adminToolRoutes.patch("/mcp/:id", async (c) => {
 /** Asks the server for its tools again. Tools that are new or read differently wait for an admin (pending). */
 adminToolRoutes.post("/mcp/:id/refresh", async (c) => {
   const s = getServer(Number(c.req.param("id")));
-  if (!s) return c.json({ error: "This server doesn't exist" }, 404);
+  if (!s) return c.json({ error: t("This server doesn't exist") }, 404);
   const next = await refreshServer(s, c.var.user!.id);
-  if (!next) return c.json({ error: "This server doesn't exist" }, 404);
+  if (!next) return c.json({ error: t("This server doesn't exist") }, 404);
   return c.json({ server: serverOut(next, viewerOf(c)) });
 });
 
@@ -411,12 +412,12 @@ adminToolRoutes.post("/mcp/:id/refresh", async (c) => {
  */
 adminToolRoutes.post("/mcp/:id/pending", async (c) => {
   const s = getServer(Number(c.req.param("id")));
-  if (!s) return c.json({ error: "This server doesn't exist" }, 404);
+  if (!s) return c.json({ error: t("This server doesn't exist") }, 404);
   const body = await c.req.json().catch(() => ({}));
-  if (typeof body.use !== "boolean" || typeof body.version !== "string") return c.json({ error: "Say whether to use the new tools" }, 400);
+  if (typeof body.use !== "boolean" || typeof body.version !== "string") return c.json({ error: t("Say whether to use the new tools") }, 400);
   const settled = settleListing(s.id, body.version, body.use);
-  if (settled === "none") return c.json({ error: "Nothing from this server is waiting any more" }, 409);
-  if (settled === "moved") return c.json({ error: "The server listed its tools again since this page loaded. Look over what it says now" }, 409);
+  if (settled === "none") return c.json({ error: t("Nothing from this server is waiting any more") }, 409);
+  if (settled === "moved") return c.json({ error: t("The server listed its tools again since this page loaded. Look over what it says now") }, 409);
   audit(c.var.user!.id, body.use ? "take_mcp_tools" : "keep_mcp_tools", s.name);
   return c.json({ server: serverOut(getServer(s.id)!, viewerOf(c)) });
 });
@@ -424,7 +425,7 @@ adminToolRoutes.post("/mcp/:id/pending", async (c) => {
 /** Forgets everyone's own accounts on a server, so each person connects again. */
 adminToolRoutes.post("/mcp/:id/disconnect", (c) => {
   const s = getServer(Number(c.req.param("id")));
-  if (!s) return c.json({ error: "This server doesn't exist" }, 404);
+  if (!s) return c.json({ error: t("This server doesn't exist") }, 404);
   disconnectEveryone(s.id);
   audit(c.var.user!.id, "disconnect_mcp", s.name);
   return c.json({ server: serverOut(getServer(s.id)!, viewerOf(c)) });
@@ -432,7 +433,7 @@ adminToolRoutes.post("/mcp/:id/disconnect", (c) => {
 
 adminToolRoutes.delete("/mcp/:id", (c) => {
   const s = getServer(Number(c.req.param("id")));
-  if (!s) return c.json({ error: "This server doesn't exist" }, 404);
+  if (!s) return c.json({ error: t("This server doesn't exist") }, 404);
   // First, so each sign-in service hears its tokens are done with.
   disconnectEveryone(s.id);
   db.prepare("DELETE FROM mcp_servers WHERE id = ?").run(s.id);
@@ -459,16 +460,16 @@ adminToolRoutes.put("/search", async (c) => {
     return c.json(searchOut());
   }
   const provider = SEARCH_PROVIDERS.find((p) => p === body.provider);
-  if (!provider) return c.json({ error: "Choose a search service" }, 400);
+  if (!provider) return c.json({ error: t("Choose a search service") }, 400);
   const service = SEARCH_SERVICES.find((s) => s.id === provider)!;
   const before = { provider: getSettings().searchProvider, url: getSettings().searchUrl, key: searchKeySealed() };
   if (service.needs === "url") {
     const url = parseServerUrl(body.url);
-    if (!url) return c.json({ error: "Type your SearXNG's address, starting with https://" }, 400);
+    if (!url) return c.json({ error: t("Type your SearXNG's address, starting with https://") }, 400);
     saveSettings({ searchProvider: provider, searchUrl: url.replace(/\/+$/, "") });
   } else {
     const key = String(body.key ?? "").trim();
-    if (!key && (!before.key || before.provider !== provider)) return c.json({ error: `Paste the ${service.label} API key` }, 400);
+    if (!key && (!before.key || before.provider !== provider)) return c.json({ error: t("Paste the {label} API key", { label: service.label }) }, 400);
     saveSettings({ searchProvider: provider });
     if (key) saveSearchKey(encryptSecret(key));
   }
@@ -478,7 +479,7 @@ adminToolRoutes.put("/search", async (c) => {
   } catch (err) {
     saveSettings({ searchProvider: before.provider, searchUrl: before.url });
     saveSearchKey(before.key);
-    return c.json({ error: (err as Error).message || "The search service didn't answer" }, 400);
+    return c.json({ error: (err as Error).message || t("The search service didn't answer") }, 400);
   }
   audit(c.var.user!.id, "edit_search", service.label);
   return c.json(searchOut());

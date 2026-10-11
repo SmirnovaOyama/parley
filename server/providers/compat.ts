@@ -10,6 +10,7 @@ import type {
   ChatCompletionCreateParamsStreaming,
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
+import { t } from "../i18n.ts";
 import type { FileKind, Usage } from "./catalog.ts";
 import { openaiClient } from "./clients.ts";
 import { parseArguments } from "./responses.ts";
@@ -69,7 +70,7 @@ type ServiceUsage = {
 
 function clientFor(dialect: Dialect, apiKey: string, baseUrl: string | undefined, maxRetries: number) {
   const baseURL = dialect.baseURL ?? baseUrl;
-  if (!baseURL) throw new Error("This key has no address to send to");
+  if (!baseURL) throw new Error(t("This key has no address to send to"));
   // A local service may need no key, but the SDK wants one.
   return openaiClient(apiKey || "none", baseURL, maxRetries);
 }
@@ -407,8 +408,8 @@ export function compatProvider(dialect: Dialect): ChatProvider {
       return;
     }
     if (ids.length > 0 && !ids.includes(model)) {
-      const shown = ids.length > 12 ? `${ids.slice(0, 12).join(", ")} and ${ids.length - 12} more` : ids.join(", ");
-      throw new Error(`This key can't use ${model}. It offers ${shown}`);
+      const shown = ids.length > 12 ? t("{ids} and {length} more", { ids: ids.slice(0, 12).join(", "), length: ids.length - 12 }) : ids.join(", ");
+      throw new Error(t("This key can't use {model}. It offers {shown}", { model, shown }));
     }
   }
 

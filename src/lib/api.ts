@@ -1,5 +1,5 @@
 // Thin client for the Hono API. Errors carry the server's sentence so the UI can show it as is.
-import { LANG } from "./i18n.ts";
+import { LANG, t } from "./i18n.ts";
 
 /** Every request says the page's language, so the server answers in it (server/i18n.ts). */
 const LANG_HEADER = { "x-parley-lang": LANG };
@@ -23,7 +23,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     credentials: "same-origin",
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? "Something went wrong. Try again", typeof data.field === "string" ? data.field : null);
+  if (!res.ok) throw new ApiError(res.status, data.error ?? t("Something went wrong. Try again"), typeof data.field === "string" ? data.field : null);
   return data as T;
 }
 
@@ -227,10 +227,10 @@ export function uploadFile(file: Blob, name: string, onProgress: (fraction: numb
         // Not JSON: a proxy's error page, say.
       }
       if (xhr.status >= 200 && xhr.status < 300 && data.attachment) resolve(data.attachment);
-      else reject(new ApiError(xhr.status, data.error ?? "Couldn't add this file. Try again"));
+      else reject(new ApiError(xhr.status, data.error ?? t("Couldn't add this file. Try again")));
     };
-    xhr.onerror = () => reject(new ApiError(0, "Couldn't add this file. Check the connection and try again"));
-    xhr.onabort = () => reject(new ApiError(0, "Stopped"));
+    xhr.onerror = () => reject(new ApiError(0, t("Couldn't add this file. Check the connection and try again")));
+    xhr.onabort = () => reject(new ApiError(0, t("Stopped")));
     xhr.send(file);
   });
   return { promise, abort: () => xhr.abort() };
@@ -258,10 +258,10 @@ export function uploadRaw<T>(path: string, file: Blob, name: string, onProgress?
         // Not JSON: a proxy's error page, say.
       }
       if (xhr.status >= 200 && xhr.status < 300 && !data.error) resolve(data as T);
-      else reject(new ApiError(xhr.status, data.error ?? "Couldn't send this file. Try again"));
+      else reject(new ApiError(xhr.status, data.error ?? t("Couldn't send this file. Try again")));
     };
-    xhr.onerror = () => reject(new ApiError(0, "Couldn't send this file. Check the connection and try again"));
-    xhr.onabort = () => reject(new ApiError(0, "Stopped"));
+    xhr.onerror = () => reject(new ApiError(0, t("Couldn't send this file. Check the connection and try again")));
+    xhr.onabort = () => reject(new ApiError(0, t("Stopped")));
     xhr.send(file);
   });
   return { promise, abort: () => xhr.abort() };
@@ -329,7 +329,7 @@ export async function streamChat(
   });
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, data.error ?? "Couldn't send the message. Try again");
+    throw new ApiError(res.status, data.error ?? t("Couldn't send the message. Try again"));
   }
 
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();

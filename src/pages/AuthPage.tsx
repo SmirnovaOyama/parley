@@ -8,6 +8,7 @@ import { HAND_LETTERED, ParleyFlag, Wordmark } from "../icons/Brand.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api, ApiError } from "../lib/api.ts";
 import { APP_NAME } from "../lib/brand.ts";
+import { t, tx } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
 import { passkeyProblem } from "./TwoStepPage.tsx";
 
@@ -80,10 +81,10 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const signup = mode === "signup" || state.needsSetup;
   if (signup && !state.needsSetup && !state.allowSignup) {
     return (
-      <AuthFrame title="Sign-ups are closed">
-        <p className="text-muted">Ask an admin of this site to create an account for you</p>
+      <AuthFrame title={t("Sign-ups are closed")}>
+        <p className="text-muted">{t("Ask an admin of this site to create an account for you")}</p>
         <p className="auth-switch">
-          <Link to={`/login${keepNext}`}>Sign in instead</Link>
+          <Link to={`/login${keepNext}`}>{t("Sign in instead")}</Link>
         </p>
       </AuthFrame>
     );
@@ -93,7 +94,7 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const sendCode = async () => {
     // Checked here too, so a code isn't spent on a password the next step turns away.
     if (password.length < 8) {
-      setError({ text: "Use at least 8 characters for the password", field: "password" });
+      setError({ text: t("Use at least 8 characters for the password"), field: "password" });
       return;
     }
     setBusy(true);
@@ -138,19 +139,19 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
     }
   };
 
-  const title = state.needsSetup ? "Set up your chat site" : signup ? "Create an account" : "Sign in";
+  const title = state.needsSetup ? t("Set up your chat site") : signup ? t("Create an account") : t("Sign in");
   const wait = Math.max(0, Math.ceil((resendAt - now) / 1000));
 
   return (
     <AuthFrame title={title}>
       {state.needsSetup && (
-        <Callout>This first account becomes the admin. You'll add an AI key next</Callout>
+        <Callout>{t("This first account becomes the admin. You'll add an AI key next")}</Callout>
       )}
-      {passwordSet && !signup && <Callout>Your new password is set. Sign in with it, then take the second step as usual</Callout>}
+      {passwordSet && !signup && <Callout>{t("Your new password is set. Sign in with it, then take the second step as usual")}</Callout>}
       <form className="auth-form" onSubmit={submit} noValidate>
         <LineField
           id="email"
-          label="Email"
+          label={t("Email")}
           type="email"
           autoComplete="email"
           value={email}
@@ -166,12 +167,12 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
         />
         <LineField
           id="password"
-          label="Password"
+          label={t("Password")}
           type="password"
           autoComplete={signup ? "new-password" : "current-password"}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          hint={signup ? "At least 8 characters" : undefined}
+          hint={signup ? t("At least 8 characters") : undefined}
           error={error?.field === "password" ? error.text : null}
           required
         />
@@ -180,13 +181,13 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
             <p className="auth-sent">
               <Icon name="mail" size={18} />
               <span>
-                We've emailed a code to <strong>{sent.to}</strong>. It works for 10 minutes
-                {sent.inLog && " (no email server is set up, so it's in the server log)"}
+                {tx("We've emailed a code to <strong>{to}</strong>. It works for 10 minutes", { strong: () => <strong>{sent.to}</strong> })}
+                {sent.inLog && ` ${t("(no email server is set up, so it's in the server log)")}`}
               </span>
             </p>
             <LineField
               id="code"
-              label="Code"
+              label={t("Code")}
               inputMode="numeric"
               autoComplete="one-time-code"
               autoFocus
@@ -203,16 +204,16 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
           busy={busy}
           disabled={!email || !password || (needsCode && !!sent && code.length < 6)}
         >
-          {needsCode && !sent ? "Send code" : signup ? "Create account" : "Sign in"}
+          {needsCode && !sent ? t("Send code") : signup ? t("Create account") : t("Sign in")}
         </BusyButton>
         {needsCode && sent && (
           <button type="button" className="btn-ghost btn-block" disabled={busy || wait > 0} onClick={() => void sendCode()}>
             {/* As wide as its longest wording all along, so the countdown never moves it. */}
             <span className="swap tabular">
               <span className="reserve" aria-hidden="true">
-                Send again in 00s
+                {t("Send again in 00s")}
               </span>
-              <span>{wait > 0 ? `Send again in ${wait}s` : "Send again"}</span>
+              <span>{wait > 0 ? t("Send again in {wait}s", { wait }) : t("Send again")}</span>
             </span>
           </button>
         )}
@@ -224,21 +225,17 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
               {state.passwordReset ? (
                 // The address typed so far comes along, so it needn't be typed again.
                 <Link to="/forgot-password" state={{ email: email.trim() }}>
-                  Forgot your password?
+                  {t("Forgot your password?")}
                 </Link>
               ) : (
-                "Forgot your password? Ask an admin of this site"
+                t("Forgot your password? Ask an admin of this site")
               )}
             </p>
           )}
           {signup ? (
-            <p>
-              Already have an account? <Link to={`/login${keepNext}`}>Sign in</Link>
-            </p>
+            <p>{tx("Already have an account? <a>Sign in</a>", { a: (w) => <Link to={`/login${keepNext}`}>{w}</Link> })}</p>
           ) : state.allowSignup ? (
-            <p>
-              New here? <Link to={`/signup${keepNext}`}>Create an account</Link>
-            </p>
+            <p>{tx("New here? <a>Create an account</a>", { a: (w) => <Link to={`/signup${keepNext}`}>{w}</Link> })}</p>
           ) : null}
         </div>
       )}
@@ -299,13 +296,11 @@ function SecondStep({ email, ticket, onBack, onDone }: {
   };
 
   return (
-    <AuthFrame title="Two-step verification">
-      <p className="text-muted">
-        Signing in as <strong>{email}</strong>
-      </p>
+    <AuthFrame title={t("Two-step verification")}>
+      <p className="text-muted">{tx("Signing in as <strong>{email}</strong>", { strong: () => <strong>{email}</strong> })}</p>
       {ticket.passkey && !recovery && (
         <BusyButton type="button" className={ticket.totp ? "btn-secondary btn-block" : "btn-primary btn-block"} busy={busy === "passkey"} disabled={busy === "code"} onClick={() => void withPasskey()}>
-          Use a passkey
+          {t("Use a passkey")}
         </BusyButton>
       )}
       {(ticket.totp || recovery) && (
@@ -313,19 +308,19 @@ function SecondStep({ email, ticket, onBack, onDone }: {
           {recovery ? (
             <LineField
               id="recovery-code"
-              label="Recovery code"
+              label={t("Recovery code")}
               autoComplete="off"
               spellCheck={false}
               autoFocus
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              hint="One of the codes you saved when you turned this on"
+              hint={t("One of the codes you saved when you turned this on")}
               error={error}
             />
           ) : (
             <LineField
               id="totp-code"
-              label="Code from your authenticator app"
+              label={t("Code from your authenticator app")}
               inputMode="numeric"
               autoComplete="one-time-code"
               autoFocus={!ticket.passkey}
@@ -335,7 +330,7 @@ function SecondStep({ email, ticket, onBack, onDone }: {
             />
           )}
           <BusyButton className="btn-primary btn-block" type="submit" busy={busy === "code"} disabled={busy === "passkey" || (recovery ? !code.trim() : code.length < 6)}>
-            Sign in
+            {t("Sign in")}
           </BusyButton>
         </form>
       )}
@@ -351,12 +346,12 @@ function SecondStep({ email, ticket, onBack, onDone }: {
               setError(null);
             }}
           >
-            {recovery ? (ticket.totp ? "Use the code from your app" : "Use a passkey") : "Use a recovery code instead"}
+            {recovery ? (ticket.totp ? t("Use the code from your app") : t("Use a passkey")) : t("Use a recovery code instead")}
           </button>
         </p>
         <p>
           <button type="button" className="link-button" onClick={() => onBack()}>
-            Sign in as someone else
+            {t("Sign in as someone else")}
           </button>
         </p>
       </div>
@@ -407,28 +402,30 @@ export function ForgotPasswordPage() {
   const wait = Math.max(0, Math.ceil((resendAt - now) / 1000));
   const backToSignIn = (
     <p className="auth-links text-muted">
-      <Link to="/login">Back to sign in</Link>
+      <Link to="/login">{t("Back to sign in")}</Link>
     </p>
   );
 
   if (!state.passwordReset) {
     return (
-      <AuthFrame title="Forgot your password?">
-        <p className="text-muted">This site can't send email, so ask an admin of this site to reset it</p>
+      <AuthFrame title={t("Forgot your password?")}>
+        <p className="text-muted">{t("This site can't send email, so ask an admin of this site to reset it")}</p>
         {backToSignIn}
       </AuthFrame>
     );
   }
 
   return (
-    <AuthFrame title="Forgot your password?">
+    <AuthFrame title={t("Forgot your password?")}>
       {sent ? (
         <>
           <p className="auth-sent">
             <Icon name="mail" size={18} />
             <span>
-              If an account uses <strong>{sent.to}</strong>, we've emailed it a link to set a new password. The link works for 30 minutes
-              {sent.inLog && " (no email server is set up, so it's in the server log)"}
+              {tx("If an account uses <strong>{to}</strong>, we've emailed it a link to set a new password. The link works for 30 minutes", {
+                strong: () => <strong>{sent.to}</strong>,
+              })}
+              {sent.inLog && ` ${t("(no email server is set up, so it's in the server log)")}`}
             </span>
           </p>
           {error && <Advisory>{error}</Advisory>}
@@ -437,9 +434,9 @@ export function ForgotPasswordPage() {
               {/* As wide as its longest wording all along, so the countdown never moves it. */}
               <span className="swap tabular">
                 <span className="reserve" aria-hidden="true">
-                  Send again in 00s
+                  {t("Send again in 00s")}
                 </span>
-                <span>{wait > 0 ? `Send again in ${wait}s` : "Send again"}</span>
+                <span>{wait > 0 ? t("Send again in {wait}s", { wait }) : t("Send again")}</span>
               </span>
             </button>
             <button
@@ -451,13 +448,13 @@ export function ForgotPasswordPage() {
                 setSent(null);
               }}
             >
-              Use another address
+              {t("Use another address")}
             </button>
           </div>
         </>
       ) : (
         <>
-          <p className="text-muted">Type the email you sign in with, and we'll send you a link to set a new password</p>
+          <p className="text-muted">{t("Type the email you sign in with, and we'll send you a link to set a new password")}</p>
           <form
             className="auth-form"
             onSubmit={(e) => {
@@ -468,7 +465,7 @@ export function ForgotPasswordPage() {
           >
             <LineField
               id="email"
-              label="Email"
+              label={t("Email")}
               type="email"
               autoComplete="email"
               value={email}
@@ -477,7 +474,7 @@ export function ForgotPasswordPage() {
               required
             />
             <BusyButton className="btn-primary btn-block" type="submit" busy={busy} disabled={!email.trim()}>
-              Send link
+              {t("Send link")}
             </BusyButton>
           </form>
         </>
@@ -488,7 +485,7 @@ export function ForgotPasswordPage() {
 }
 
 type ResetLink = { email: string } | { dead: string } | { off: true };
-const DEAD_LINK = "It has expired, been used, or been replaced by a newer one. Each link works once, for 30 minutes";
+const DEAD_LINK = t("It has expired, been used, or been replaced by a newer one. Each link works once, for 30 minutes");
 
 /**
  * Setting a new password from an emailed link (/reset-password#token). The token is after the #,
@@ -516,23 +513,23 @@ export function ResetPasswordPage() {
 
   if ("off" in link) {
     return (
-      <AuthFrame title="This account is turned off">
-        <p className="text-muted">Its password can't be reset while it's off. Ask an admin of this site</p>
+      <AuthFrame title={t("This account is turned off")}>
+        <p className="text-muted">{t("Its password can't be reset while it's off. Ask an admin of this site")}</p>
         <p className="auth-links text-muted">
-          <Link to="/login">Back to sign in</Link>
+          <Link to="/login">{t("Back to sign in")}</Link>
         </p>
       </AuthFrame>
     );
   }
   if ("dead" in link) {
     return (
-      <AuthFrame title="This link doesn't work">
+      <AuthFrame title={t("This link doesn't work")}>
         <p className="text-muted">{link.dead}</p>
         <Link className="btn-primary btn-block" to="/forgot-password">
-          Ask for a new link
+          {t("Ask for a new link")}
         </Link>
         <p className="auth-links text-muted">
-          <Link to="/login">Back to sign in</Link>
+          <Link to="/login">{t("Back to sign in")}</Link>
         </p>
       </AuthFrame>
     );
@@ -558,27 +555,25 @@ export function ResetPasswordPage() {
   };
 
   return (
-    <AuthFrame title="Set a new password">
-      <p className="text-muted">
-        For <strong>{link.email}</strong>. Setting it signs you out on your other devices
-      </p>
+    <AuthFrame title={t("Set a new password")}>
+      <p className="text-muted">{tx("For <strong>{email}</strong>. Setting it signs you out on your other devices", { strong: () => <strong>{link.email}</strong> })}</p>
       <form className="auth-form" onSubmit={save} noValidate>
         {/* Tells a password manager which account the new password is for. */}
         <input className="visually-hidden" type="email" name="username" autoComplete="username" value={link.email} readOnly tabIndex={-1} aria-hidden="true" />
         <LineField
           id="password"
-          label="New password"
+          label={t("New password")}
           type="password"
           autoComplete="new-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          hint="At least 8 characters"
+          hint={t("At least 8 characters")}
           error={error}
           autoFocus
           required
         />
         <BusyButton className="btn-primary btn-block" type="submit" busy={busy} disabled={!password}>
-          Set password
+          {t("Set password")}
         </BusyButton>
       </form>
     </AuthFrame>

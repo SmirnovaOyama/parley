@@ -3,6 +3,7 @@
 // production can't send at all.
 import nodemailer, { type Transporter } from "nodemailer";
 import { env } from "./env.ts";
+import { t } from "./i18n.ts";
 
 export type MailMode = "smtp" | "dev" | "off";
 
@@ -18,7 +19,7 @@ function sender(): string {
 }
 
 export async function sendMail(message: { to: string; subject: string; text: string }) {
-  if (mailMode === "off") throw new Error("Email isn't set up on this site");
+  if (mailMode === "off") throw new Error(t("Email isn't set up on this site"));
   if (mailMode === "dev") {
     console.log(`[mail] to ${message.to}: ${message.subject}\n${message.text}`);
     return;

@@ -3,6 +3,7 @@
 // screen shows one branch, from the first message down to the conversation's head.
 import { attachmentsOf, historyAttachments, type PublicAttachment } from "./attachments.ts";
 import { db } from "./db.ts";
+import { t } from "./i18n.ts";
 import { instructionsNote, parseInstructions } from "./instructions.ts";
 import { modelLabel } from "./providers/catalog.ts";
 import type { HistoryTurn } from "./providers/types.ts";
@@ -305,14 +306,14 @@ export function instructionsBefore(conv: ConversationRow, parentId: number | nul
 
 /** A title from the first message: its first line, cut at a word, without a closing full stop. */
 export function titleFrom(text: string): string {
-  const line = text.split("\n").find((l) => l.trim()) ?? "New chat";
+  const line = text.split("\n").find((l) => l.trim()) ?? t("New chat");
   let title = line.replace(/\s+/g, " ").trim();
   if (title.length > 60) {
     const cut = title.slice(0, 60);
     const space = cut.lastIndexOf(" ");
     title = space > 30 ? cut.slice(0, space) : cut;
   }
-  return title.replace(/[.。]+$/u, "").trim() || "New chat";
+  return title.replace(/[.。]+$/u, "").trim() || t("New chat");
 }
 
 export function tx<T>(fn: () => T): T {

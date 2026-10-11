@@ -10,6 +10,7 @@ import { PageHeader } from "../../components/PageHeader.tsx";
 import { SlideLink } from "../../components/SlideLink.tsx";
 import { api, type Device } from "../../lib/api.ts";
 import { amountInput, amountText, formatCost, plural } from "../../lib/format.ts";
+import { andText, t, tn } from "../../lib/i18n.ts";
 import { useSession } from "../../lib/session.tsx";
 import { useSlideNavigate } from "../../lib/slide.ts";
 import type { ApiKey } from "./KeysPage.tsx";
@@ -17,8 +18,8 @@ import type { Group } from "./GroupsPage.tsx";
 import type { Person } from "./PeoplePage.tsx";
 
 const ROLES = [
-  { id: "user", label: "Member" },
-  { id: "admin", label: "Admin", detail: "Manages keys and people, and can read every chat" },
+  { id: "user", label: t("Member") },
+  { id: "admin", label: t("Admin"), detail: t("Manages keys and people, and can read every chat") },
 ] as const;
 
 /** Add a person (/admin/people/new) or change one (/admin/people/:id) on its own page. */
@@ -63,7 +64,7 @@ export function PersonFormPage() {
         if (adding) return;
         const p = u.users.find((x) => String(x.id) === id);
         if (!p) {
-          setLoadError("This person doesn't exist any more");
+          setLoadError(t("This person doesn't exist any more"));
           return;
         }
         setPerson(p);
@@ -124,13 +125,15 @@ export function PersonFormPage() {
   return (
     <div className="admin-page">
       <PageHeader
-        title={adding ? "New person" : person?.email ?? "Person"}
+        title={adding ? t("New person") : person?.email ?? t("Person")}
         subtitle={
           person?.bonusEmail
-            ? `Verified ${person.bonusEmail}${person.bonusActive ? ", earns the email reward" : ", no longer rewarded"}`
+            ? person.bonusActive
+              ? t("Verified {bonusEmail}, earns the email reward", { bonusEmail: person.bonusEmail })
+              : t("Verified {bonusEmail}, no longer rewarded", { bonusEmail: person.bonusEmail })
             : undefined
         }
-        back={{ label: "People", to: "/admin/people" }}
+        back={{ label: t("People"), to: "/admin/people" }}
       />
       <div className="oy-page-column page-body">
         {loadError ? (
@@ -141,10 +144,10 @@ export function PersonFormPage() {
           <form className="form-page" onSubmit={save}>
             {adding && (
               <>
-                <LineField id="person-email" label="Email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <LineField id="person-email" label={t("Email")} type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
                 <LineField
                   id="person-password"
-                  label="Temporary password"
+                  label={t("Temporary password")}
                   type="text"
                   autoComplete="off"
                   spellCheck={false}
@@ -154,31 +157,37 @@ export function PersonFormPage() {
               </>
             )}
 
-            <OptionList label="Role" value={role} onChange={setRole} options={ROLES} />
+            <OptionList label={t("Role")} value={role} onChange={setRole} options={ROLES} />
 
             {!adding && (
               <>
                 {groups.length > 0 && (
                   <CheckList
-                    label="Groups"
+                    label={t("Groups")}
                     values={groupIds}
                     onChange={setGroupIds}
                     options={groups.map((g) => ({ id: String(g.id), label: g.name }))}
                   />
                 )}
                 <CheckList
-                  label="Extra models they can pick"
+                  label={t("Extra models they can pick")}
                   values={granted}
                   onChange={setGrantedKeys}
                   options={restricted.map((k) => ({ id: String(k.id), label: k.label, detail: k.modelLabel }))}
-                  empty="Every key is open to everyone. Set a key to “Only people you choose” to grant it here"
+                  empty={t("Every key is open to everyone. Set a key to “Only people you choose” to grant it here")}
                 />
                 <OptionList
-                  label="New chats start with"
+                  label={t("New chats start with")}
                   value={keyId}
                   onChange={setKeyId}
                   options={[
-                    { id: "default", label: "The default key", detail: defaultKey ? `${defaultKey.label}, which starts chats on ${defaultKey.modelLabel}` : "None set yet" },
+                    {
+                      id: "default",
+                      label: t("The default key"),
+                      detail: defaultKey
+                        ? t("{label}, which starts chats on {modelLabel}", { label: defaultKey.label, modelLabel: defaultKey.modelLabel })
+                        : t("None set yet"),
+                    },
                     // Every key is listed; the ones they can't pick yet rest, so granting one above
                     // doesn't add a row here.
                     ...(keys ?? [])
@@ -187,44 +196,49 @@ export function PersonFormPage() {
                   ]}
                 />
                 <OptionList
-                  label={`Spending each month (${formatCost(person!.spentThisMonth)} so far)`}
+                  label={t("Spending each month ({spentThisMonth} so far)", { spentThisMonth: formatCost(person!.spentThisMonth) })}
                   value={spendMode}
                   onChange={setSpendMode}
                   options={[
                     {
                       id: "site",
-                      label: "The site's limit",
+                      label: t("The site's limit"),
                       detail:
                         role === "admin"
-                          ? "Admins aren't held to it, so no limit"
+                          ? t("Admins aren't held to it, so no limit")
                           : siteSpend == null
-                            ? "None is set in Settings, so no limit"
+                            ? t("None is set in Settings, so no limit")
                             : person!.bonusSpend
-                              ? `${formatCost(siteSpend)} a month, set in Settings, and ${formatCost(person!.bonusSpend)} from their email reward`
-                              : `${formatCost(siteSpend)} a month, set in Settings`,
+                              ? t("{siteSpend} a month, set in Settings, and {bonusSpend} from their email reward", {
+                                  siteSpend: formatCost(siteSpend),
+                                  bonusSpend: formatCost(person!.bonusSpend),
+                                })
+                              : t("{siteSpend} a month, set in Settings", { siteSpend: formatCost(siteSpend) }),
                     },
-                    { id: "own", label: "Their own limit", detail: "Higher or lower than everyone else's" },
-                    { id: "none", label: "No limit" },
+                    { id: "own", label: t("Their own limit"), detail: t("Higher or lower than everyone else's") },
+                    { id: "none", label: t("No limit") },
                   ]}
                 />
                 {spendMode === "own" && (
                   <LineField
                     id="person-spend"
-                    label="Dollars a month"
+                    label={t("Dollars a month")}
                     inputMode="decimal"
                     autoComplete="off"
                     value={ownSpend}
                     onChange={(e) => setOwnSpend(amountInput(e.target.value))}
                     hint={
                       person!.bonusSpend
-                        ? `Their email reward adds ${formatCost(person!.bonusSpend)}. Estimated from each model's price, counted from the 1st`
-                        : "Estimated from each model's price, counted from the 1st"
+                        ? t("Their email reward adds {bonusSpend}. Estimated from each model's price, counted from the 1st", {
+                            bonusSpend: formatCost(person!.bonusSpend),
+                          })
+                        : t("Estimated from each model's price, counted from the 1st")
                     }
                   />
                 )}
                 <LineField
                   id="person-limit"
-                  label="Monthly token limit (empty for none)"
+                  label={t("Monthly token limit (empty for none)")}
                   inputMode="numeric"
                   autoComplete="off"
                   value={limit}
@@ -234,7 +248,7 @@ export function PersonFormPage() {
                   <div className="oy-row">
                     <div className="text">
                       <label className="title" htmlFor="person-active">
-                        Account on
+                        {t("Account on")}
                       </label>
                     </div>
                     <Switch id="person-active" checked={active} onChange={setActive} disabled={isSelf} />
@@ -247,10 +261,10 @@ export function PersonFormPage() {
 
             <div className="form-page-actions">
               <BusyButton type="submit" className="btn-primary" busy={busy} disabled={adding && (!email || !password)}>
-                {adding ? "Add person" : "Save"}
+                {adding ? t("Add person") : t("Save")}
               </BusyButton>
               <SlideLink to="/admin/people" direction="back" className="btn-secondary">
-                Cancel
+                {t("Cancel")}
               </SlideLink>
             </div>
           </form>
@@ -258,13 +272,13 @@ export function PersonFormPage() {
 
         {person && (
           <div className="oy-group settings-group">
-            <p className="oy-overline">Password</p>
+            <p className="oy-overline">{t("Password")}</p>
             {isSelf ? (
               <div className="settings-panel">
-                <p className="settings-text">Yours is changed under Settings, which keeps you signed in here</p>
+                <p className="settings-text">{t("Yours is changed under Settings, which keeps you signed in here")}</p>
                 <div className="form-page-actions">
                   <SlideLink to="/settings/password" direction="forward" className="btn-secondary">
-                    Change your password
+                    {t("Change your password")}
                   </SlideLink>
                 </div>
               </div>
@@ -276,13 +290,13 @@ export function PersonFormPage() {
 
         {person && (
           <div className="oy-group settings-group">
-            <p className="oy-overline">Devices</p>
+            <p className="oy-overline">{t("Devices")}</p>
             {isSelf ? (
               <div className="settings-panel">
-                <p className="settings-text">Yours are under Settings, which keeps you signed in here</p>
+                <p className="settings-text">{t("Yours are under Settings, which keeps you signed in here")}</p>
                 <div className="form-page-actions">
                   <SlideLink to="/settings/devices" direction="forward" className="btn-secondary">
-                    See where you're signed in
+                    {t("See where you're signed in")}
                   </SlideLink>
                 </div>
               </div>
@@ -294,13 +308,13 @@ export function PersonFormPage() {
 
         {person && (
           <div className="oy-group settings-group">
-            <p className="oy-overline">Two-step verification</p>
+            <p className="oy-overline">{t("Two-step verification")}</p>
             {isSelf ? (
               <div className="settings-panel">
-                <p className="settings-text">Yours is under Settings, which asks for your password to change it</p>
+                <p className="settings-text">{t("Yours is under Settings, which asks for your password to change it")}</p>
                 <div className="form-page-actions">
                   <SlideLink to="/settings/two-step" direction="forward" className="btn-secondary">
-                    Your two-step verification
+                    {t("Your two-step verification")}
                   </SlideLink>
                 </div>
               </div>
@@ -354,7 +368,7 @@ function NewPassword({ person, onSet }: { person: Person; onSet: () => void }) {
     return (
       <div className="settings-panel">
         <p id="person-password-note" className="settings-text">
-          {done ? "New password set. They were signed out everywhere" : "If they can't sign in, set a new one and pass it on. It signs them out everywhere"}
+          {done ? t("New password set. They were signed out everywhere") : t("If they can't sign in, set a new one and pass it on. It signs them out everywhere")}
         </p>
         <div className="form-page-actions">
           <button
@@ -364,7 +378,7 @@ function NewPassword({ person, onSet }: { person: Person; onSet: () => void }) {
             autoFocus={refolded}
             onClick={() => setOpen(true)}
           >
-            Set a new password
+            {t("Set a new password")}
           </button>
         </div>
       </div>
@@ -381,25 +395,25 @@ function NewPassword({ person, onSet }: { person: Person; onSet: () => void }) {
     >
       <LineField
         id="person-new-password"
-        label="New password"
+        label={t("New password")}
         type="text"
         autoComplete="off"
         spellCheck={false}
         autoFocus
         value={password}
         onChange={(e) => setPassword(e.target.value)}
-        hint="At least 8 characters"
+        hint={t("At least 8 characters")}
         error={error}
       />
       {/* InlineConfirm's line, under the field it asks about: the field is the first step. */}
-      <div className="inline-confirm" role="group" aria-label="Setting it signs them out everywhere">
-        <span>Setting it signs them out everywhere</span>
+      <div className="inline-confirm" role="group" aria-label={t("Setting it signs them out everywhere")}>
+        <span>{t("Setting it signs them out everywhere")}</span>
         <span className="inline-confirm-actions">
           <button type="button" className="btn-secondary btn-sm" onClick={() => fold(false)}>
-            Cancel
+            {t("Cancel")}
           </button>
           <BusyButton type="submit" className="btn-danger btn-sm" busy={busy} disabled={!password}>
-            Set password
+            {t("Set password")}
           </BusyButton>
         </span>
       </div>
@@ -411,11 +425,21 @@ type Spread = { sessions: Device[]; devices: number; networks: number; programs:
 
 /** Where they're signed in, as sentences: how many devices and networks, and any that aren't browsers. */
 function spreadText(d: Spread): string {
-  if (!d.devices) return "Not signed in anywhere";
-  const parts = [`On ${plural(d.devices, "device", "devices")}${d.networks ? `, used from ${plural(d.networks, "network", "networks")} this week` : ""}`];
+  if (!d.devices) return t("Not signed in anywhere");
+  const devices = plural(d.devices, "device", "devices");
+  const parts = [
+    d.networks
+      ? t("On {devices}, used from {networks} this week", { devices, networks: plural(d.networks, "network", "networks") })
+      : t("On {devices}", { devices }),
+  ];
   if (d.programs) {
     parts.push(
-      `${d.programs === 1 ? "One is a program, not a browser" : `${d.programs} are programs, not browsers`}: their sign-in used by a script, which can pass this site's models on to other apps or people`,
+      tn(
+        d.programs,
+        "One is a program, not a browser: their sign-in used by a script, which can pass this site's models on to other apps or people",
+        "{programs} are programs, not browsers: their sign-in used by a script, which can pass this site's models on to other apps or people",
+        { programs: d.programs },
+      ),
     );
   }
   return parts.join(". ");
@@ -454,9 +478,9 @@ function PersonDevices({ person }: { person: Person }) {
             }}
           />
           <DangerRow
-            label="Sign out everywhere"
-            confirmLabel={`Sign ${person.email} out of every device?`}
-            action="Sign out"
+            label={t("Sign out everywhere")}
+            confirmLabel={t("Sign {email} out of every device?", { email: person.email })}
+            action={t("Sign out")}
             onConfirm={async () => {
               setError(null);
               try {
@@ -480,20 +504,22 @@ function PersonDevices({ person }: { person: Person }) {
 function PersonTwoStep({ person }: { person: Person }) {
   const [state, setState] = useState(person.twoStep);
   const [error, setError] = useState<string | null>(null);
-  const ways = [state.totp && "an authenticator app", state.passkeys > 0 && plural(state.passkeys, "passkey", "passkeys")].filter(Boolean);
+  const ways = [state.totp && t("an authenticator app"), state.passkeys > 0 && plural(state.passkeys, "passkey", "passkeys")].filter((w) => typeof w === "string");
   return (
     <>
       <p className="group-intro">
         {state.on
-          ? `On, with ${ways.join(" and ")}. If they've lost their phone and their recovery codes, turn it off so they can sign in with their password, then set it up again`
-          : "Off. They can turn it on under Settings"}
+          ? t("On, with {andText}. If they've lost their phone and their recovery codes, turn it off so they can sign in with their password, then set it up again", {
+              andText: andText(ways),
+            })
+          : t("Off. They can turn it on under Settings")}
       </p>
       {error && <Advisory>{error}</Advisory>}
       {state.on && (
         <DangerRow
-          label="Turn off two-step verification"
-          confirmLabel={`Turn off ${person.email}'s two-step verification?`}
-          action="Turn off"
+          label={t("Turn off two-step verification")}
+          confirmLabel={t("Turn off {email}'s two-step verification?", { email: person.email })}
+          action={t("Turn off")}
           onConfirm={async () => {
             setError(null);
             try {

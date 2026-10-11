@@ -8,6 +8,7 @@ import { Agent, fetch } from "undici";
 import { decryptSecret } from "./crypto.ts";
 import { getSettings, searchKeySealed, type SearchProvider } from "./db.ts";
 import { env } from "./env.ts";
+import { t } from "./i18n.ts";
 import { documentText, htmlText } from "./knowledge.ts";
 import type { Source, ToolSpec } from "./providers/types.ts";
 
@@ -61,7 +62,13 @@ async function getJson(url: string, init: { method?: string; headers?: Record<st
   const res = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).slice(0, 200);
-    throw new Error(res.status === 401 || res.status === 403 ? "The search service turned down its key" : `The search service answered ${res.status}${detail ? `: ${detail}` : ""}`);
+    throw new Error(
+      res.status === 401 || res.status === 403
+        ? t("The search service turned down its key")
+        : detail
+          ? t("The search service answered {status}: {detail}", { status: res.status, detail })
+          : t("The search service answered {status}", { status: res.status }),
+    );
   }
   return (await res.json()) as Record<string, unknown>;
 }
@@ -111,7 +118,7 @@ export async function webSearch(query: string): Promise<Found[]> {
       return list(data.results, (r) => ({ title: str(r.title), url: str(r.url), snippet: str(r.content) }));
     }
     default:
-      throw new Error("Web search isn't set up on this site");
+      throw new Error(t("Web search isn't set up on this site"));
   }
 }
 

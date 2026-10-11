@@ -2,6 +2,7 @@
 // pick any of its allowed models and that model's thinking levels, chat by chat.
 import { bonusOf } from "./bonus.ts";
 import { db } from "./db.ts";
+import { t } from "./i18n.ts";
 import { EFFORT_LABELS, findProvider, hasTools, OFF_BY_DEFAULT, readsOf, serviceName, type FileKind, type ModelInfo } from "./providers/catalog.ts";
 
 export type KeyRow = {
@@ -165,8 +166,8 @@ export function pickerChoices(keys: KeyRow[]) {
     return {
       keyId: key.id,
       model,
-      label: twice(model) ? `${label} on ${key.label}` : label,
-      efforts: (keyModel(key, model)?.efforts ?? []).map((id) => ({ id, label: EFFORT_LABELS[id] ?? id })),
+      label: twice(model) ? t("{label} on {keyLabel}", { label, keyLabel: key.label }) : label,
+      efforts: (keyModel(key, model)?.efforts ?? []).map((id) => ({ id, label: EFFORT_LABELS[id] ? t(EFFORT_LABELS[id]) : id })),
       defaultEffort: start.effort,
       // What it can open: images, PDFs and text, or less; Claude and OpenAI also anything else in
       // chats where they can run code.

@@ -1,5 +1,6 @@
 // Email rewards, as the account pages show them.
 import { compactNumber, formatCost } from "./format.ts";
+import { andText, orText, t } from "./i18n.ts";
 
 export type BonusStatus = {
   /** Domains whose addresses earn the reward; empty when the site offers none. */
@@ -12,19 +13,16 @@ export type BonusStatus = {
   mail: "smtp" | "dev" | "off";
 };
 
-const list = (items: string[], joiner = "and") =>
-  items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} ${joiner} ${items[items.length - 1]}`;
-
 /** "$2.00 more to spend a month and access to Claude Fable 5.1", or null when the admins set no reward. */
 export function rewardText(reward: BonusStatus["reward"]): string | null {
   const parts: string[] = [];
-  if (reward.spend) parts.push(`${formatCost(reward.spend)} more to spend a month`);
-  if (reward.tokens) parts.push(`${compactNumber(reward.tokens)} extra tokens a month`);
-  if (reward.models.length) parts.push(`access to ${list(reward.models)}`);
-  return parts.length ? list(parts) : null;
+  if (reward.spend) parts.push(t("{spend} more to spend a month", { spend: formatCost(reward.spend) }));
+  if (reward.tokens) parts.push(t("{tokens} extra tokens a month", { tokens: compactNumber(reward.tokens) }));
+  if (reward.models.length) parts.push(t("access to {list}", { list: andText(reward.models) }));
+  return parts.length ? andText(parts) : null;
 }
 
 /** "example.edu or example.org", shortened past three. */
 export function domainsText(domains: string[]): string {
-  return domains.length > 3 ? `${domains.slice(0, 3).join(", ")} and ${domains.length - 3} more` : list(domains, "or");
+  return domains.length > 3 ? t("{domains} and {length} more", { domains: domains.slice(0, 3).join(", "), length: domains.length - 3 }) : orText(domains);
 }

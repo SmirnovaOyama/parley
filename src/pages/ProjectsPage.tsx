@@ -9,7 +9,8 @@ import { PageHeader } from "../components/PageHeader.tsx";
 import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api, type KnowledgeBase, type Project } from "../lib/api.ts";
-import { plural, shortDate } from "../lib/format.ts";
+import { formatNumber, plural, shortDate } from "../lib/format.ts";
+import { andText, t, tn } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
 import { useSlideNavigate } from "../lib/slide.ts";
 
@@ -17,9 +18,9 @@ const MAX_PROJECT_INSTRUCTIONS = 8000;
 
 /** What a project holds, as a sentence for its row. */
 function projectDesc(p: Project): string {
-  const chats = p.chats ? `Holds ${plural(p.chats, "chat", "chats")}` : "No chats yet";
-  const extras = [p.instructions.trim() && "instructions", p.knowledgeIds.length && plural(p.knowledgeIds.length, "knowledge base", "knowledge bases")].filter(Boolean);
-  return extras.length ? `${chats}, with ${extras.join(" and ")}` : chats;
+  const chats = p.chats ? tn(p.chats, "Holds {chats} chat", "Holds {chats} chats", { chats: formatNumber(p.chats) }) : t("No chats yet");
+  const extras = [p.instructions.trim() && t("instructions"), p.knowledgeIds.length && plural(p.knowledgeIds.length, "knowledge base", "knowledge bases")].filter(Boolean) as string[];
+  return extras.length ? t("{chats}, with {extras}", { chats, extras: andText(extras) }) : chats;
 }
 
 /** Every project (/projects): folders of chats with their own instructions and knowledge. */
@@ -35,13 +36,13 @@ export function ProjectsPage() {
   return (
     <>
       <PageHeader
-        title="Projects"
+        title={t("Projects")}
         subtitle={projects.length ? plural(projects.length, "project", "projects") : undefined}
-        back={{ label: "Chats", to: "/chats", mobileOnly: true }}
+        back={{ label: t("Chats"), to: "/chats", mobileOnly: true }}
         trailing={
           <button type="button" className="btn-primary" onClick={() => slideTo("/projects/new", "forward")}>
             <Icon name="plus" size={20} />
-            New project
+            {t("New project")}
           </button>
         }
       />
@@ -49,8 +50,8 @@ export function ProjectsPage() {
         {!loaded && !projects.length ? (
           <Spinner />
         ) : projects.length === 0 ? (
-          <EmptyState doodle="folder" title="No projects yet">
-            A project keeps related chats together, with instructions and knowledge that every chat in it shares
+          <EmptyState doodle="folder" title={t("No projects yet")}>
+            {t("A project keeps related chats together, with instructions and knowledge that every chat in it shares")}
           </EmptyState>
         ) : (
           <div className="oy-section">
@@ -89,10 +90,10 @@ export function ProjectPage() {
   if (missing) {
     return (
       <>
-        <PageHeader title="Project" back={{ label: "Projects", to: "/projects" }} />
+        <PageHeader title={t("Project")} back={{ label: t("Projects"), to: "/projects" }} />
         <div className="oy-page-column page-body">
-          <EmptyState doodle="folder" title="This project isn't here">
-            It may have been deleted
+          <EmptyState doodle="folder" title={t("This project isn't here")}>
+            {t("It may have been deleted")}
           </EmptyState>
         </div>
       </>
@@ -105,11 +106,11 @@ export function ProjectPage() {
   return (
     <>
       <PageHeader
-        title={project?.name ?? "Project"}
+        title={project?.name ?? t("Project")}
         subtitle={project ? projectDesc(project) : undefined}
-        back={{ label: "Projects", to: "/projects" }}
+        back={{ label: t("Projects"), to: "/projects" }}
         trailing={
-          <SlideLink className="btn-ghost icon-button" to={`/projects/${id}/settings`} direction="forward" aria-label="Project settings">
+          <SlideLink className="btn-ghost icon-button" to={`/projects/${id}/settings`} direction="forward" aria-label={t("Project settings")}>
             <Icon name="gear" size={20} />
           </SlideLink>
         }
@@ -123,13 +124,13 @@ export function ProjectPage() {
             <div className="form-page-actions project-actions">
               <button type="button" className="btn-primary" onClick={startChat}>
                 <Icon name="compose" size={18} />
-                New chat in this project
+                {t("New chat in this project")}
               </button>
             </div>
             <div className="oy-group settings-group">
-              <p className="oy-overline">Chats</p>
+              <p className="oy-overline">{t("Chats")}</p>
               {chats.length === 0 ? (
-                <p className="group-empty">No chats here yet. Start one, or move a chat in from its settings</p>
+                <p className="group-empty">{t("No chats here yet. Start one, or move a chat in from its settings")}</p>
               ) : (
                 <div className="oy-section">
                   {chats.map((c) => (
@@ -188,7 +189,7 @@ export function ProjectSettingsPage() {
   const save = async (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError("Give the project a name");
+      setError(t("Give the project a name"));
       return;
     }
     setBusy(true);
@@ -219,9 +220,9 @@ export function ProjectSettingsPage() {
   return (
     <>
       <PageHeader
-        title={adding ? "New project" : "Project settings"}
-        subtitle={adding ? "Chats you start in it share its instructions and knowledge" : undefined}
-        back={{ label: adding ? "Projects" : (project?.name ?? "Project"), to: back }}
+        title={adding ? t("New project") : t("Project settings")}
+        subtitle={adding ? t("Chats you start in it share its instructions and knowledge") : undefined}
+        back={{ label: adding ? t("Projects") : (project?.name ?? t("Project")), to: back }}
       />
       <div className="oy-page-column page-body">
         {loadError ? (
@@ -231,38 +232,38 @@ export function ProjectSettingsPage() {
         ) : (
           <>
             <form className="form-page" onSubmit={save}>
-              <LineField id="project-name" label="Name" value={name} maxLength={80} autoComplete="off" onChange={(e) => setName(e.target.value)} />
+              <LineField id="project-name" label={t("Name")} value={name} maxLength={80} autoComplete="off" onChange={(e) => setName(e.target.value)} />
               <LineArea
                 id="project-instructions"
-                label="Instructions for every chat in it"
+                label={t("Instructions for every chat in it")}
                 value={instructions}
                 maxLength={MAX_PROJECT_INSTRUCTIONS}
                 onChange={(e) => setInstructions(e.target.value)}
-                hint={left <= 400 ? `${left} characters left` : "What the chats are about, and how the AI should work in them"}
+                hint={left <= 400 ? t("{left} characters left", { left }) : t("What the chats are about, and how the AI should work in them")}
               />
               {bases && (
                 <CheckList
-                  label="Knowledge its chats can search"
+                  label={t("Knowledge its chats can search")}
                   values={knowledge}
                   onChange={setKnowledge}
-                  options={bases.map((k) => ({ id: k.id, label: k.name, detail: k.shared && !k.mine ? `Shared by your admins. ${plural(k.docs, "document", "documents")}` : plural(k.docs, "document", "documents") }))}
-                  empty="You have no knowledge bases yet. Make one under Knowledge, then pick it here"
+                  options={bases.map((k) => ({ id: k.id, label: k.name, detail: k.shared && !k.mine ? tn(k.docs, "Shared by your admins. {docs} document", "Shared by your admins. {docs} documents", { docs: formatNumber(k.docs) }) : plural(k.docs, "document", "documents") }))}
+                  empty={t("You have no knowledge bases yet. Make one under Knowledge, then pick it here")}
                 />
               )}
-              {!adding && <p className="panel-note">A change reaches each chat in the project with its next message</p>}
+              {!adding && <p className="panel-note">{t("A change reaches each chat in the project with its next message")}</p>}
               {error && <Advisory>{error}</Advisory>}
               <div className="form-page-actions">
                 <BusyButton type="submit" className="btn-primary" busy={busy}>
-                  {adding ? "Make project" : "Save"}
+                  {adding ? t("Make project") : t("Save")}
                 </BusyButton>
                 <SlideLink to={back} direction="back" className="btn-secondary">
-                  Cancel
+                  {t("Cancel")}
                 </SlideLink>
               </div>
             </form>
             {!adding && (
               <div className="settings-danger">
-                <DangerRow label="Delete this project" confirmLabel="Delete this project? Its chats stay, moved out of it" onConfirm={remove} />
+                <DangerRow label={t("Delete this project")} confirmLabel={t("Delete this project? Its chats stay, moved out of it")} onConfirm={remove} />
               </div>
             )}
           </>

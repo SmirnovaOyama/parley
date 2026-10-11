@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Doodle, type DoodleName } from "../icons/Doodle.tsx";
 import { Icon } from "../icons/Icon.tsx";
+import { t } from "../lib/i18n.ts";
 
 /** A warning as a plain coloured line, never boxed, with an optional next step. */
 export function Advisory({ children, action }: { children: ReactNode; action?: ReactNode }) {
@@ -49,7 +50,7 @@ export function EmptyState({ doodle, title, children, action }: EmptyProps) {
  * The one loading mark: a turning stroke on a faint ring. Beside a chat with a reply being
  * written, while a page loads, while the AI thinks. `label` null when text beside it says it.
  */
-export function BusyMark({ label = "Replying", size = 14 }: { label?: string | null; size?: number }) {
+export function BusyMark({ label = t("Replying"), size = 14 }: { label?: string | null; size?: number }) {
   return (
     <svg
       className="busy-mark"
@@ -64,7 +65,7 @@ export function BusyMark({ label = "Replying", size = 14 }: { label?: string | n
   );
 }
 
-export function Spinner({ label = "Loading" }: { label?: string }) {
+export function Spinner({ label = t("Loading") }: { label?: string }) {
   return (
     <p className="loading-line" role="status">
       <BusyMark label={null} size={20} />

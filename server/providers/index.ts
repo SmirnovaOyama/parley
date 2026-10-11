@@ -4,6 +4,7 @@ import { deepseekProvider } from "./deepseek.ts";
 import { geminiProvider } from "./gemini.ts";
 import { openaiProvider } from "./openai.ts";
 import { xaiProvider } from "./xai.ts";
+import { t } from "../i18n.ts";
 import type { ProviderId } from "./catalog.ts";
 import type { ChatProvider } from "./types.ts";
 
@@ -25,13 +26,13 @@ export function getProvider(id: string): ChatProvider {
 /** Turns an SDK error into a sentence a person can act on. Both SDKs (Anthropic, OpenAI) expose `status`. */
 export function describeProviderError(err: unknown): string {
   const status = (err as { status?: number })?.status;
-  if (status === 401 || status === 403) return "The AI provider rejected the API key. Ask an admin to check it";
-  if (status === 402) return "The API key's account is out of credit. Ask an admin to top it up";
-  if (status === 404) return "The selected model isn't available for this key. Ask an admin to check it";
-  if (status === 429) return "The AI provider is rate limiting this key. Try again in a minute";
-  if (status === 529 || status === 503) return "The AI provider is busy right now. Try again in a minute";
-  if (status === 400) return "The AI provider couldn't process this conversation";
-  return "Couldn't reach the AI provider. Try again";
+  if (status === 401 || status === 403) return t("The AI provider rejected the API key. Ask an admin to check it");
+  if (status === 402) return t("The API key's account is out of credit. Ask an admin to top it up");
+  if (status === 404) return t("The selected model isn't available for this key. Ask an admin to check it");
+  if (status === 429) return t("The AI provider is rate limiting this key. Try again in a minute");
+  if (status === 529 || status === 503) return t("The AI provider is busy right now. Try again in a minute");
+  if (status === 400) return t("The AI provider couldn't process this conversation");
+  return t("Couldn't reach the AI provider. Try again");
 }
 
 /**

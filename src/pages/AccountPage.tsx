@@ -6,7 +6,8 @@ import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api, uploadRaw, type Connection, type Device, type Persona, type Policy, type TwoStep } from "../lib/api.ts";
 import { domainsText, rewardText, type BonusStatus } from "../lib/bonus.ts";
-import { compactNumber, formatCost, plural, shortDate } from "../lib/format.ts";
+import { compactNumber, formatCost, formatNumber, shortDate } from "../lib/format.ts";
+import { andText, LANG_CHOICE, setLang, t, tn } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
 import { devicesText } from "./DevicesPage.tsx";
 import { twoStepText } from "./TwoStepPage.tsx";
@@ -83,27 +84,29 @@ export function AccountPage() {
   }, []);
 
   const memoryDesc = !memory
-    ? "What the AI keeps about you between chats"
+    ? t("What the AI keeps about you between chats")
     : !memory.site
-      ? "Your admins have turned memory off"
+      ? t("Your admins have turned memory off")
       : !memory.on
-        ? `Off${memory.memories.length ? `, with ${plural(memory.memories.length, "note", "notes")} kept` : ""}`
+        ? memory.memories.length
+          ? tn(memory.memories.length, "Off, with {count} note kept", "Off, with {count} notes kept", { count: formatNumber(memory.memories.length) })
+          : t("Off")
         : memory.memories.length
-          ? `On, with ${plural(memory.memories.length, "note", "notes")}`
-          : "On. Nothing saved yet";
+          ? tn(memory.memories.length, "On, with {count} note", "On, with {count} notes", { count: formatNumber(memory.memories.length) })
+          : t("On. Nothing saved yet");
 
   const startsAs = personas?.find((p) => p.forNewChats);
   const personaDesc = !personas?.length
-    ? "Who you are to the AI and how it should answer, up to five"
+    ? t("Who you are to the AI and how it should answer, up to five")
     : startsAs
-      ? `New chats start as ${startsAs.name}`
-      : `${plural(personas.length, "persona", "personas")}. New chats start without one`;
+      ? t("New chats start as {name}", { name: startsAs.name })
+      : tn(personas.length, "{count} persona. New chats start without one", "{count} personas. New chats start without one", { count: formatNumber(personas.length) });
 
   useEffect(() => applyTheme(theme), [theme]);
 
   return (
     <>
-      <PageHeader title="Settings" />
+      <PageHeader title={t("Settings")} />
       <div className="oy-page-column page-body">
         {/* Who's signed in, first. */}
         <div className="settings-profile">
@@ -112,35 +115,35 @@ export function AccountPage() {
           </span>
           <div className="text">
             <p className="title truncate">{user?.email}</p>
-            <div className="desc">{user?.role === "admin" ? "Admin of this site" : "Member"}</div>
+            <div className="desc">{user?.role === "admin" ? t("Admin of this site") : t("Member")}</div>
           </div>
         </div>
 
         <div className="oy-group">
-          <p className="oy-overline">Account</p>
+          <p className="oy-overline">{t("Account")}</p>
           <div className="oy-section">
             <SlideLink className="oy-row" to="/settings/password" direction="forward">
               <Icon name="lock" size={20} />
               <div className="text">
-                <p className="title">Password</p>
-                <div className="desc">{passwordChanged ? "Changed. Other devices were signed out" : "Change the password you sign in with"}</div>
+                <p className="title">{t("Password")}</p>
+                <div className="desc">{passwordChanged ? t("Changed. Other devices were signed out") : t("Change the password you sign in with")}</div>
               </div>
               <Icon name="chevron-right" size={18} className="chevron" />
             </SlideLink>
             <SlideLink className="oy-row" to="/settings/two-step" direction="forward">
               <Icon name="shield" size={20} />
               <div className="text">
-                <p className="title">Two-step verification</p>
-                <div className="desc">{twoStep ? twoStepText(twoStep) : "A code from an app, or a passkey, after your password"}</div>
+                <p className="title">{t("Two-step verification")}</p>
+                <div className="desc">{twoStep ? twoStepText(twoStep) : t("A code from an app, or a passkey, after your password")}</div>
               </div>
               <Icon name="chevron-right" size={18} className="chevron" />
             </SlideLink>
             <SlideLink className="oy-row" to="/settings/devices" direction="forward">
               <Icon name="devices" size={20} />
               <div className="text">
-                <p className="title">Where you're signed in</p>
+                <p className="title">{t("Where you're signed in")}</p>
                 <div className={`desc${devices?.some((d) => !d.browser) ? " text-warning" : ""}`}>
-                  {devices ? devicesText(devices) : "The devices signed in to your account"}
+                  {devices ? devicesText(devices) : t("The devices signed in to your account")}
                 </div>
               </div>
               <Icon name="chevron-right" size={18} className="chevron" />
@@ -149,21 +152,38 @@ export function AccountPage() {
         </div>
 
         <div className="oy-group">
-          <p className="oy-overline">Appearance</p>
+          <p className="oy-overline">{t("Appearance")}</p>
           <div className="oy-section">
             <div className="oy-row">
               <Icon name="sun" size={20} />
               <div className="text">
-                <p className="title">Theme</p>
+                <p className="title">{t("Theme")}</p>
               </div>
               <Segmented
-                aria-label="Theme"
+                aria-label={t("Theme")}
                 value={theme}
                 onChange={setTheme}
                 options={[
-                  { id: "light", label: "Light" },
-                  { id: "dark", label: "Dark" },
-                  { id: "system", label: "System" },
+                  { id: "light", label: t("Light") },
+                  { id: "dark", label: t("Dark") },
+                  { id: "system", label: t("System") },
+                ]}
+              />
+            </div>
+            <div className="oy-row">
+              <Icon name="chat" size={20} />
+              <div className="text">
+                <p className="title">{t("Language")}</p>
+              </div>
+              <Segmented
+                aria-label={t("Language")}
+                value={LANG_CHOICE}
+                onChange={setLang}
+                options={[
+                  { id: "system", label: t("System") },
+                  { id: "en", label: t("English") },
+                  // Written in itself, so anyone can find their language.
+                  { id: "zh", label: "中文" },
                 ]}
               />
             </div>
@@ -171,12 +191,12 @@ export function AccountPage() {
         </div>
 
         <div className="oy-group">
-          <p className="oy-overline">Assistant</p>
+          <p className="oy-overline">{t("Assistant")}</p>
           <div className="oy-section">
             <SlideLink className="oy-row" to="/settings/personas" direction="forward">
               <Icon name="user" size={20} />
               <div className="text">
-                <p className="title">Personas</p>
+                <p className="title">{t("Personas")}</p>
                 <div className="desc truncate">{personaDesc}</div>
               </div>
               <Icon name="chevron-right" size={18} className="chevron" />
@@ -184,7 +204,7 @@ export function AccountPage() {
             <SlideLink className="oy-row" to="/settings/memory" direction="forward">
               <Icon name="note" size={20} />
               <div className="text">
-                <p className="title">What the AI remembers</p>
+                <p className="title">{t("What the AI remembers")}</p>
                 <div className="desc">{memoryDesc}</div>
               </div>
               <Icon name="chevron-right" size={18} className="chevron" />
@@ -193,7 +213,7 @@ export function AccountPage() {
               <SlideLink className="oy-row" to="/settings/connections" direction="forward">
                 <Icon name="plug" size={20} />
                 <div className="text">
-                  <p className="title">Connected services</p>
+                  <p className="title">{t("Connected services")}</p>
                   <div className="desc">{connectionsText(connections)}</div>
                 </div>
                 <Icon name="chevron-right" size={18} className="chevron" />
@@ -211,14 +231,14 @@ export function AccountPage() {
         {/* What the site's rules say about people's chats; admins choose whether the first is shown. */}
         {policy && (policy.privacyNotice || policy.retainChatsDays != null || policy.retainDeletedDays != null) && (
           <div className="oy-group">
-            <p className="oy-overline">Privacy</p>
+            <p className="oy-overline">{t("Privacy")}</p>
             <div className="oy-section">
               {policy.privacyNotice && (
                 <div className="oy-row">
                   <Icon name="eye" size={20} />
                   <div className="text">
-                    <p className="title">Admins can read your chats</p>
-                    <div className="desc">The people who run this site can open any conversation, and each time they do it's logged</div>
+                    <p className="title">{t("Admins can read your chats")}</p>
+                    <div className="desc">{t("The people who run this site can open any conversation, and each time they do it's logged")}</div>
                   </div>
                 </div>
               )}
@@ -226,7 +246,7 @@ export function AccountPage() {
                 <div className="oy-row">
                   <Icon name="trash" size={20} />
                   <div className="text">
-                    <p className="title">How long chats are kept</p>
+                    <p className="title">{t("How long chats are kept")}</p>
                     <div className="desc">{retentionText(policy)}</div>
                   </div>
                 </div>
@@ -236,13 +256,13 @@ export function AccountPage() {
         )}
 
         <div className="oy-group">
-          <p className="oy-overline">About</p>
+          <p className="oy-overline">{t("About")}</p>
           <div className="oy-section">
             <a className="oy-row" href={REPOSITORY} target="_blank" rel="noopener noreferrer">
               <Icon name="code" size={20} />
               <div className="text">
                 <p className="title">Parley {__APP_VERSION__}</p>
-                <div className="desc">Open source, under the AGPL. Its code, and where to report a problem, are on GitHub</div>
+                <div className="desc">{t("Open source, under the AGPL. Its code, and where to report a problem, are on GitHub")}</div>
               </div>
             </a>
           </div>
@@ -253,7 +273,7 @@ export function AccountPage() {
             <button type="button" className="oy-row" onClick={() => void signOut().then(() => navigate("/login", { replace: true }))}>
               <Icon name="logout" size={20} />
               <div className="text">
-                <p className="title">Sign out</p>
+                <p className="title">{t("Sign out")}</p>
               </div>
             </button>
           </div>
@@ -266,24 +286,33 @@ export function AccountPage() {
 /** Where Parley's code lives, for the About row. */
 const REPOSITORY = "https://github.com/SmirnovaOyama/parley";
 
-/** "Notes", "Notes and GitHub", "Notes, GitHub and Linear". */
-function namesText(names: string[]): string {
-  return names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-}
-
 /** Where you stand with the services whose tools act with your own account, as a sentence. */
 function connectionsText(list: Connection[]): string {
   const waiting = list.filter((c) => c.status !== "connected").map((c) => c.name);
-  if (!waiting.length) return `Connected to ${namesText(list.map((c) => c.name))}`;
-  return `${namesText(waiting)} ${waiting.length === 1 ? "needs" : "need"} your own account before chats can use ${waiting.length === 1 ? "its" : "their"} tools`;
+  if (!waiting.length) return t("Connected to {namesText}", { namesText: andText(list.map((c) => c.name)) });
+  return tn(waiting.length, "{namesText} needs your own account before chats can use its tools", "{namesText} need your own account before chats can use their tools", {
+    namesText: andText(waiting),
+  });
 }
 
 /** The site's retention rules, as sentences. */
 function retentionText(p: Policy): string {
   const parts: string[] = [];
-  if (p.retainChatsDays != null) parts.push(`A chat nobody has touched for ${plural(p.retainChatsDays, "day", "days")} is deleted, files and all`);
-  if (p.retainDeletedDays === 0) parts.push("A chat you delete is gone at once, for admins too");
-  else if (p.retainDeletedDays != null) parts.push(`A chat you delete stays readable to admins for ${plural(p.retainDeletedDays, "day", "days")}, then goes`);
+  if (p.retainChatsDays != null) {
+    parts.push(
+      tn(p.retainChatsDays, "A chat nobody has touched for {retainChatsDays} day is deleted, files and all", "A chat nobody has touched for {retainChatsDays} days is deleted, files and all", {
+        retainChatsDays: formatNumber(p.retainChatsDays),
+      }),
+    );
+  }
+  if (p.retainDeletedDays === 0) parts.push(t("A chat you delete is gone at once, for admins too"));
+  else if (p.retainDeletedDays != null) {
+    parts.push(
+      tn(p.retainDeletedDays, "A chat you delete stays readable to admins for {retainDeletedDays} day, then goes", "A chat you delete stays readable to admins for {retainDeletedDays} days, then goes", {
+        retainDeletedDays: formatNumber(p.retainDeletedDays),
+      }),
+    );
+  }
   return parts.join(". ");
 }
 
@@ -296,18 +325,21 @@ function DataGroup() {
 
   const importFile = async (file: File) => {
     setBusy(true);
-    setStatus({ text: "Sending the file" });
+    setStatus({ text: t("Sending the file") });
     try {
       const r = await uploadRaw<{ chats: number; skipped: number; projects: number; memories: number; source: string }>("/import", file, file.name, (p) =>
-        setStatus({ text: p < 1 ? `Sending the file, ${Math.round(p * 100)}%` : "Reading the chats" }),
+        setStatus({ text: p < 1 ? t("Sending the file, {round}%", { round: Math.round(p * 100) }) : t("Reading the chats") }),
       ).promise;
-      const from = { parley: "a Parley export", chatgpt: "ChatGPT", claude: "Claude" }[r.source] ?? "the file";
-      const extras = [r.projects && plural(r.projects, "project", "projects"), r.memories && plural(r.memories, "note", "notes") + " for memory"].filter(Boolean);
+      const from = { parley: t("a Parley export"), chatgpt: "ChatGPT", claude: "Claude" }[r.source] ?? t("the file");
+      const extras = [
+        r.projects && tn(r.projects, "{projects} project", "{projects} projects", { projects: formatNumber(r.projects) }),
+        r.memories && tn(r.memories, "{memories} note", "{memories} notes", { memories: formatNumber(r.memories) }) + " " + t("for memory"),
+      ].filter(Boolean) as string[];
       setStatus({
         text:
-          `Brought in ${plural(r.chats, "chat", "chats")} from ${from}` +
-          (extras.length ? `, with ${extras.join(" and ")}` : "") +
-          (r.skipped ? `. ${plural(r.skipped, "chat was", "chats were")} here already` : ""),
+          tn(r.chats, "Brought in {chats} chat from {from}", "Brought in {chats} chats from {from}", { chats: formatNumber(r.chats), from }) +
+          (extras.length ? t(", with {extras}", { extras: andText(extras) }) : "") +
+          (r.skipped ? tn(r.skipped, ". {skipped} chat was here already", ". {skipped} chats were here already", { skipped: formatNumber(r.skipped) }) : ""),
       });
       void refreshConversations();
       void refreshProjects();
@@ -320,23 +352,23 @@ function DataGroup() {
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">Your data</p>
+      <p className="oy-overline">{t("Your data")}</p>
       <div className="oy-section">
         <a className="oy-row" href="/api/export" download>
           <Icon name="download" size={20} />
           <div className="text">
-            <p className="title">Export everything</p>
-            <div className="desc">Your chats with every version of each message, projects, personas and memory, as one file. Attached files stay here</div>
+            <p className="title">{t("Export everything")}</p>
+            <div className="desc">{t("Your chats with every version of each message, projects, personas and memory, as one file. Attached files stay here")}</div>
           </div>
         </a>
         <button type="button" className="oy-row" disabled={busy} onClick={() => pickerRef.current?.click()}>
           <Icon name="upload" size={20} />
           <div className="text">
-            <p className="title">Import chats</p>
+            <p className="title">{t("Import chats")}</p>
             {/* The progress and the result take the place of the sentence, which keeps its room. */}
             <div className={`desc swap${status?.error ? " text-danger" : ""}`}>
               <span className={status ? "reserve" : undefined} aria-hidden={status ? true : undefined}>
-                From a Parley export, or the export ChatGPT or Claude emails you (the .zip, or conversations.json inside it)
+                {t("From a Parley export, or the export ChatGPT or Claude emails you (the .zip, or conversations.json inside it)")}
               </span>
               {status && <span className="tabular">{status.text}</span>}
             </div>
@@ -362,15 +394,19 @@ function DataGroup() {
 function RewardsGroup({ bonus }: { bonus: BonusStatus }) {
   const reward = rewardText(bonus.reward);
   const v = bonus.verified;
-  const title = v?.active ? "Reward on" : v ? "Reward ended" : "Get a reward";
+  const title = v?.active ? t("Reward on") : v ? t("Reward ended") : t("Get a reward");
   const desc = v?.active
-    ? `Verified ${v.email}${reward ? `. You get ${reward}` : ""}`
+    ? reward
+      ? t("Verified {email}. You get {reward}", { email: v.email, reward })
+      : t("Verified {email}", { email: v.email })
     : v
-      ? `${v.email} no longer earns one. Verify an address at ${domainsText(bonus.domains)}`
-      : `Verify an address at ${domainsText(bonus.domains)}${reward ? ` to get ${reward}` : ""}`;
+      ? t("{email} no longer earns one. Verify an address at {domainsText}", { email: v.email, domainsText: domainsText(bonus.domains) })
+      : reward
+        ? t("Verify an address at {domainsText} to get {reward}", { domainsText: domainsText(bonus.domains), reward })
+        : t("Verify an address at {domainsText}", { domainsText: domainsText(bonus.domains) });
   return (
     <div className="oy-group">
-      <p className="oy-overline">Rewards</p>
+      <p className="oy-overline">{t("Rewards")}</p>
       <div className="oy-section">
         <SlideLink className="oy-row" to="/settings/bonus" direction="forward">
           <Icon name="gift" size={20} />
@@ -389,13 +425,13 @@ function RewardsGroup({ bonus }: { bonus: BonusStatus }) {
 function AllowanceGroup({ allowance: a }: { allowance: Allowance }) {
   const resets = shortDate(a.resetsAt);
   const meters = [
-    a.spendLimit != null && { id: "spend", title: "Spending", used: a.spent, limit: a.spendLimit, text: `${formatCost(a.spent)} of ${formatCost(a.spendLimit)}` },
-    a.tokenLimit != null && { id: "tokens", title: "Tokens", used: a.tokens, limit: a.tokenLimit, text: `${compactNumber(a.tokens)} of ${compactNumber(a.tokenLimit)} tokens` },
+    a.spendLimit != null && { id: "spend", title: t("Spending"), used: a.spent, limit: a.spendLimit, text: t("{spent} of {spendLimit}", { spent: formatCost(a.spent), spendLimit: formatCost(a.spendLimit) }) },
+    a.tokenLimit != null && { id: "tokens", title: t("Tokens"), used: a.tokens, limit: a.tokenLimit, text: t("{tokens} of {tokenLimit} tokens", { tokens: compactNumber(a.tokens), tokenLimit: compactNumber(a.tokenLimit) }) },
   ].filter((m) => !!m);
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">This month</p>
+      <p className="oy-overline">{t("This month")}</p>
       <div className="oy-section">
         {meters.map((m) => {
           const full = m.used >= m.limit;
@@ -405,12 +441,12 @@ function AllowanceGroup({ allowance: a }: { allowance: Allowance }) {
               <div className="text">
                 <p className="title">{m.title}</p>
                 <div className="desc">
-                  You've used {m.text}. {full ? `You can send messages again on ${resets}` : `It starts over on ${resets}`}
+                  {t("You've used {text}.", { text: m.text })} {full ? t("You can send messages again on {resets}", { resets }) : t("It starts over on {resets}", { resets })}
                 </div>
                 <span
                   className={`allowance-meter${full ? " is-full" : ""}`}
                   role="meter"
-                  aria-label={`${m.title} this month`}
+                  aria-label={t("{title} this month", { title: m.title })}
                   aria-valuemin={0}
                   aria-valuemax={m.limit}
                   aria-valuenow={Math.min(m.used, m.limit)}

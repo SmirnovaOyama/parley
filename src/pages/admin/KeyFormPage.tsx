@@ -10,6 +10,7 @@ import { SlideLink } from "../../components/SlideLink.tsx";
 import { Icon } from "../../icons/Icon.tsx";
 import { api } from "../../lib/api.ts";
 import { amountInput, amountText } from "../../lib/format.ts";
+import { t } from "../../lib/i18n.ts";
 import { useSlideNavigate } from "../../lib/slide.ts";
 import type { ApiKey, ProviderInfo, Service } from "./KeysPage.tsx";
 
@@ -21,16 +22,18 @@ const trimUrl = (url: string) => url.trim().replace(/\/+$/, "");
 /** The providers whose keys can search the web and make files, and what each switch says there. */
 const TOOL_COPY: Record<string, { search: string; code: string }> = {
   anthropic: {
-    search: "Claude can look things up and cite its sources. $10 per 1,000 searches, at most 5 per reply.",
+    search: t("Claude can look things up and cite its sources. $10 per 1,000 searches, at most 5 per reply."),
     code:
-      "Claude can run code in Anthropic's sandbox to make files people download: spreadsheets, charts, images, documents. " +
-      "Free alongside web search, otherwise $0.05 an hour after 1,550 free hours a month.",
+      t("Claude can run code in Anthropic's sandbox to make files people download: spreadsheets, charts, images, documents.") +
+      " " +
+      t("Free alongside web search, otherwise $0.05 an hour after 1,550 free hours a month."),
   },
   openai: {
-    search: "GPT can look things up and cite its sources. $10 per 1,000 searches, and the pages it reads count as input.",
+    search: t("GPT can look things up and cite its sources. $10 per 1,000 searches, and the pages it reads count as input."),
     code:
-      "GPT can run code in OpenAI's sandbox to make files people download: spreadsheets, charts, images, documents. " +
-      "$0.03 per 20-minute sandbox session.",
+      t("GPT can run code in OpenAI's sandbox to make files people download: spreadsheets, charts, images, documents.") +
+      " " +
+      t("$0.03 per 20-minute sandbox session."),
   },
 };
 
@@ -85,7 +88,7 @@ export function KeyFormPage() {
         }
         const key = list.keys.find((k) => String(k.id) === id);
         if (!key) {
-          setLoadError("This key doesn't exist any more");
+          setLoadError(t("This key doesn't exist any more"));
           return;
         }
         setExisting(key);
@@ -193,18 +196,18 @@ export function KeyFormPage() {
     }
   };
 
-  const title = adding ? "New key" : existing?.label ?? "Key";
+  const title = adding ? t("New key") : existing?.label ?? t("Key");
   // A service on the server itself (Ollama, say) may need no key.
   const secretLabel = !adding && existing?.last4
-    ? `New API key (now ends in ${existing.last4})`
+    ? t("New API key (now ends in {last4})", { last4: existing.last4 })
     : custom
-      ? "API key, if the service needs one"
-      : "API key";
+      ? t("API key, if the service needs one")
+      : t("API key");
   const ready = !!label.trim() && (custom ? !!trimUrl(baseUrl) && typed.length > 0 : !(adding && !secret.trim()));
 
   return (
     <div className="admin-page">
-      <PageHeader title={title} back={{ label: "API keys", to: "/admin/keys" }} />
+      <PageHeader title={title} back={{ label: t("API keys"), to: "/admin/keys" }} />
       <div className="oy-page-column page-body">
         {loadError ? (
           <Advisory>{loadError}</Advisory>
@@ -212,11 +215,11 @@ export function KeyFormPage() {
           <Spinner />
         ) : (
           <form className="form-page" onSubmit={save}>
-            <LineField id="key-label" label="Name" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={80} autoComplete="off" />
+            <LineField id="key-label" label={t("Name")} value={label} onChange={(e) => setLabel(e.target.value)} maxLength={80} autoComplete="off" />
 
             {adding && (
               <OptionList
-                label="Provider"
+                label={t("Provider")}
                 value={providerId}
                 onChange={switchProvider}
                 options={providers.map((p) => ({ id: p.id, label: p.label, detail: p.detail, features: p.features }))}
@@ -226,17 +229,17 @@ export function KeyFormPage() {
             {custom ? (
               <>
                 <OptionList
-                  label="Service"
+                  label={t("Service")}
                   value={service?.id ?? "elsewhere"}
                   onChange={pickService}
                   options={[
                     ...services.map((s) => ({ id: s.id, label: s.label, detail: new URL(s.baseUrl).host })),
-                    { id: "elsewhere", label: "Somewhere else", detail: "Type its address below" },
+                    { id: "elsewhere", label: t("Somewhere else"), detail: t("Type its address below") },
                   ]}
                 />
                 <LineField
                   id="key-base-url"
-                  label="Address"
+                  label={t("Address")}
                   type="url"
                   inputMode="url"
                   autoComplete="off"
@@ -245,25 +248,25 @@ export function KeyFormPage() {
                   onChange={(e) => setBaseUrl(e.target.value)}
                 />
 
-                <div className="oy-group" role="group" aria-label="Models it serves">
-                  <p className="oy-overline">Models it serves</p>
+                <div className="oy-group" role="group" aria-label={t("Models it serves")}>
+                  <p className="oy-overline">{t("Models it serves")}</p>
                   <div className="endpoint-models">
                     {rows.map((r, i) => (
                       <div className="endpoint-model" key={r.key}>
                         <LineField
                           id={`key-model-${r.key}`}
-                          label="Model name"
+                          label={t("Model name")}
                           autoComplete="off"
                           spellCheck={false}
                           maxLength={200}
                           value={r.id}
                           onChange={(e) => editRow(r.key, { id: e.target.value })}
                           // Stays while you type, so the rows under it don't jump up on the first key.
-                          hint={i === 0 && service ? `Like ${service.example}` : undefined}
+                          hint={i === 0 && service ? t("Like {example}", { example: service.example }) : undefined}
                         />
                         <LineField
                           id={`key-model-${r.key}-in`}
-                          label="$ in"
+                          label={t("$ in")}
                           inputMode="decimal"
                           autoComplete="off"
                           value={r.input}
@@ -271,7 +274,7 @@ export function KeyFormPage() {
                         />
                         <LineField
                           id={`key-model-${r.key}-out`}
-                          label="$ out"
+                          label={t("$ out")}
                           inputMode="decimal"
                           autoComplete="off"
                           value={r.output}
@@ -280,7 +283,7 @@ export function KeyFormPage() {
                         <button
                           type="button"
                           className="btn-ghost icon-button"
-                          aria-label={`Remove ${r.id.trim() || "this model"}`}
+                          aria-label={t("Remove {id}", { id: r.id.trim() || t("this model") })}
                           disabled={rows.length === 1}
                           onClick={() => removeRow(r.key)}
                         >
@@ -291,22 +294,21 @@ export function KeyFormPage() {
                   </div>
                   <button type="button" className="btn-ghost is-accent endpoint-add" onClick={addRow}>
                     <Icon name="plus" size={16} />
-                    Add a model
+                    {t("Add a model")}
                   </button>
                   <p className="panel-note endpoint-note">
-                    Prices are dollars per million tokens, in and out. They feed the cost estimates and spending limits;
-                    a model without them counts as free
+                    {t("Prices are dollars per million tokens, in and out. They feed the cost estimates and spending limits; a model without them counts as free")}
                   </p>
                 </div>
 
                 {typed.length > 1 && (
-                  <OptionList label="New chats start on" value={start} onChange={setModel} options={typed.map((m) => ({ id: m, label: m }))} />
+                  <OptionList label={t("New chats start on")} value={start} onChange={setModel} options={typed.map((m) => ({ id: m, label: m }))} />
                 )}
               </>
             ) : (
               <>
                 <CheckList
-                  label="Models people can pick"
+                  label={t("Models people can pick")}
                   values={models}
                   onChange={(next) => {
                     if (next.length === 0) return;
@@ -317,12 +319,14 @@ export function KeyFormPage() {
                   options={provider.models.map((m) => ({
                     id: m.id,
                     label: m.label,
-                    detail: `$${m.price.input} in, $${m.price.output} out per million tokens${m.offByDefault ? ". Off unless you tick it" : ""}`,
+                    detail: m.offByDefault
+                      ? t("${input} in, ${output} out per million tokens. Off unless you tick it", { input: m.price.input, output: m.price.output })
+                      : t("${input} in, ${output} out per million tokens", { input: m.price.input, output: m.price.output }),
                   }))}
                 />
 
                 <OptionList
-                  label="New chats start on"
+                  label={t("New chats start on")}
                   value={model}
                   onChange={(m) => pickModel(m)}
                   // Every model is listed; unticked ones rest, so ticking above doesn't add rows here.
@@ -330,9 +334,9 @@ export function KeyFormPage() {
                 />
 
                 {modelInfo && modelInfo.efforts.length > 1 && (
-                  <OptionList label="Thinking they start with" value={effort} onChange={setEffort} options={modelInfo.efforts} />
+                  <OptionList label={t("Thinking they start with")} value={effort} onChange={setEffort} options={modelInfo.efforts} />
                 )}
-                <p className="panel-note">People can change the model and thinking for each chat, among the models ticked above</p>
+                <p className="panel-note">{t("People can change the model and thinking for each chat, among the models ticked above")}</p>
               </>
             )}
 
@@ -340,7 +344,7 @@ export function KeyFormPage() {
               <div className="oy-row">
                 <div className="text">
                   <label className="title" htmlFor="key-default">
-                    Default for everyone
+                    {t("Default for everyone")}
                   </label>
                 </div>
                 <Switch id="key-default" checked={isDefault} onChange={setIsDefault} disabled={!adding && existing?.isDefault} />
@@ -349,9 +353,9 @@ export function KeyFormPage() {
                 <div className="oy-row">
                   <div className="text">
                     <label className="title" htmlFor="key-images">
-                      Reads images
+                      {t("Reads images")}
                     </label>
-                    <div className="desc">Turn on when these models look at pictures, so people can attach them</div>
+                    <div className="desc">{t("Turn on when these models look at pictures, so people can attach them")}</div>
                   </div>
                   <Switch id="key-images" checked={images} onChange={setImages} />
                 </div>
@@ -359,12 +363,12 @@ export function KeyFormPage() {
               <div className="oy-row">
                 <div className="text">
                   <label className="title" htmlFor="key-web-search">
-                    Web search
+                    {t("Web search")}
                   </label>
                   <div className="desc">
                     {tools
-                      ? `${tools.search} Works in chats started while some key has it on`
-                      : "Searches through the search service set up under Tools, and reads the pages it finds. Works in chats started while some key has it on"}
+                      ? t("{search} Works in chats started while some key has it on", { search: tools.search })
+                      : t("Searches through the search service set up under Tools, and reads the pages it finds. Works in chats started while some key has it on")}
                   </div>
                 </div>
                 <Switch id="key-web-search" checked={webSearch} onChange={setWebSearch} />
@@ -373,10 +377,10 @@ export function KeyFormPage() {
                 <div className="oy-row">
                   <div className="text">
                     <label className="title" htmlFor="key-code">
-                      Make files
+                      {t("Make files")}
                     </label>
                     <div className="desc">
-                      {tools.code} Works in chats started while some Claude or OpenAI key has it on
+                      {t("{code} Works in chats started while some Claude or OpenAI key has it on", { code: tools.code })}
                     </div>
                   </div>
                   <Switch id="key-code" checked={codeExecution} onChange={setCodeExecution} />
@@ -386,21 +390,21 @@ export function KeyFormPage() {
 
             {/* The default key is everyone's: the choice stays in view, set to Everyone and resting. */}
             <OptionList
-              label="Who can pick it"
+              label={t("Who can pick it")}
               value={isDefault ? "everyone" : shared}
               onChange={setShared}
               options={[
-                { id: "everyone", label: "Everyone", disabled: isDefault },
-                { id: "chosen", label: "Only people you choose", detail: "Choose them under People", disabled: isDefault },
+                { id: "everyone", label: t("Everyone"), disabled: isDefault },
+                { id: "chosen", label: t("Only people you choose"), detail: t("Choose them under People"), disabled: isDefault },
               ]}
             />
 
             <OptionList
-              label="If it fails, answer with"
+              label={t("If it fails, answer with")}
               value={fallback}
               onChange={setFallback}
               options={[
-                { id: "none", label: "Nothing, show the error" },
+                { id: "none", label: t("Nothing, show the error") },
                 ...otherKeys.map((k) => ({ id: String(k.id), label: k.label, detail: k.modelLabel })),
               ]}
             />
@@ -418,18 +422,18 @@ export function KeyFormPage() {
 
             <div className="form-page-actions">
               <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!ready}>
-                {adding ? "Add key" : "Save"}
+                {adding ? t("Add key") : t("Save")}
               </BusyButton>
               <SlideLink to="/admin/keys" direction="back" className="btn-secondary">
-                Cancel
+                {t("Cancel")}
               </SlideLink>
             </div>
 
             {existing && (
               <DangerRow
-                label="Delete this key"
+                label={t("Delete this key")}
                 confirmLabel={
-                  existing.boundUsers > 0 ? "Delete it? Its people move to the default key" : "Delete this key for good?"
+                  existing.boundUsers > 0 ? t("Delete it? Its people move to the default key") : t("Delete this key for good?")
                 }
                 onConfirm={async () => {
                   await api.del(`/admin/keys/${existing.id}`);

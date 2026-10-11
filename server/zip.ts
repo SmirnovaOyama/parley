@@ -2,6 +2,7 @@
 // conversations.json inside a ChatGPT or Claude export (importing chats). Stored and deflated
 // entries only, which is all those archives use; no encryption, no zip64.
 import { inflateRawSync } from "node:zlib";
+import { t } from "./i18n.ts";
 
 /**
  * A file in the archive: its name, its size unpacked as the archive states it, and its bytes. A
@@ -48,20 +49,20 @@ export function readZip(bytes: Buffer): ZipEntry[] | null {
       name,
       size,
       read: (maxBytes) => {
-        if (size > maxBytes) throw new Error(`${name} is too big to open`);
-        if (local + 30 > bytes.length || bytes.readUInt32LE(local) !== 0x04034b50) throw new Error(`${name} is damaged`);
+        if (size > maxBytes) throw new Error(t("{name} is too big to open", { name }));
+        if (local + 30 > bytes.length || bytes.readUInt32LE(local) !== 0x04034b50) throw new Error(t("{name} is damaged", { name }));
         const start = local + 30 + bytes.readUInt16LE(local + 26) + bytes.readUInt16LE(local + 28);
         const data = bytes.subarray(start, start + compressed);
         if (method === 0) return Buffer.from(data);
         if (method === 8) {
-          if (size > Math.max(compressed * MAX_RATIO, UNPACK_FREELY)) throw new Error(`${name} is packed too tightly to open`);
+          if (size > Math.max(compressed * MAX_RATIO, UNPACK_FREELY)) throw new Error(t("{name} is packed too tightly to open", { name }));
           try {
             return inflateRawSync(data, { maxOutputLength: Math.max(size, 1) });
           } catch {
-            throw new Error(`${name} is damaged`);
+            throw new Error(t("{name} is damaged", { name }));
           }
         }
-        throw new Error(`${name} is packed in a way this can't open`);
+        throw new Error(t("{name} is packed in a way this can't open", { name }));
       },
     });
   }

@@ -26,8 +26,8 @@ const browserLang = (): Lang => ((navigator.languages ?? [navigator.language]).s
 
 export const LANG_CHOICE: LangChoice = saved();
 export const LANG: Lang = LANG_CHOICE === "system" ? browserLang() : LANG_CHOICE;
-/** For Intl's dates, numbers and lists. */
-export const LOCALE = LANG === "zh" ? "zh-CN" : "en-GB";
+/** For Intl's dates and numbers: Chinese, or in English the browser's own way, as before. */
+export const LOCALE = LANG === "zh" ? "zh-CN" : undefined;
 
 document.documentElement.lang = LANG === "zh" ? "zh-CN" : "en";
 
@@ -82,8 +82,10 @@ export function tx(en: string, parts: Record<string, ReactNode | ((words: string
   return createElement(Fragment, null, ...nodes);
 }
 
-const andList = new Intl.ListFormat(LOCALE, { type: "conjunction" });
-const orList = new Intl.ListFormat(LOCALE, { type: "disjunction" });
+// Lists in English as the site always wrote them, with no comma before "and" (en-GB).
+const LIST_LOCALE = LANG === "zh" ? "zh-CN" : "en-GB";
+const andList = new Intl.ListFormat(LIST_LOCALE, { type: "conjunction" });
+const orList = new Intl.ListFormat(LIST_LOCALE, { type: "disjunction" });
 
 /** "a, b and c" or "a、b和c". */
 export const andText = (items: string[]) => andList.format(items);

@@ -5,7 +5,8 @@ import { DeviceList } from "../components/DeviceList.tsx";
 import { Advisory, Spinner } from "../components/Feedback.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { api, type Device } from "../lib/api.ts";
-import { plural } from "../lib/format.ts";
+import { formatNumber } from "../lib/format.ts";
+import { t, tn } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
 
 type Sessions = { sessions: Device[]; limit: number | null };
@@ -13,9 +14,9 @@ type Sessions = { sessions: Device[]; limit: number | null };
 /** How many devices, as the Settings page and this page's header say it. */
 export function devicesText(devices: Device[]): string {
   const programs = devices.filter((d) => !d.browser).length;
-  const count = devices.length === 1 ? "Only on this device" : `On ${plural(devices.length, "device", "devices")}`;
+  const count = devices.length === 1 ? t("Only on this device") : t("On {count} devices", { count: formatNumber(devices.length) });
   if (!programs) return count;
-  return `${count}, ${programs === 1 ? "one of them a program, not a browser" : `${programs} of them programs, not browsers`}`;
+  return programs === 1 ? t("{count}, one of them a program, not a browser", { count }) : t("{count}, {programs} of them programs, not browsers", { count, programs });
 }
 
 /**
@@ -52,7 +53,7 @@ export function DevicesPage() {
   const others = data?.sessions.some((d) => !d.current);
   return (
     <>
-      <PageHeader title="Where you're signed in" subtitle={data ? devicesText(data.sessions) : undefined} back={{ label: "Settings", to: "/settings" }} />
+      <PageHeader title={t("Where you're signed in")} subtitle={data ? devicesText(data.sessions) : undefined} back={{ label: t("Settings"), to: "/settings" }} />
       <div className="oy-page-column page-body">
         {error && <Advisory>{error}</Advisory>}
         {!data ? (
@@ -60,17 +61,21 @@ export function DevicesPage() {
         ) : (
           <>
             <p className="group-intro">
-              Every browser and program signed in to your account, which admins can see too. If you don't know one, sign it out and
-              change your password
+              {t("Every browser and program signed in to your account, which admins can see too. If you don't know one, sign it out and change your password")}
               {data.limit != null &&
-                `. This site lets an account be signed in on ${plural(data.limit, "device", "devices")} at once, and signing in on one more signs out the one used longest ago`}
+                tn(
+                  data.limit,
+                  ". This site lets an account be signed in on {limit} device at once, and signing in on one more signs out the one used longest ago",
+                  ". This site lets an account be signed in on {limit} devices at once, and signing in on one more signs out the one used longest ago",
+                  { limit: formatNumber(data.limit) },
+                )}
             </p>
             <DeviceList devices={data.sessions} onSignOut={signOutOf} />
             {others && (
               <DangerRow
-                label="Sign out everywhere else"
-                confirmLabel="Sign out every device but this one?"
-                action="Sign out"
+                label={t("Sign out everywhere else")}
+                confirmLabel={t("Sign out every device but this one?")}
+                action={t("Sign out")}
                 onConfirm={async () => {
                   try {
                     await api.del("/auth/sessions");

@@ -5,6 +5,7 @@ import type {
   BetaMessageParam,
   BetaMessageStreamParams,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
+import { t } from "../i18n.ts";
 import { findModel, modelLabel } from "./catalog.ts";
 import { anthropicClient } from "./clients.ts";
 import {
@@ -184,7 +185,7 @@ async function chat(req: ChatRequest): Promise<ChatResult> {
             req.onThinking("\n\n");
           }
         } else if (block.type === "text") req.onStatus("writing");
-        else if (block.type === "fallback") req.onNotice(`Continued with ${modelLabel("anthropic", block.to.model)}`);
+        else if (block.type === "fallback") req.onNotice(t("Continued with {modelLabel}", { modelLabel: modelLabel("anthropic", block.to.model) }));
       } else if (event.type === "content_block_delta") {
         const delta = event.delta;
         if (delta.type === "text_delta") {

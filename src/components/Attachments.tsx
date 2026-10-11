@@ -3,6 +3,7 @@
 import { Icon } from "../icons/Icon.tsx";
 import type { Attachment } from "../lib/api.ts";
 import { fileSize } from "../lib/format.ts";
+import { t } from "../lib/i18n.ts";
 import type { PendingFile } from "../lib/uploads.ts";
 
 /** Raster images the browser shows inline (what the server serves inline too). */
@@ -25,27 +26,27 @@ type Tile = {
 function TileRow({ tiles, onRemove, label }: { tiles: Tile[]; onRemove: (key: string) => void; label: string }) {
   return (
     <ul className="attach-tiles" aria-label={label}>
-      {tiles.map((t) => (
-        <li key={t.key} className={`attach-tile${t.image && !t.error ? " is-image" : ""}${t.error ? " is-failed" : ""}${t.progress != null ? " is-loading" : ""}`}>
-          {t.image && !t.error ? (
-            <img src={t.image} alt={t.name} />
+      {tiles.map((tile) => (
+        <li key={tile.key} className={`attach-tile${tile.image && !tile.error ? " is-image" : ""}${tile.error ? " is-failed" : ""}${tile.progress != null ? " is-loading" : ""}`}>
+          {tile.image && !tile.error ? (
+            <img src={tile.image} alt={tile.name} />
           ) : (
             <>
               <span className="attach-tile-icon" aria-hidden="true">
-                <Icon name={t.error ? "alert" : "file"} size={20} />
+                <Icon name={tile.error ? "alert" : "file"} size={20} />
               </span>
               <span className="attach-tile-text">
-                <span className="attach-tile-name">{t.name}</span>
-                <span className="attach-tile-size">{t.error ? "Couldn't add" : t.progress != null ? "Adding" : fileSize(t.size)}</span>
+                <span className="attach-tile-name">{tile.name}</span>
+                <span className="attach-tile-size">{tile.error ? t("Couldn't add") : tile.progress != null ? t("Adding") : fileSize(tile.size)}</span>
               </span>
             </>
           )}
-          {t.progress != null && (
-            <span className="attach-tile-progress" role="progressbar" aria-label={`Adding ${t.name}`} aria-valuenow={Math.round(t.progress * 100)}>
-              <span style={{ width: `${Math.max(4, t.progress * 100)}%` }} />
+          {tile.progress != null && (
+            <span className="attach-tile-progress" role="progressbar" aria-label={t("Adding {name}", { name: tile.name })} aria-valuenow={Math.round(tile.progress * 100)}>
+              <span style={{ width: `${Math.max(4, tile.progress * 100)}%` }} />
             </span>
           )}
-          <button type="button" className="attach-tile-remove" onClick={() => onRemove(t.key)} aria-label={`Remove ${t.name}`}>
+          <button type="button" className="attach-tile-remove" onClick={() => onRemove(tile.key)} aria-label={t("Remove {name}", { name: tile.name })}>
             <Icon name="close" size={12} strokeWidth={2.2} />
           </button>
         </li>
@@ -65,7 +66,7 @@ export function ComposerFiles({ files, onRemove }: { files: PendingFile[]; onRem
     progress: f.attachment || f.error ? null : f.progress,
     error: f.error,
   }));
-  return <TileRow tiles={tiles} onRemove={onRemove} label="Files on this message" />;
+  return <TileRow tiles={tiles} onRemove={onRemove} label={t("Files on this message")} />;
 }
 
 /** The files kept when editing a message; the cross leaves one out of the new version. */
@@ -79,7 +80,7 @@ export function EditFiles({ files, url, onRemove }: { files: Attachment[]; url: 
     progress: null,
     error: null,
   }));
-  return <TileRow tiles={tiles} onRemove={onRemove} label="Files on this message" />;
+  return <TileRow tiles={tiles} onRemove={onRemove} label={t("Files on this message")} />;
 }
 
 /**
@@ -95,7 +96,7 @@ export function MessageFiles({ files, url }: { files: Attachment[]; url: (id: st
         <ul className={`msg-images${images.length === 1 ? " is-single" : ""}`}>
           {images.map((f) => (
             <li key={f.id}>
-              <a href={`${url(f.id)}?inline=1`} target="_blank" rel="noopener noreferrer" aria-label={`Open ${f.name}`}>
+              <a href={`${url(f.id)}?inline=1`} target="_blank" rel="noopener noreferrer" aria-label={t("Open {name}", { name: f.name })}>
                 <img src={`${url(f.id)}?inline=1`} alt={f.name} loading="lazy" />
               </a>
             </li>

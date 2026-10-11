@@ -72,7 +72,7 @@ describe("each person's own token", () => {
     const sessions = mcp.sessions();
     const outcome = await callTool(server(), alice, "read_notes", {}, signal);
     assert.deepEqual(outcome, { content: accountMessage(server(), "missing"), isError: true, account: "missing" });
-    assert.match(outcome.content, /hasn't connected theirs, so this didn't run\. They can connect it in Account, under Connected services/);
+    assert.match(outcome.content, /hasn't connected theirs, so this didn't run\. They can connect it in Settings, under Connected services/);
     assert.equal(mcp.calls.length, 0);
     assert.equal(mcp.sessions(), sessions);
   });

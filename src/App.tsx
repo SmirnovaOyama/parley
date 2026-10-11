@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { AppShell, RequireAdmin } from "./components/AppShell.tsx";
 import { SessionProvider } from "./lib/session.tsx";
 import { AccountPage } from "./pages/AccountPage.tsx";
@@ -47,15 +47,17 @@ export function App() {
             {/* A chat's own settings; "new" is the chat about to start. */}
             <Route path="chat/:id/settings" element={<ChatSettingsPage />} />
             <Route path="chats" element={<ChatsPage />} />
-            <Route path="account" element={<AccountPage />} />
-            <Route path="account/bonus" element={<BonusPage />} />
-            <Route path="account/connections" element={<ConnectionsPage />} />
-            <Route path="account/connections/:id" element={<ConnectionTokenPage />} />
-            <Route path="account/devices" element={<DevicesPage />} />
-            <Route path="account/memory" element={<MemoryPage />} />
-            <Route path="account/personas" element={<PersonasPage />} />
-            <Route path="account/personas/:id" element={<PersonaFormPage />} />
-            <Route path="account/password" element={<PasswordPage />} />
+            <Route path="settings" element={<AccountPage />} />
+            <Route path="settings/bonus" element={<BonusPage />} />
+            <Route path="settings/connections" element={<ConnectionsPage />} />
+            <Route path="settings/connections/:id" element={<ConnectionTokenPage />} />
+            <Route path="settings/devices" element={<DevicesPage />} />
+            <Route path="settings/memory" element={<MemoryPage />} />
+            <Route path="settings/personas" element={<PersonasPage />} />
+            <Route path="settings/personas/:id" element={<PersonaFormPage />} />
+            <Route path="settings/password" element={<PasswordPage />} />
+            {/* What was Account is now Settings: old links and bookmarks still arrive. */}
+            <Route path="account/*" element={<FromAccount />} />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/new" element={<ProjectSettingsPage />} />
             <Route path="projects/:id" element={<ProjectPage />} />
@@ -128,4 +130,10 @@ export function App() {
       </SessionProvider>
     </BrowserRouter>
   );
+}
+
+/** An address from when Settings was Account (/account/memory): the same page under /settings. */
+function FromAccount() {
+  const { pathname, search, hash } = useLocation();
+  return <Navigate to={pathname.replace(/^\/account/, "/settings") + search + hash} replace />;
 }

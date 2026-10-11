@@ -590,7 +590,7 @@ export type Settings = {
   spendLimit: number | null;
   /** Whether the AI may remember things about people between chats (each person can turn it off too). */
   memory: boolean;
-  /** Whether people are told, under Account, that admins can read their chats. */
+  /** Whether people are told, under Settings, that admins can read their chats. */
   privacyNotice: boolean;
   /**
    * The search service behind web search for models without their own (DeepSeek, Gemini, Grok and

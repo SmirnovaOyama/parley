@@ -80,7 +80,7 @@ export type ToolUse = {
 };
 
 /**
- * An MCP server that acts with each person's own account, as Account › Connected services shows
+ * An MCP server that acts with each person's own account, as Settings › Connected services shows
  * it: signed in on its own page (oauth) or with a pasted token, and where you stand with it.
  */
 export type Connection = {
@@ -296,7 +296,7 @@ export async function streamChat(
     parentId?: number | null;
     /** Regenerate: a new reply to this user message. */
     regenerate?: number;
-    /** A new chat's own instructions (else it starts with the Account defaults). */
+    /** A new chat's own instructions (else it starts with the defaults in Settings). */
     instructions?: Instructions;
     /** A new chat's project, and the knowledge bases picked for it. */
     projectId?: string;

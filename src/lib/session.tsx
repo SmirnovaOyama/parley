@@ -10,7 +10,7 @@ type SessionValue = {
   refreshConversations: () => Promise<void>;
   /** Puts a conversation at the top of the list straight away, before the server confirms. */
   touchConversation: (c: ConversationSummary) => void;
-  /** Instructions for the chat about to start, set on its settings page; null means the Account defaults. */
+  /** Instructions for the chat about to start, set on its settings page; null means the defaults in Settings. */
   newChatInstructions: Instructions | null;
   setNewChatInstructions: (next: Instructions | null) => void;
   /** Knowledge bases picked for the chat about to start. */

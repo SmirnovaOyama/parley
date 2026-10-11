@@ -438,7 +438,7 @@ chatRoutes.post("/chat", async (c) => {
     return c.json({ error: `You've sent ${MESSAGES_PER_HOUR} messages in the last hour. Try again a little later` }, 429);
   }
 
-  // A new chat starts with the instructions set on its page, or the person's Account defaults, in
+  // A new chat starts with the instructions set on its page, or the person's defaults in Settings, in
   // the project it was started from, with the knowledge bases picked for it.
   let startInstructions = getInstructions(user.id);
   if (!existing && body.instructions !== undefined) {

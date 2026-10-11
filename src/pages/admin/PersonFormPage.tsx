@@ -261,9 +261,9 @@ export function PersonFormPage() {
             <p className="oy-overline">Password</p>
             {isSelf ? (
               <div className="settings-panel">
-                <p className="settings-text">Yours is changed under Account, which keeps you signed in here</p>
+                <p className="settings-text">Yours is changed under Settings, which keeps you signed in here</p>
                 <div className="form-page-actions">
-                  <SlideLink to="/account/password" direction="forward" className="btn-secondary">
+                  <SlideLink to="/settings/password" direction="forward" className="btn-secondary">
                     Change your password
                   </SlideLink>
                 </div>
@@ -279,9 +279,9 @@ export function PersonFormPage() {
             <p className="oy-overline">Devices</p>
             {isSelf ? (
               <div className="settings-panel">
-                <p className="settings-text">Yours are under Account, which keeps you signed in here</p>
+                <p className="settings-text">Yours are under Settings, which keeps you signed in here</p>
                 <div className="form-page-actions">
-                  <SlideLink to="/account/devices" direction="forward" className="btn-secondary">
+                  <SlideLink to="/settings/devices" direction="forward" className="btn-secondary">
                     See where you're signed in
                   </SlideLink>
                 </div>

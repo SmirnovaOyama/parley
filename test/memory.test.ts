@@ -21,7 +21,7 @@ function fillTo(userId: number, total: number) {
   for (let i = n; i < total; i++) add.run(userId, `Note ${i}`, nowIso(), nowIso());
 }
 
-const full = (max: number) => ({ error: `Memory is full (${max} notes). Ask the person to delete some under Account first` });
+const full = (max: number) => ({ error: `Memory is full (${max} notes). Ask the person to delete some under Settings first` });
 
 describe("memory limit", () => {
   const pupil = person("pupil@example.com", "pupil@school.edu");

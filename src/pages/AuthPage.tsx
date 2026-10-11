@@ -97,7 +97,7 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
       // A brand-new site can't chat until it has a key, so its first admin goes there first. An
       // address on a rewarded domain is offered the (skippable) check that earns the reward.
       if (state.needsSetup) navigate("/admin/keys", { replace: true });
-      else if (r.bonusEligible) navigate(`/account/bonus?from=signup&email=${encodeURIComponent(email.trim())}`, { replace: true });
+      else if (r.bonusEligible) navigate(`/settings/bonus?from=signup&email=${encodeURIComponent(email.trim())}`, { replace: true });
       else navigate(next ?? "/chat", { replace: true });
     } catch (err) {
       setError({ text: (err as Error).message, field: err instanceof ApiError && err.field === "code" ? "code" : "password" });

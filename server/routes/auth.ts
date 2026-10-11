@@ -234,7 +234,7 @@ authRoutes.post("/reset", async (c) => {
   return c.json({ ok: true });
 });
 
-// What new chats start with: the persona picked for them (set under Account › Personas).
+// What new chats start with: the persona picked for them (set under Settings › Personas).
 authRoutes.get("/instructions", requireUser, (c) => c.json(getInstructions(c.var.user!.id)));
 
 // What this person has used this month, against their limits (the email reward included).

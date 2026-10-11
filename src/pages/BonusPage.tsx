@@ -12,8 +12,8 @@ import { domainsText, rewardText, type BonusStatus } from "../lib/bonus.ts";
 type Stage = "email" | "code" | "done";
 
 /**
- * Proving an address on a rewarded domain (/account/bonus): type the address, get a 6-digit code
- * by email, type it here. Optional; reached from Account, or straight after signing up with such an
+ * Proving an address on a rewarded domain (/settings/bonus): type the address, get a 6-digit code
+ * by email, type it here. Optional; reached from Settings, or straight after signing up with such an
  * address (?from=signup&email=…), where it can be skipped.
  */
 export function BonusPage() {
@@ -87,7 +87,7 @@ export function BonusPage() {
 
   const reward = status ? rewardText(status.reward) : null;
   const wait = Math.max(0, Math.ceil((resendAt - now) / 1000));
-  const back = fromSignup ? undefined : { label: "Account", to: "/account" };
+  const back = fromSignup ? undefined : { label: "Settings", to: "/settings" };
 
   return (
     <>
@@ -166,7 +166,7 @@ export function BonusPage() {
                       Skip for now
                     </Link>
                   ) : (
-                    <SlideLink className="btn-secondary" to="/account" direction="back">
+                    <SlideLink className="btn-secondary" to="/settings" direction="back">
                       Cancel
                     </SlideLink>
                   )}

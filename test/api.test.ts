@@ -448,11 +448,11 @@ describe("api", () => {
     assert.deepEqual([entry.admin, entry.action, entry.target], ["admin@example.com", "set_password", email]);
   });
 
-  test("an admin changes their own password under Account, not on their person page", async () => {
+  test("an admin changes their own password under Settings, not on their person page", async () => {
     const me = (await admin.json("GET", "/api/auth/me")).body.user;
     assert.deepEqual(await admin.json("POST", `/api/admin/users/${me.id}/password`, { password: "new admin password" }), {
       status: 400,
-      body: { error: "Change your own password under Account" },
+      body: { error: "Change your own password under Settings" },
     });
     assert.equal((await admin.json("GET", "/api/auth/me")).status, 200);
     assert.equal((await new Visitor().json("POST", "/api/auth/login", { email: me.email, password: "correct horse" })).status, 200);
@@ -851,19 +851,19 @@ describe("api", () => {
 
       // Only an admin comes back to the server's page.
       signIns.auth.signInAs = "the member";
-      assert.equal(await signIn(member, id, { from: "admin" }), `/account/connections?server=${id}&result=connected`);
+      assert.equal(await signIn(member, id, { from: "admin" }), `/settings/connections?server=${id}&result=connected`);
       assert.equal((await member.json("GET", "/api/mcp/connections")).body.connections.find((x: { id: number }) => x.id === id).status, "connected");
 
       signIns.auth.deny = true;
-      assert.equal(await signIn(member, id), `/account/connections?server=${id}&result=denied`);
+      assert.equal(await signIn(member, id), `/settings/connections?server=${id}&result=denied`);
       signIns.auth.deny = false;
 
       // A sign-in nobody started (or someone else did), or without an account, goes nowhere.
-      assert.equal(await redirectFor(member, "/api/mcp/callback?state=made-up&code=x"), "/account/connections?result=expired");
+      assert.equal(await redirectFor(member, "/api/mcp/callback?state=made-up&code=x"), "/settings/connections?result=expired");
       assert.equal(await redirectFor(new Visitor(), "/api/mcp/callback?state=made-up&code=x"), "/login");
       const theirs = await admin.json("POST", `/api/mcp/connections/${id}/sign-in`, { from: "admin" });
       const back = new URL((await fetch(theirs.body.url, { redirect: "manual" })).headers.get("location")!);
-      assert.equal(await redirectFor(member, back.pathname + back.search), "/account/connections?result=expired");
+      assert.equal(await redirectFor(member, back.pathname + back.search), "/settings/connections?result=expired");
 
       // A sign-in still under way when the server is closed to the person, or moves, isn't kept.
       const halfway = async (visitor: Visitor) => {
@@ -874,7 +874,7 @@ describe("api", () => {
       await member.json("DELETE", `/api/mcp/connections/${id}`);
       const closing = await halfway(member);
       assert.equal((await admin.json("PATCH", `/api/admin/mcp/${id}`, { shared: false })).status, 200);
-      assert.equal(await redirectFor(member, closing), `/account/connections?server=${id}&result=failed`);
+      assert.equal(await redirectFor(member, closing), `/settings/connections?server=${id}&result=failed`);
       assert.equal((await admin.json("PATCH", `/api/admin/mcp/${id}`, { shared: true })).status, 200);
       assert.equal((await member.json("GET", "/api/mcp/connections")).body.connections.find((x: { id: number }) => x.id === id).status, "missing");
 
@@ -882,7 +882,7 @@ describe("api", () => {
       const before = await halfway(member);
       const moved = await admin.json("PATCH", `/api/admin/mcp/${id}`, { url: `${signIns.url}?v=2` });
       assert.deepEqual([moved.body.server.people, moved.body.server.yours], [[], "missing"]);
-      assert.equal(await redirectFor(member, before), `/account/connections?server=${id}&result=failed`);
+      assert.equal(await redirectFor(member, before), `/settings/connections?server=${id}&result=failed`);
       assert.equal((await member.json("GET", "/api/mcp/connections")).body.connections.find((x: { id: number }) => x.id === id).status, "missing");
       assert.equal((await admin.json("DELETE", `/api/admin/mcp/${id}`)).status, 200);
     });
@@ -991,7 +991,7 @@ describe("api", () => {
     assert.deepEqual(entries.map((e: { action: string; target: string }) => [e.action, e.target]), [["sign_out_user", email], ["sign_out_device", email]]);
 
     const me = (await admin.json("GET", "/api/auth/me")).body.user;
-    assert.deepEqual(await admin.json("DELETE", `/api/admin/users/${me.id}/sessions`), { status: 400, body: { error: "Sign out your own devices under Account" } });
+    assert.deepEqual(await admin.json("DELETE", `/api/admin/users/${me.id}/sessions`), { status: 400, body: { error: "Sign out your own devices under Settings" } });
     assert.equal((await member.json("GET", `/api/admin/users/${person.id}/sessions`)).status, 403);
   });
 

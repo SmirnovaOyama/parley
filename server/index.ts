@@ -6,6 +6,7 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { Agent, setGlobalDispatcher } from "undici";
 import { sameOriginGuard, sessionMiddleware, type AppEnv } from "./auth.ts";
+import { inLang, langMiddleware, t } from "./i18n.ts";
 import { clearStaleUploads } from "./attachments.ts";
 import { db } from "./db.ts";
 import { env } from "./env.ts";
@@ -75,12 +76,14 @@ app.use("/api/*", async (c, next) => {
   if (incoming && !incoming.readableEnded) incoming.removeAllListeners("data").resume();
 });
 
+// Everything said back, from here on, in the language the page asked for (server/i18n.ts).
+app.use("/api/*", langMiddleware);
 // A request's body is read whole, so a JSON one is held to 1 MB (the longest message is a few
 // hundred KB of it), before anyone has signed in. Files go up as raw bytes to their own routes,
 // which set their own limits once they know who's sending.
 const MAX_JSON_BYTES = 1024 * 1024;
 const RAW_UPLOAD = /^\/api\/(uploads|import|knowledge\/[^/]+\/docs)$/;
-const jsonLimit = bodyLimit({ maxSize: MAX_JSON_BYTES, onError: (c) => c.json({ error: "That request is too big" }, 413) });
+const jsonLimit = bodyLimit({ maxSize: MAX_JSON_BYTES, onError: (c) => c.json({ error: t("That request is too big") }, 413) });
 app.use("/api/*", (c, next) => (c.req.method === "PUT" && RAW_UPLOAD.test(c.req.path) ? next() : jsonLimit(c, next)));
 app.use("/api/*", sameOriginGuard, sessionMiddleware);
 app.route("/api/auth", authRoutes);
@@ -97,7 +100,7 @@ app.route("/api", knowledgeRoutes);
 app.route("/api", meRoutes);
 app.route("/api", personaRoutes);
 app.route("/api", chatRoutes);
-app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
+app.all("/api/*", (c) => c.json({ error: t("Not found") }, 404));
 
 // What a phone or browser needs to add the site to a home screen or install it as an app, under
 // the site's own name (set at run time, like the page's). The icons are in public/; their sources
@@ -105,23 +108,26 @@ app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 app.get("/manifest.webmanifest", (c) => {
   const icon = (src: string, size: number, purpose?: string) => ({ src, sizes: `${size}x${size}`, type: "image/png", ...(purpose ? { purpose } : {}) });
   c.header("Cache-Control", "no-cache");
-  return c.body(
+  c.header("Vary", "Accept-Language");
+  // Fetched by the browser itself, without the page's X-Parley-Lang: its own language decides.
+  const language = /^zh\b/i.test(c.req.header("accept-language") ?? "") ? "zh" : "en";
+  return inLang(language, () => c.body(
     JSON.stringify({
       id: "/",
       name: env.appName,
       short_name: env.appName,
-      description: "Chat with AI models",
+      description: t("Chat with AI models"),
       start_url: "/",
       scope: "/",
       display: "standalone",
       background_color: "#ffffff",
       theme_color: "#ffffff",
       icons: [icon("/icon-192.png", 192), icon("/icon-512.png", 512), icon("/icon-maskable-512.png", 512, "maskable")],
-      shortcuts: [{ name: "New chat", url: "/chat", icons: [icon("/icon-192.png", 192)] }],
+      shortcuts: [{ name: t("New chat"), url: "/chat", icons: [icon("/icon-192.png", 192)] }],
     }),
     200,
     { "Content-Type": "application/manifest+json; charset=utf-8" },
-  );
+  ));
 });
 
 // In production the API also serves the built app; any other path falls back to index.html. The

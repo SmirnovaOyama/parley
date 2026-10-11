@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { toPublic, tx, type ConversationRow, type MessageRow } from "./chat-store.ts";
 import { db, nowIso } from "./db.ts";
 import { env } from "./env.ts";
+import { t } from "./i18n.ts";
 import {
   getInstructions, instructionsJson, MAX_INSTRUCTION_CHARS, parseInstructions, personalOnly, personasOf, systemPromptFor, type PersonalInstructions,
 } from "./instructions.ts";
@@ -13,6 +14,9 @@ import { MAX_MEMORIES_VERIFIED, memoriesOf, memoryLimit, memoryOn, memoryPrompt,
 import { chatSetting, MAX_PROJECT_INSTRUCTIONS, MAX_PROJECTS, ownProject, type ProjectRow } from "./projects.ts";
 import { codeOnSite, searchOnSite, toolsForNewChat } from "./tools.ts";
 import { isZip, readZip } from "./zip.ts";
+
+/** What's wrong with a file brought in, said to the person who brought it (routes/me.ts shows it). */
+export class ImportError extends Error {}
 
 export const EXPORT_FORMAT = "parley-export";
 const MAX_CHATS = 5000;
@@ -194,7 +198,7 @@ function fromChatGpt(c: Record<string, unknown>, now: string): IncomingChat | nu
   if (!messages.length) return null;
   return {
     key: `chatgpt:${String(c.conversation_id ?? c.id ?? randomUUID())}`,
-    title: String(c.title ?? "") || "Imported chat",
+    title: String(c.title ?? "") || t("Imported chat"),
     createdAt: iso(c.create_time, now),
     updatedAt: iso(c.update_time, now),
     messages,
@@ -221,7 +225,7 @@ function fromClaude(c: Record<string, unknown>, now: string): IncomingChat | nul
   if (!messages.length) return null;
   return {
     key: `claude:${String(c.uuid ?? randomUUID())}`,
-    title: String(c.name ?? "") || "Imported chat",
+    title: String(c.name ?? "") || t("Imported chat"),
     createdAt: iso(c.created_at, now),
     updatedAt: iso(c.updated_at, now),
     messages,
@@ -238,13 +242,13 @@ function fromParley(c: ExportedChat, now: string): IncomingChat | null {
     const parent = m.parentId == null ? null : index.get(m.parentId);
     if (parent === undefined) continue;
     index.set(m.id, messages.length);
-    const failed = m.role === "assistant" && (m.status === "failed" || m.status === "declined") ? (m.error ?? "No reply came back") : null;
+    const failed = m.role === "assistant" && (m.status === "failed" || m.status === "declined") ? (m.error ?? t("No reply came back")) : null;
     messages.push({ role: m.role, text: clip(String(m.text ?? "")), model: m.model, thinking: m.thinking ?? null, createdAt: iso(m.createdAt, now), parent, failed });
   }
   if (!messages.length) return null;
   return {
     key: `parley:${c.id}`,
-    title: String(c.title ?? "") || "Imported chat",
+    title: String(c.title ?? "") || t("Imported chat"),
     createdAt: iso(c.createdAt, now),
     updatedAt: iso(c.updatedAt, now),
     messages,
@@ -263,18 +267,18 @@ function readUpload(bytes: Buffer): unknown {
   if (isZip(bytes)) {
     const entries = readZip(bytes);
     const entry = entries?.find((e) => /(^|\/)conversations\.json$/i.test(e.name)) ?? entries?.find((e) => /\.json$/i.test(e.name));
-    if (!entry) throw new Error("There's no conversations.json in that archive");
-    if (entry.size > MAX_IMPORT_BYTES) throw new Error(`That export is over ${MAX_IMPORT_BYTES / (1024 * 1024)} MB unpacked`);
+    if (!entry) throw new ImportError(t("There's no conversations.json in that archive"));
+    if (entry.size > MAX_IMPORT_BYTES) throw new ImportError(t("That export is over {MAX_IMPORT_BYTES} MB unpacked", { MAX_IMPORT_BYTES: MAX_IMPORT_BYTES / (1024 * 1024) }));
     try {
       json = entry.read(MAX_IMPORT_BYTES);
     } catch {
-      throw new Error("That archive is damaged. Download the export again");
+      throw new ImportError(t("That archive is damaged. Download the export again"));
     }
   }
   try {
     return JSON.parse(json.toString("utf8").replace(/^﻿/, ""));
   } catch {
-    throw new Error("That file isn't an export this can read. Use a Parley export, or conversations.json from ChatGPT or Claude");
+    throw new ImportError(t("That file isn't an export this can read. Use a Parley export, or conversations.json from ChatGPT or Claude"));
   }
 }
 
@@ -299,9 +303,9 @@ export function importFor(userId: number, bytes: Buffer): ImportResult {
     source = "claude";
     chats = data.map((c) => fromClaude(c as Record<string, unknown>, now)).filter((c): c is IncomingChat => !!c);
   } else {
-    throw new Error("That file isn't an export this can read. Use a Parley export, or conversations.json from ChatGPT or Claude");
+    throw new ImportError(t("That file isn't an export this can read. Use a Parley export, or conversations.json from ChatGPT or Claude"));
   }
-  if (chats.length > MAX_CHATS) throw new Error(`An import can bring in up to ${MAX_CHATS} chats at a time`);
+  if (chats.length > MAX_CHATS) throw new ImportError(t("An import can bring in up to {MAX_CHATS} chats at a time", { MAX_CHATS }));
 
   // Every imported chat starts the way a new one would, with the person's defaults today.
   const personal = getInstructions(userId);
@@ -373,7 +377,7 @@ export function importFor(userId: number, bytes: Buffer): ImportResult {
            project_id, pinned_at, tool_defs, title_auto, import_key, imported_at, created_at, updated_at)
          VALUES (?, ?, ?, '', ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
       ).run(
-        id, userId, chat.title.replace(/\s+/g, " ").trim().slice(0, 120) || "Imported chat", instructionsJson(own), search, code,
+        id, userId, chat.title.replace(/\s+/g, " ").trim().slice(0, 120) || t("Imported chat"), instructionsJson(own), search, code,
         projectId, chat.pinned ? now : null, toolsJson, chat.key, now, chat.createdAt, chat.updatedAt,
       );
       const setting = chatSetting(own, userId, id, projectId);

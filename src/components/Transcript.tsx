@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "re
 import { Icon, type IconName } from "../icons/Icon.tsx";
 import type { Ask, Attachment, Message, ToolUse } from "../lib/api.ts";
 import { dateTime, fileSize } from "../lib/format.ts";
+import { t, tn } from "../lib/i18n.ts";
 import { EditFiles, MessageFiles } from "./Attachments.tsx";
 import { Advisory, BusyMark } from "./Feedback.tsx";
 import { SlideLink } from "./SlideLink.tsx";
@@ -79,11 +80,11 @@ function VersionSwitcher({ message, onSwitch, disabled }: { message: UiMessage; 
   const ids = message.siblingIds;
   const at = ids.indexOf(message.id);
   return (
-    <span className="versions" aria-label={`Version ${at + 1} of ${ids.length}`}>
+    <span className="versions" aria-label={t("Version {at} of {length}", { at: at + 1, length: ids.length })}>
       <button
         type="button"
         className="btn-ghost versions-step"
-        aria-label="Previous version"
+        aria-label={t("Previous version")}
         disabled={disabled || at <= 0}
         onClick={() => onSwitch(ids[at - 1])}
       >
@@ -95,7 +96,7 @@ function VersionSwitcher({ message, onSwitch, disabled }: { message: UiMessage; 
       <button
         type="button"
         className="btn-ghost versions-step"
-        aria-label="Next version"
+        aria-label={t("Next version")}
         disabled={disabled || at >= ids.length - 1}
         onClick={() => onSwitch(ids[at + 1])}
       >
@@ -138,7 +139,7 @@ function UserMessage({ message, readOnly, switcher, fileUrl, busy, onEdit }: Use
 
   return (
     <div className="msg msg-user">
-      {message.instructionsChanged && <p className="msg-note instr-note">Instructions changed from here</p>}
+      {message.instructionsChanged && <p className="msg-note instr-note">{t("Instructions changed from here")}</p>}
       {attachments.length > 0 && <MessageFiles files={attachments} url={fileUrl} />}
       {message.text && <div className="bubble">{message.text}</div>}
       {(readOnly || switcher || onEdit) && (
@@ -146,7 +147,7 @@ function UserMessage({ message, readOnly, switcher, fileUrl, busy, onEdit }: Use
           {readOnly && <span>{dateTime(message.createdAt)}</span>}
           {switcher}
           {onEdit && (
-            <button type="button" className="btn-ghost msg-action" onClick={() => setEditing(true)} disabled={busy} aria-label="Edit" title="Edit">
+            <button type="button" className="btn-ghost msg-action" onClick={() => setEditing(true)} disabled={busy} aria-label={t("Edit")} title={t("Edit")}>
               <Icon name="pencil" size={14} />
             </button>
           )}
@@ -203,7 +204,7 @@ function EditBox({ initial, files, fileUrl, onCancel, onSend }: EditProps) {
       <EditFiles files={kept} url={fileUrl} onRemove={(id) => setKept((list) => list.filter((f) => f.id !== id))} />
       <textarea
         ref={ref}
-        aria-label="Edit your message"
+        aria-label={t("Edit your message")}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
@@ -216,10 +217,10 @@ function EditBox({ initial, files, fileUrl, onCancel, onSend }: EditProps) {
       />
       <div className="edit-box-actions">
         <button type="button" className="btn-secondary btn-sm" onClick={onCancel}>
-          Cancel
+          {t("Cancel")}
         </button>
         <button type="submit" className="btn-primary btn-sm" disabled={!sendable}>
-          Send
+          {t("Send")}
         </button>
       </div>
     </form>
@@ -277,28 +278,28 @@ function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegene
             onRegenerate && (
               <button type="button" className="btn-ghost is-accent" onClick={onRegenerate} disabled={busy}>
                 <Icon name="retry" size={16} />
-                Try again
+                {t("Try again")}
               </button>
             )
           }
         >
-          {message.error ?? "No reply came back"}
+          {message.error ?? t("No reply came back")}
         </Advisory>
       )}
-      {message.status === "stopped" && <p className="msg-note">Stopped</p>}
-      {message.status === "truncated" && <p className="msg-note">The reply reached its length limit</p>}
+      {message.status === "stopped" && <p className="msg-note">{t("Stopped")}</p>}
+      {message.status === "truncated" && <p className="msg-note">{t("The reply reached its length limit")}</p>}
       {!message.streaming && (message.text || readOnly || switcher) && (
         <div className="msg-meta">
           {message.model && <span>{message.model}</span>}
           {readOnly && <span>{dateTime(message.createdAt)}</span>}
           {switcher}
           {message.text && (
-            <button type="button" className="btn-ghost msg-action" onClick={copy} aria-label={copied ? "Copied" : "Copy reply"} title={copied ? "Copied" : "Copy"}>
+            <button type="button" className="btn-ghost msg-action" onClick={copy} aria-label={copied ? t("Copied") : t("Copy reply")} title={copied ? t("Copied") : t("Copy")}>
               <Icon name={copied ? "check" : "copy"} size={14} className={copied ? "draw-in" : undefined} />
             </button>
           )}
           {onRegenerate && !failed && (
-            <button type="button" className="btn-ghost msg-action" onClick={onRegenerate} disabled={busy} aria-label="Regenerate" title="Regenerate">
+            <button type="button" className="btn-ghost msg-action" onClick={onRegenerate} disabled={busy} aria-label={t("Regenerate")} title={t("Regenerate")}>
               <Icon name="retry" size={14} />
             </button>
           )}
@@ -310,7 +311,7 @@ function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegene
 
 function duration(ms: number): string {
   const s = Math.round(ms / 1000);
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+  return s < 60 ? t("{s}s", { s }) : t("{floor}m {s}s", { floor: Math.floor(s / 60), s: s % 60 });
 }
 
 /**
@@ -320,7 +321,7 @@ function duration(ms: number): string {
 function ThinkingFold({ text, ms, live }: { text: string; ms: number | null; live: boolean }) {
   const [open, setOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const label = live ? "Thinking" : ms == null ? "Thought" : ms < 1500 ? "Thought briefly" : `Thought for ${duration(ms)}`;
+  const label = live ? t("Thinking") : ms == null ? t("Thought") : ms < 1500 ? t("Thought briefly") : t("Thought for {duration}", { duration: duration(ms) });
   // Long reasoning streams many tokens a second. Folded, nobody can see it, so it isn't rendered
   // until first opened, and while folded again it keeps the text it last showed.
   const [opened, setOpened] = useState(false);
@@ -373,19 +374,19 @@ function Thinking({ phase, detail }: { phase?: UiMessage["phase"]; detail?: stri
     <p className="thinking" role="status">
       <BusyMark label={null} size={13} />
       {phase === "searching" ? (
-        <span className="thinking-detail">{detail ? `Searching the web for “${detail}”` : "Searching the web"}</span>
+        <span className="thinking-detail">{detail ? t("Searching the web for “{detail}”", { detail }) : t("Searching the web")}</span>
       ) : phase === "tool" ? (
-        <span className="thinking-detail">{detail || "Using a tool"}</span>
+        <span className="thinking-detail">{detail || t("Using a tool")}</span>
       ) : phase === "coding" ? (
-        "Running code"
+        t("Running code")
       ) : phase === "saving" ? (
-        "Saving the files it made"
+        t("Saving the files it made")
       ) : phase === "uploading" ? (
-        "Sending your files"
+        t("Sending your files")
       ) : phase === "thinking" ? (
-        "Thinking"
+        t("Thinking")
       ) : (
-        "Waiting for a reply"
+        t("Waiting for a reply")
       )}
     </p>
   );
@@ -412,10 +413,10 @@ function AskLines({ asks, onAnswer }: { asks: Ask[]; onAnswer?: (ask: Ask, allow
           {onAnswer && (
             <span className="inline-confirm-actions">
               <button type="button" className="btn-secondary btn-sm" onClick={() => onAnswer(a, false)}>
-                Don't allow
+                {t("Don't allow")}
               </button>
               <button type="button" className="btn-tonal btn-sm" onClick={() => onAnswer(a, true)}>
-                Allow
+                {t("Allow")}
               </button>
             </span>
           )}
@@ -441,7 +442,7 @@ function ToolUses({ uses, own }: { uses: ToolUse[]; own: boolean }) {
           <>
             {". "}
             <SlideLink to="/settings/connections" direction="forward">
-              Connect it
+              {t("Connect it")}
             </SlideLink>
           </>
         )}
@@ -452,7 +453,7 @@ function ToolUses({ uses, own }: { uses: ToolUse[]; own: boolean }) {
   return (
     <div className="sources">
       <button type="button" className="thought-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <span>Used {uses.length} tools</span>
+        <span>{t("Used {length} tools", { length: uses.length })}</span>
         <Icon name="chevron-down" size={14} className={`chev${open ? " is-open" : ""}`} />
       </button>
       <div className="disclosure" data-open={open} inert={!open}>
@@ -515,10 +516,10 @@ function SourcesFold({ sources, found, searches }: { sources: Page[]; found: Pag
   const cited = sources.length > 0;
   const pages = cited ? sources : found;
   const label = cited
-    ? `${sources.length} ${sources.length === 1 ? "source" : "sources"}`
+    ? tn(sources.length, "{length} source", "{length} sources", { length: sources.length })
     : searches.length > 1
-      ? `Searched the web ${searches.length} times`
-      : "Searched the web";
+      ? t("Searched the web {length} times", { length: searches.length })
+      : t("Searched the web");
   return (
     <div className="sources">
       <button type="button" className="thought-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -527,7 +528,7 @@ function SourcesFold({ sources, found, searches }: { sources: Page[]; found: Pag
       </button>
       <div className="disclosure" data-open={open} inert={!open}>
         <div className="disclosure-inner">
-          {searches.length > 0 && <p className="sources-searches">Searched for {searches.map((q) => `“${q}”`).join(", ")}</p>}
+          {searches.length > 0 && <p className="sources-searches">{t("Searched for {map}", { map: searches.map((q) => `“${q}”`).join(", ") })}</p>}
           {pages.length > 0 && (
             <ol className={`sources-list${cited ? "" : " is-found"}`}>
               {pages.map((s, i) => (

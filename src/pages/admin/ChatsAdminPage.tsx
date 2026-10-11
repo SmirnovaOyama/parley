@@ -6,6 +6,7 @@ import { Icon } from "../../icons/Icon.tsx";
 import { api } from "../../lib/api.ts";
 import { plural, shortDate } from "../../lib/format.ts";
 import { declinedSummary, useReviewedLine, type Declined } from "../../lib/declined.ts";
+import { t } from "../../lib/i18n.ts";
 import { useSlideNavigate } from "../../lib/slide.ts";
 
 type Row = { id: string; title: string; email: string; messageCount: number; updatedAt: string; deletedByUser: boolean; shared: boolean };
@@ -29,16 +30,16 @@ export function ChatsAdminPage() {
     <>
       <div className="admin-filters">
         <Segmented<View>
-          aria-label="Which chats"
+          aria-label={t("Which chats")}
           value={view}
           onChange={(v) => setFilter("view", v === "declined" ? "declined" : "")}
           options={[
-            { id: "all", label: "All chats" },
+            { id: "all", label: t("All chats") },
             {
               id: "declined",
               label: (
                 <>
-                  Declined
+                  {t("Declined")}
                   {toReview ? <span className="seg-count tabular">{toReview}</span> : null}
                 </>
               ),
@@ -93,8 +94,8 @@ function AllChats({ userId, params, setFilter, onToReview }: AllProps) {
           <input
             className="input-base"
             type="search"
-            placeholder="Search by person, title or message"
-            aria-label="Search chats"
+            placeholder={t("Search by person, title or message")}
+            aria-label={t("Search chats")}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -104,13 +105,13 @@ function AllChats({ userId, params, setFilter, onToReview }: AllProps) {
         </div>
       </div>
 
-      <Callout icon="eye">Opening a chat is recorded in the activity log under Settings</Callout>
+      <Callout icon="eye">{t("Opening a chat is recorded in the activity log under Settings")}</Callout>
 
       {!rows ? (
         <Spinner />
       ) : rows.length === 0 ? (
-        <EmptyState doodle="chat" title={query || userId ? "No chats match" : "No chats yet"}>
-          {query || userId ? "Try another search or person" : "Chats show up here once people start talking"}
+        <EmptyState doodle="chat" title={query || userId ? t("No chats match") : t("No chats yet")}>
+          {query || userId ? t("Try another search or person") : t("Chats show up here once people start talking")}
         </EmptyState>
       ) : (
         <div className="oy-section">
@@ -120,11 +121,11 @@ function AllChats({ userId, params, setFilter, onToReview }: AllProps) {
               <div className="text">
                 <p className="title truncate">
                   {r.title}
-                  {r.shared && <span className="tag">Shared</span>}
-                  {r.deletedByUser && <span className="tag">Deleted by owner</span>}
+                  {r.shared && <span className="tag">{t("Shared")}</span>}
+                  {r.deletedByUser && <span className="tag">{t("Deleted by owner")}</span>}
                 </p>
                 <div className="desc truncate">
-                  {plural(r.messageCount, "message", "messages")} with {r.email}
+                  {t("{plural} with {email}", { plural: plural(r.messageCount, "message", "messages"), email: r.email })}
                 </div>
               </div>
               <span className="trail tabular">{shortDate(r.updatedAt)}</span>
@@ -179,11 +180,11 @@ function DeclinedList({ userId, onToReview }: { userId: string; onToReview: (n: 
       <Icon name={r.reviewedAt ? "check" : "alert"} size={20} />
       <div className="text">
         <p className="title truncate">
-          {r.prompt.trim() || "Empty message"}
-          {r.deletedByUser && <span className="tag">Deleted by owner</span>}
+          {r.prompt.trim() || t("Empty message")}
+          {r.deletedByUser && <span className="tag">{t("Deleted by owner")}</span>}
         </p>
         <div className="desc truncate">
-          {r.email} asked. {declinedSummary(r)}
+          {t("{email} asked. {declinedSummary}", { email: r.email, declinedSummary: declinedSummary(r) })}
         </div>
         {r.reviewedAt && <div className="desc truncate">{reviewedLine(r)}</div>}
       </div>
@@ -194,20 +195,20 @@ function DeclinedList({ userId, onToReview }: { userId: string; onToReview: (n: 
 
   return (
     <>
-      <Callout icon="eye">Looking at this list is recorded in the activity log, like opening a chat</Callout>
+      <Callout icon="eye">{t("Looking at this list is recorded in the activity log, like opening a chat")}</Callout>
 
       {error && <Advisory>{error}</Advisory>}
       {!rows ? (
         error ? null : <Spinner />
       ) : rows.length === 0 ? (
-        <EmptyState doodle="chat" title="Nothing declined">
-          Messages the AI refuses to answer show up here
+        <EmptyState doodle="chat" title={t("Nothing declined")}>
+          {t("Messages the AI refuses to answer show up here")}
         </EmptyState>
       ) : (
         <>
           <div className="oy-group">
             <div className="group-head">
-              <p className="oy-overline">To review</p>
+              <p className="oy-overline">{t("To review")}</p>
               {/* Rests once all are done, so the heading keeps its height. */}
               <button
                 type="button"
@@ -217,14 +218,14 @@ function DeclinedList({ userId, onToReview }: { userId: string; onToReview: (n: 
                 tabIndex={waiting.length ? undefined : -1}
               >
                 <Icon name="check" size={16} />
-                Mark all reviewed
+                {t("Mark all reviewed")}
               </button>
             </div>
-            {waiting.length === 0 ? <p className="group-empty">All caught up</p> : <div className="oy-section">{waiting.map(row)}</div>}
+            {waiting.length === 0 ? <p className="group-empty">{t("All caught up")}</p> : <div className="oy-section">{waiting.map(row)}</div>}
           </div>
           {reviewed.length > 0 && (
             <div className="oy-group">
-              <p className="oy-overline">Reviewed</p>
+              <p className="oy-overline">{t("Reviewed")}</p>
               <div className="oy-section">{reviewed.map(row)}</div>
             </div>
           )}

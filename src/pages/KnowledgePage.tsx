@@ -9,14 +9,15 @@ import { PageHeader } from "../components/PageHeader.tsx";
 import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api, uploadRaw, type KnowledgeBase, type KnowledgeDoc } from "../lib/api.ts";
-import { atOrOn, fileSize, plural, shortDate } from "../lib/format.ts";
+import { atOrOn, fileSize, formatNumber, plural, shortDate } from "../lib/format.ts";
+import { sentences, t, tn } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
 import { useSlideNavigate } from "../lib/slide.ts";
 
 /** What a knowledge base holds, as a sentence for its row. */
 function baseDesc(k: KnowledgeBase): string {
-  const docs = k.docs ? `${plural(k.docs, "document", "documents")}, ${fileSize(k.bytes)} in all` : "No documents yet";
-  return k.description ? `${k.description}. ${docs}` : docs;
+  const docs = k.docs ? tn(k.docs, "{docs} document, {bytes} in all", "{docs} documents, {bytes} in all", { docs: formatNumber(k.docs), bytes: fileSize(k.bytes) }) : t("No documents yet");
+  return k.description ? sentences([k.description, docs]) : docs;
 }
 
 /** Every knowledge base you can use (/knowledge): your own, and the ones admins share with everyone. */
@@ -37,7 +38,7 @@ export function KnowledgePage() {
       <div className="text">
         <p className="title truncate">
           {k.name}
-          {k.mine && k.shared && <span className="tag is-accent">Everyone</span>}
+          {k.mine && k.shared && <span className="tag is-accent">{t("Everyone")}</span>}
         </p>
         <div className="desc">{baseDesc(k)}</div>
       </div>
@@ -49,13 +50,13 @@ export function KnowledgePage() {
   return (
     <>
       <PageHeader
-        title="Knowledge"
-        subtitle="Documents your chats can search"
-        back={{ label: "Chats", to: "/chats", mobileOnly: true }}
+        title={t("Knowledge")}
+        subtitle={t("Documents your chats can search")}
+        back={{ label: t("Chats"), to: "/chats", mobileOnly: true }}
         trailing={
           <button type="button" className="btn-primary" onClick={() => slideTo("/knowledge/new", "forward")}>
             <Icon name="plus" size={20} />
-            New
+            {t("New")}
           </button>
         }
       />
@@ -67,24 +68,24 @@ export function KnowledgePage() {
         ) : bases.length === 0 ? (
           <EmptyState
             doodle="book"
-            title="No knowledge yet"
+            title={t("No knowledge yet")}
             action={
               <button type="button" className="btn-primary" onClick={() => slideTo("/knowledge/new", "forward")}>
-                Make a knowledge base
+                {t("Make a knowledge base")}
               </button>
             }
           >
-            Put handbooks, notes or papers in a knowledge base, connect it to a chat or a project, and the AI looks things up in them
+            {t("Put handbooks, notes or papers in a knowledge base, connect it to a chat or a project, and the AI looks things up in them")}
           </EmptyState>
         ) : (
           <>
             <div className="oy-group">
-              <p className="oy-overline">Yours</p>
-              {mine.length ? <div className="oy-section">{mine.map(row)}</div> : <p className="group-empty">You haven't made one yet</p>}
+              <p className="oy-overline">{t("Yours")}</p>
+              {mine.length ? <div className="oy-section">{mine.map(row)}</div> : <p className="group-empty">{t("You haven't made one yet")}</p>}
             </div>
             {shared.length > 0 && (
               <div className="oy-group">
-                <p className="oy-overline">Shared by your admins</p>
+                <p className="oy-overline">{t("Shared by your admins")}</p>
                 <div className="oy-section">{shared.map(row)}</div>
               </div>
             )}
@@ -186,10 +187,10 @@ export function KnowledgeBasePage() {
   if (missing) {
     return (
       <>
-        <PageHeader title="Knowledge" back={{ label: "Knowledge", to: "/knowledge" }} />
+        <PageHeader title={t("Knowledge")} back={{ label: t("Knowledge"), to: "/knowledge" }} />
         <div className="oy-page-column page-body">
-          <EmptyState doodle="book" title="This knowledge base isn't here">
-            It may have been deleted, or it's no longer shared with you
+          <EmptyState doodle="book" title={t("This knowledge base isn't here")}>
+            {t("It may have been deleted, or it's no longer shared with you")}
           </EmptyState>
         </div>
       </>
@@ -199,12 +200,12 @@ export function KnowledgeBasePage() {
   return (
     <>
       <PageHeader
-        title={kb?.name ?? "Knowledge"}
-        subtitle={kb ? (kb.mine ? (kb.shared ? "Shared with everyone on this site" : kb.description || undefined) : `Shared by ${kb.owner ?? "an admin"}`) : undefined}
-        back={{ label: "Knowledge", to: "/knowledge" }}
+        title={kb?.name ?? t("Knowledge")}
+        subtitle={kb ? (kb.mine ? (kb.shared ? t("Shared with everyone on this site") : kb.description || undefined) : t("Shared by {owner}", { owner: kb.owner ?? t("an admin") })) : undefined}
+        back={{ label: t("Knowledge"), to: "/knowledge" }}
         trailing={
           kb?.canEdit ? (
-            <SlideLink className="btn-ghost icon-button" to={`/knowledge/${id}/settings`} direction="forward" aria-label="Knowledge base settings">
+            <SlideLink className="btn-ghost icon-button" to={`/knowledge/${id}/settings`} direction="forward" aria-label={t("Knowledge base settings")}>
               <Icon name="gear" size={20} />
             </SlideLink>
           ) : undefined
@@ -221,9 +222,9 @@ export function KnowledgeBasePage() {
                     keep their room, so the box and the list under it hold still. */}
                 <p className="swap">
                   <span className={dropping ? "reserve" : undefined} aria-hidden={dropping || undefined}>
-                    PDFs, Word documents and text files, up to 30 MB each. Drop them here or
+                    {t("PDFs, Word documents and text files, up to 30 MB each. Drop them here or")}
                   </span>
-                  {dropping && <span>Drop the files to add them</span>}
+                  {dropping && <span>{t("Drop the files to add them")}</span>}
                 </p>
                 <button
                   type="button"
@@ -232,7 +233,7 @@ export function KnowledgeBasePage() {
                   tabIndex={dropping ? -1 : undefined}
                 >
                   <Icon name="plus" size={16} />
-                  Add documents
+                  {t("Add documents")}
                 </button>
                 <input
                   ref={pickerRef}
@@ -254,7 +255,7 @@ export function KnowledgeBasePage() {
                     <Icon name="file" size={20} />
                     <div className="text">
                       <p className="title truncate">{u.name}</p>
-                      <div className={`desc${u.error ? " text-danger" : ""}`}>{u.error ?? (u.progress < 1 ? "Adding" : "Reading it")}</div>
+                      <div className={`desc${u.error ? " text-danger" : ""}`}>{u.error ?? (u.progress < 1 ? t("Adding") : t("Reading it"))}</div>
                       {!u.error && (
                         <span className="allowance-meter">
                           <span style={{ width: `${Math.round(u.progress * 100)}%` }} />
@@ -262,7 +263,7 @@ export function KnowledgeBasePage() {
                       )}
                     </div>
                     {u.error && (
-                      <button type="button" className="btn-ghost icon-button" aria-label="Dismiss" onClick={() => setUploads((list) => list.filter((x) => x.key !== u.key))}>
+                      <button type="button" className="btn-ghost icon-button" aria-label={t("Dismiss")} onClick={() => setUploads((list) => list.filter((x) => x.key !== u.key))}>
                         <Icon name="close" size={16} />
                       </button>
                     )}
@@ -271,9 +272,9 @@ export function KnowledgeBasePage() {
               </div>
             )}
             <div className="oy-group settings-group">
-              <p className="oy-overline">{docs.length ? plural(docs.length, "document", "documents") : "Documents"}</p>
+              <p className="oy-overline">{docs.length ? plural(docs.length, "document", "documents") : t("Documents")}</p>
               {docs.length === 0 ? (
-                <p className="group-empty">{kb.canEdit ? "Nothing here yet. Add the documents chats should search" : "Nothing here yet"}</p>
+                <p className="group-empty">{kb.canEdit ? t("Nothing here yet. Add the documents chats should search") : t("Nothing here yet")}</p>
               ) : (
                 <div className="oy-section is-plain">
                   {docs.map((d) => (
@@ -284,18 +285,18 @@ export function KnowledgeBasePage() {
                           {d.name}
                         </a>
                         <div className="desc">
-                          {fileSize(d.size)}, searchable in {plural(d.parts, "part", "parts")}. Added {atOrOn(d.createdAt)}
+                          {t("{size}, searchable in {plural}. Added {createdAt}", { size: fileSize(d.size), plural: plural(d.parts, "part", "parts"), createdAt: atOrOn(d.createdAt) })}
                         </div>
                       </div>
                       {kb.canEdit && (
-                        <button type="button" className="btn-ghost icon-button" aria-label={`Remove ${d.name}`} title="Remove" onClick={() => setRemoving(d.id)}>
+                        <button type="button" className="btn-ghost icon-button" aria-label={t("Remove {name}", { name: d.name })} title={t("Remove")} onClick={() => setRemoving(d.id)}>
                           <Icon name="trash" size={18} />
                         </button>
                       )}
                       {removing === d.id && (
                         <InlineConfirm
                           overlay
-                          message={`Remove ${d.name}?`}
+                          message={t("Remove {name}?", { name: d.name })}
                           onCancel={() => setRemoving(null)}
                           onConfirm={async () => {
                             await api.del(`/knowledge/${id}/docs/${d.id}`);
@@ -310,7 +311,7 @@ export function KnowledgeBasePage() {
                 </div>
               )}
             </div>
-            <p className="panel-note page-note">Connect it to a chat in the chat's settings, or to a project, and the AI searches it when it helps</p>
+            <p className="panel-note page-note">{t("Connect it to a chat in the chat's settings, or to a project, and the AI searches it when it helps")}</p>
           </>
         )}
       </div>
@@ -373,7 +374,7 @@ export function KnowledgeFormPage() {
 
   return (
     <>
-      <PageHeader title={adding ? "New knowledge base" : "Knowledge base settings"} back={{ label: adding ? "Knowledge" : (kb?.name ?? "Knowledge"), to: back }} />
+      <PageHeader title={adding ? t("New knowledge base") : t("Knowledge base settings")} back={{ label: adding ? t("Knowledge") : (kb?.name ?? t("Knowledge")), to: back }} />
       <div className="oy-page-column page-body">
         {loadError ? (
           <Advisory>{loadError}</Advisory>
@@ -382,10 +383,10 @@ export function KnowledgeFormPage() {
         ) : (
           <>
             <form className="form-page" onSubmit={save}>
-              <LineField id="kb-name" label="Name" value={name} maxLength={80} autoComplete="off" onChange={(e) => setName(e.target.value)} />
+              <LineField id="kb-name" label={t("Name")} value={name} maxLength={80} autoComplete="off" onChange={(e) => setName(e.target.value)} />
               <LineField
                 id="kb-description"
-                label="What's in it (optional)"
+                label={t("What's in it (optional)")}
                 value={description}
                 maxLength={300}
                 autoComplete="off"
@@ -393,30 +394,30 @@ export function KnowledgeFormPage() {
               />
               {admin && (
                 <OptionList
-                  label="Who can use it"
+                  label={t("Who can use it")}
                   value={shared}
                   onChange={setShared}
                   options={[
-                    { id: "me", label: "Only you" },
-                    { id: "everyone", label: "Everyone on this site", detail: "People can connect it to their chats and projects, but only admins change it" },
+                    { id: "me", label: t("Only you") },
+                    { id: "everyone", label: t("Everyone on this site"), detail: t("People can connect it to their chats and projects, but only admins change it") },
                   ]}
                 />
               )}
               {error && <Advisory>{error}</Advisory>}
               <div className="form-page-actions">
                 <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!name.trim()}>
-                  {adding ? "Make it" : "Save"}
+                  {adding ? t("Make it") : t("Save")}
                 </BusyButton>
                 <SlideLink to={back} direction="back" className="btn-secondary">
-                  Cancel
+                  {t("Cancel")}
                 </SlideLink>
               </div>
             </form>
             {!adding && (
               <div className="settings-danger">
                 <DangerRow
-                  label="Delete this knowledge base"
-                  confirmLabel="Delete it and its documents? Chats and projects stop searching it"
+                  label={t("Delete this knowledge base")}
+                  confirmLabel={t("Delete it and its documents? Chats and projects stop searching it")}
                   onConfirm={remove}
                 />
               </div>

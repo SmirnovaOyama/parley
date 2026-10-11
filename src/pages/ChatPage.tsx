@@ -9,6 +9,7 @@ import { Transcript, type UiMessage } from "../components/Transcript.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api, streamChat, type Ask, type Attachment, type Choice, type Instructions, type Message, type ModelChoice, type Share } from "../lib/api.ts";
 import { kindsPhrase } from "../lib/format.ts";
+import { t, tx } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
 import { useUploads, type PendingFile } from "../lib/uploads.ts";
 
@@ -70,7 +71,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   // An open chat starts with its title from the list and the loading line, so its first frame
   // (the one that slides in from the chat list) is already right.
-  const [title, setTitle] = useState(() => (id && conversations.find((c) => c.id === id)?.title) || "New chat");
+  const [title, setTitle] = useState(() => (id && conversations.find((c) => c.id === id)?.title) || t("New chat"));
   const [loading, setLoading] = useState(!!id);
   const [missing, setMissing] = useState(false);
   const [sending, setSending] = useState(false);
@@ -159,7 +160,7 @@ export function ChatPage() {
     if (!id) {
       setMessages([]);
       setChatPick(null);
-      setTitle("New chat");
+      setTitle(t("New chat"));
       setMissing(false);
       setLoading(false);
       setSending(false);
@@ -468,33 +469,36 @@ export function ChatPage() {
   const contextUsed = [...messages].reverse().find((m) => m.role === "assistant" && m.contextTokens)?.contextTokens ?? null;
   const nearlyFull = !!(contextUsed && picked?.context && contextUsed / picked.context >= CONTEXT_NEARLY_FULL);
   const fileHint = unread.length
-    ? `${picked!.label} reads ${kindsPhrase(picked!.reads)} only. Pick another model to send ${unread.length === 1 ? unread[0].name : "these files"}`
+    ? t("{label} reads {kindsPhrase} only. Pick another model to send {value}", { label: picked!.label, kindsPhrase: kindsPhrase(picked!.reads), value: unread.length === 1 ? unread[0].name : t("these files") })
     : (uploads.problem ??
-      (nearlyFull ? `This chat is close to what ${picked!.label} can read at once. A new chat keeps answers sharp` : null));
+      (nearlyFull ? t("This chat is close to what {label} can read at once. A new chat keeps answers sharp", { label: picked!.label }) : null));
   const project = chatProject ?? (newProject ? { id: newProject.id, name: newProject.name } : null);
 
   return (
     <div className="chat">
       <PageHeader
         title={title}
-        back={project ? { label: project.name, to: `/projects/${project.id}`, mobileOnly: true } : { label: "Chats", to: "/chats", mobileOnly: true }}
+        back={project ? { label: project.name, to: `/projects/${project.id}`, mobileOnly: true } : { label: t("Chats"), to: "/chats", mobileOnly: true }}
         subtitle={
           project ? (
             <>
-              In{" "}
-              <SlideLink to={`/projects/${project.id}`} direction="back">
-                {project.name}
-              </SlideLink>
-              {shared ? ". Shared with a link" : ""}
+              {tx("In <a>{name}</a>", {
+                a: () => (
+                  <SlideLink to={`/projects/${project.id}`} direction="back">
+                    {project.name}
+                  </SlideLink>
+                ),
+              })}
+              {shared ? t(". Shared with a link") : ""}
             </>
           ) : shared ? (
-            "Shared with a link"
+            t("Shared with a link")
           ) : undefined
         }
         below={headerNote ? <p className="header-note">{headerNote}</p> : undefined}
         trailing={
           !missing ? (
-            <SlideLink className="btn-ghost icon-button" to={settingsPath} direction="forward" aria-label="Chat settings">
+            <SlideLink className="btn-ghost icon-button" to={settingsPath} direction="forward" aria-label={t("Chat settings")}>
               <Icon name="gear" size={20} />
             </SlideLink>
           ) : undefined
@@ -503,14 +507,14 @@ export function ChatPage() {
 
       <div className="oy-page-column chat-body">
         {loading ? (
-          <Spinner label="Loading the chat" />
+          <Spinner label={t("Loading the chat")} />
         ) : missing ? (
-          <EmptyState doodle="chat" title="This chat isn't here">
-            It may have been deleted
+          <EmptyState doodle="chat" title={t("This chat isn't here")}>
+            {t("It may have been deleted")}
           </EmptyState>
         ) : messages.length === 0 ? (
-          <EmptyState doodle="flag" title={project ? `New chat in ${project.name}` : "Start a new chat"}>
-            {project ? "It follows the project's instructions and can search its knowledge" : "Ask a question, draft something or think out loud"}
+          <EmptyState doodle="flag" title={project ? t("New chat in {name}", { name: project.name }) : t("Start a new chat")}>
+            {project ? t("It follows the project's instructions and can search its knowledge") : t("Ask a question, draft something or think out loud")}
           </EmptyState>
         ) : (
           <Transcript
@@ -609,8 +613,8 @@ function Composer({ value, onChange, onSend, onStop, sending, files, onAddFiles,
             type="button"
             className="btn-ghost composer-add"
             onClick={() => pickerRef.current?.click()}
-            aria-label="Add files or images"
-            title="Add files or images"
+            aria-label={t("Add files or images")}
+            title={t("Add files or images")}
           >
             <Icon name="plus" size={20} />
           </button>
@@ -626,14 +630,14 @@ function Composer({ value, onChange, onSend, onStop, sending, files, onAddFiles,
             }}
           />
           <label htmlFor="composer-input" className="visually-hidden">
-            Message
+            {t("Message")}
           </label>
           <textarea
             id="composer-input"
             ref={ref}
             rows={1}
             value={value}
-            placeholder={dropping ? "Drop files to add them" : "Write a message"}
+            placeholder={dropping ? t("Drop files to add them") : t("Write a message")}
             onChange={(e) => onChange(e.target.value)}
             onPaste={(e) => {
               // A pasted picture (a screenshot, say) becomes a file; pasted words stay words.
@@ -652,7 +656,7 @@ function Composer({ value, onChange, onSend, onStop, sending, files, onAddFiles,
             }}
           />
           {sending ? (
-            <button type="button" className="composer-send is-stop" onClick={onStop} aria-label="Stop the reply">
+            <button type="button" className="composer-send is-stop" onClick={onStop} aria-label={t("Stop the reply")}>
               <Icon name="stop" size={16} />
             </button>
           ) : (
@@ -660,7 +664,7 @@ function Composer({ value, onChange, onSend, onStop, sending, files, onAddFiles,
               type="submit"
               className="composer-send"
               disabled={!canSend}
-              aria-label={waitingFor === "files" ? "Send, once the files are added" : "Send"}
+              aria-label={waitingFor === "files" ? t("Send, once the files are added") : t("Send")}
             >
               <Icon name="send" size={20} strokeWidth={2.1} />
             </button>

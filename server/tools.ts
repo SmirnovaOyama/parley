@@ -16,6 +16,7 @@ import { accountState, type AccountState } from "./mcp-auth.ts";
 import { cleanMemory, deleteMemory, keptMemory, memoryFull, memoryOn, saveMemory } from "./memory.ts";
 import type { Source, ToolCall, ToolOutcome, ToolSpec } from "./providers/types.ts";
 import { db } from "./db.ts";
+import { t } from "./i18n.ts";
 import { PROVIDERS } from "./providers/catalog.ts";
 import {
   addressesIn,
@@ -248,7 +249,7 @@ export function chatToolkit(opts: ToolkitOptions) {
     const key = `${call.name}\n${JSON.stringify(call.input)}`;
     const before = refused.get(key);
     if (before) return before;
-    opts.onStatus("tool", "Waiting for your OK");
+    opts.onStatus("tool", t("Waiting for your OK"));
     const answer = await opts.ask(question);
     if (answer === "allow") return null;
     if (answer === "stopped") return { content: "Stopped", isError: true };
@@ -287,7 +288,10 @@ export function chatToolkit(opts: ToolkitOptions) {
       const needsAccount = (s: McpServerRow, state: AccountState): ToolOutcome => {
         uses.push({
           kind: "mcp",
-          text: state === "missing" ? `Couldn't use ${tool} on ${s.name} without your own account there` : `Couldn't use ${tool} on ${s.name}, as your account there stopped working`,
+          text:
+            state === "missing"
+              ? t("Couldn't use {tool} on {name} without your own account there", { tool, name: s.name })
+              : t("Couldn't use {tool} on {name}, as your account there stopped working", { tool, name: s.name }),
           error: true,
           connect: true,
         });
@@ -301,19 +305,24 @@ export function chatToolkit(opts: ToolkitOptions) {
       if (!runsUnasked(server, tool)) {
         const no = await askFirst(
           call,
-          { kind: "mcp", question: `Use ${tool} on ${server.name}?`, detail: inputText(input), reason: `It may change things on ${server.name}, so you're asked first` },
-          { kind: "mcp", text: `Didn't use ${tool} on ${server.name} without your OK` },
+          {
+            kind: "mcp",
+            question: t("Use {tool} on {name}?", { tool, name: server.name }),
+            detail: inputText(input),
+            reason: t("It may change things on {name}, so you're asked first", { name: server.name }),
+          },
+          { kind: "mcp", text: t("Didn't use {tool} on {name} without your OK", { tool, name: server.name }) },
         );
         if (no) return no;
         server = available();
         if (!server) return gone();
       }
-      opts.onStatus("tool", `Using ${server.name}`);
+      opts.onStatus("tool", t("Using {name}", { name: server.name }));
       const { account: lost, ...outcome } = await callTool(server, opts.userId, tool, input, opts.signal);
       if (opts.signal.aborted) return outcome;
       if (lost) return needsAccount(server, lost);
       tookIn();
-      uses.push({ kind: "mcp", text: `Used ${tool} on ${server.name}`, ...(outcome.isError ? { error: true } : {}) });
+      uses.push({ kind: "mcp", text: t("Used {tool} on {name}", { tool, name: server.name }), ...(outcome.isError ? { error: true } : {}) });
       return { ...outcome, content: fromOutside(`${tool} on ${server.name}`, outcome.content) };
     }
 
@@ -325,8 +334,8 @@ export function chatToolkit(opts: ToolkitOptions) {
           const id = Number(input.id);
           const row = db.prepare("SELECT text FROM memories WHERE id = ? AND user_id = ?").get(id, opts.userId) as { text: string } | undefined;
           if (!row || !deleteMemory(opts.userId, id)) return { content: `There's no note ${input.id}`, isError: true };
-          opts.onStatus("tool", "Updating memory");
-          uses.push({ kind: "memory", text: `Forgot “${row.text}”` });
+          opts.onStatus("tool", t("Updating memory"));
+          uses.push({ kind: "memory", text: t("Forgot “{text}”", { text: row.text }) });
           return { content: `Deleted note ${id}` };
         }
         const text = cleanMemory(input.text);
@@ -338,16 +347,21 @@ export function chatToolkit(opts: ToolkitOptions) {
           if (full) return { content: full, isError: true };
           const no = await askFirst(
             call,
-            { kind: "memory", question: "Remember this?", detail: text, reason: "This chat has taken in pages, files or tool results, so you're asked before a note is kept" },
-            { kind: "memory", text: `Didn't remember “${text}” without your OK` },
+            {
+              kind: "memory",
+              question: t("Remember this?"),
+              detail: text,
+              reason: t("This chat has taken in pages, files or tool results, so you're asked before a note is kept"),
+            },
+            { kind: "memory", text: t("Didn't remember “{text}” without your OK", { text }) },
           );
           if (no) return no;
           if (!memoryOn(opts.userId)) return { content: "Memory is turned off for this person now. Don't save or delete notes", isError: true };
         }
-        opts.onStatus("tool", "Updating memory");
+        opts.onStatus("tool", t("Updating memory"));
         const saved = saveMemory(opts.userId, text, opts.conversationId);
         if ("error" in saved) return { content: saved.error, isError: true };
-        uses.push({ kind: "memory", text: `Remembered “${saved.text}”` });
+        uses.push({ kind: "memory", text: t("Remembered “{text}”", { text: saved.text }) });
         return { content: `Saved as note ${saved.id}` };
       }
       case "search_knowledge": {
@@ -362,11 +376,17 @@ export function chatToolkit(opts: ToolkitOptions) {
             isError: true,
           };
         }
-        opts.onStatus("tool", `Searching ${bases.length === 1 ? bases[0].name : "your knowledge"}`);
+        const searched = bases.length === 1 ? bases[0].name : t("your knowledge");
+        opts.onStatus("tool", t("Searching {value}", { value: searched }));
         const doc = typeof input.document === "string" && input.document.trim() ? input.document.trim() : undefined;
         const hits = searchKnowledge(bases.map((b) => b.id), query, 6, doc);
         const names = bases.map((b) => b.name).join(", ");
-        uses.push({ kind: "knowledge", text: `Searched ${bases.length === 1 ? bases[0].name : "your knowledge"} for “${query}”${hits.length ? "" : " and found nothing"}` });
+        uses.push({
+          kind: "knowledge",
+          text: hits.length
+            ? t("Searched {value} for “{query}”", { value: searched, query })
+            : t("Searched {value} for “{query}” and found nothing", { value: searched, query }),
+        });
         if (!hits.length) return { content: `Nothing in ${names} matches “${query}”. Try other words, or answer from what you know and say the documents didn't cover it` };
         tookIn();
         return {
@@ -402,16 +422,16 @@ export function chatToolkit(opts: ToolkitOptions) {
         if (!knownAddress(url, linked)) {
           const no = await askFirst(
             call,
-            { kind: "page", question: `Read a page on ${host}?`, detail: url, reason: "It isn't in your messages or search results, so you're asked first" },
-            { kind: "page", text: `Didn't read ${host} without your OK` },
+            { kind: "page", question: t("Read a page on {host}?", { host }), detail: url, reason: t("It isn't in your messages or search results, so you're asked first") },
+            { kind: "page", text: t("Didn't read {host} without your OK", { host }) },
           );
           if (no) return no;
           keepAddress(url);
         }
-        opts.onStatus("tool", `Reading ${host}`);
+        opts.onStatus("tool", t("Reading {host}", { host }));
         const page = await readPage(url);
         tookIn();
-        uses.push({ kind: "page", text: `Read ${page.title || hostOf(page.url)}` });
+        uses.push({ kind: "page", text: t("Read {title}", { title: page.title || hostOf(page.url) }) });
         return { content: fromOutside(page.url, `${page.title ? `${page.title}\n` : ""}${page.url}\n\n${page.text}`) };
       }
     }
@@ -425,7 +445,7 @@ export function chatToolkit(opts: ToolkitOptions) {
       if (opts.signal.aborted) return { content: "Stopped", isError: true };
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[tools] ${call.name} failed: ${message}`);
-      if (call.name === "read_page") uses.push({ kind: "page", text: `Couldn't read ${hostOf(String(call.input.url ?? ""))}`, error: true });
+      if (call.name === "read_page") uses.push({ kind: "page", text: t("Couldn't read {hostOf}", { hostOf: hostOf(String(call.input.url ?? "")) }), error: true });
       return { content: message || "The tool failed", isError: true };
     }
   }

@@ -1,4 +1,8 @@
 // Thin client for the Hono API. Errors carry the server's sentence so the UI can show it as is.
+import { LANG, t } from "./i18n.ts";
+
+/** Every request says the page's language, so the server answers in it (server/i18n.ts). */
+const LANG_HEADER = { "x-parley-lang": LANG };
 
 export class ApiError extends Error {
   status: number;
@@ -14,12 +18,12 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers: { ...LANG_HEADER, ...(body === undefined ? {} : { "content-type": "application/json" }) },
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "same-origin",
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? "Something went wrong. Try again", typeof data.field === "string" ? data.field : null);
+  if (!res.ok) throw new ApiError(res.status, data.error ?? t("Something went wrong. Try again"), typeof data.field === "string" ? data.field : null);
   return data as T;
 }
 
@@ -211,6 +215,7 @@ export function uploadFile(file: Blob, name: string, onProgress: (fraction: numb
     xhr.open("PUT", "/api/uploads");
     xhr.setRequestHeader("content-type", "application/octet-stream");
     xhr.setRequestHeader("x-file-name", encodeURIComponent(name));
+    xhr.setRequestHeader("x-parley-lang", LANG);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total);
     };
@@ -222,10 +227,10 @@ export function uploadFile(file: Blob, name: string, onProgress: (fraction: numb
         // Not JSON: a proxy's error page, say.
       }
       if (xhr.status >= 200 && xhr.status < 300 && data.attachment) resolve(data.attachment);
-      else reject(new ApiError(xhr.status, data.error ?? "Couldn't add this file. Try again"));
+      else reject(new ApiError(xhr.status, data.error ?? t("Couldn't add this file. Try again")));
     };
-    xhr.onerror = () => reject(new ApiError(0, "Couldn't add this file. Check the connection and try again"));
-    xhr.onabort = () => reject(new ApiError(0, "Stopped"));
+    xhr.onerror = () => reject(new ApiError(0, t("Couldn't add this file. Check the connection and try again")));
+    xhr.onabort = () => reject(new ApiError(0, t("Stopped")));
     xhr.send(file);
   });
   return { promise, abort: () => xhr.abort() };
@@ -241,6 +246,7 @@ export function uploadRaw<T>(path: string, file: Blob, name: string, onProgress?
     xhr.open("PUT", `/api${path}`);
     xhr.setRequestHeader("content-type", "application/octet-stream");
     xhr.setRequestHeader("x-file-name", encodeURIComponent(name));
+    xhr.setRequestHeader("x-parley-lang", LANG);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress?.(e.loaded / e.total);
     };
@@ -252,10 +258,10 @@ export function uploadRaw<T>(path: string, file: Blob, name: string, onProgress?
         // Not JSON: a proxy's error page, say.
       }
       if (xhr.status >= 200 && xhr.status < 300 && !data.error) resolve(data as T);
-      else reject(new ApiError(xhr.status, data.error ?? "Couldn't send this file. Try again"));
+      else reject(new ApiError(xhr.status, data.error ?? t("Couldn't send this file. Try again")));
     };
-    xhr.onerror = () => reject(new ApiError(0, "Couldn't send this file. Check the connection and try again"));
-    xhr.onabort = () => reject(new ApiError(0, "Stopped"));
+    xhr.onerror = () => reject(new ApiError(0, t("Couldn't send this file. Check the connection and try again")));
+    xhr.onabort = () => reject(new ApiError(0, t("Stopped")));
     xhr.send(file);
   });
   return { promise, abort: () => xhr.abort() };
@@ -317,13 +323,13 @@ export async function streamChat(
 ) {
   const res = await fetch("/api/chat", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { ...LANG_HEADER, "content-type": "application/json" },
     body: JSON.stringify(body),
     signal,
   });
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, data.error ?? "Couldn't send the message. Try again");
+    throw new ApiError(res.status, data.error ?? t("Couldn't send the message. Try again"));
   }
 
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();

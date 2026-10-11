@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "../lib/i18n.ts";
 
 type ConfirmProps = {
   message: string;
@@ -11,14 +12,14 @@ type ConfirmProps = {
 };
 
 /** Asks "are you sure" in place, as a line on the page. There are no pop-ups in this app. */
-export function InlineConfirm({ message, action = "Delete", onCancel, onConfirm, overlay }: ConfirmProps) {
+export function InlineConfirm({ message, action = t("Delete"), onCancel, onConfirm, overlay }: ConfirmProps) {
   const [busy, setBusy] = useState(false);
   return (
     <div className={`inline-confirm${overlay ? " is-overlay" : ""}`} role="group" aria-label={message}>
       <span className={overlay ? "truncate" : undefined}>{message}</span>
       <span className="inline-confirm-actions">
         <button type="button" className="btn-secondary btn-sm" onClick={onCancel} autoFocus>
-          Keep it
+          {t("Keep it")}
         </button>
         <button
           type="button"

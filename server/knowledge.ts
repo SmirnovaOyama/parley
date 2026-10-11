@@ -9,6 +9,7 @@ import { extractText, getDocumentProxy } from "unpdf";
 import { sniff } from "./attachments.ts";
 import { db, nowIso } from "./db.ts";
 import { FILES_DIR, safeName } from "./files.ts";
+import { t } from "./i18n.ts";
 import { isZip, readZip } from "./zip.ts";
 
 export const MAX_DOC_BYTES = 30 * 1024 * 1024;
@@ -175,25 +176,25 @@ export async function documentText(name: string, bytes: Buffer): Promise<{ text:
       const { text } = await extractText(pdf, { mergePages: false });
       const pages = (Array.isArray(text) ? text : [text]).map((p) => p.trim());
       const joined = pages.join("\n\n").trim();
-      if (!joined) return { error: `${name} has no text to read. A scanned PDF needs its text recognised first` };
+      if (!joined) return { error: t("{name} has no text to read. A scanned PDF needs its text recognised first", { name }) };
       return { text: joined, mime: "application/pdf" };
     }
     if (isZip(bytes) && ext === ".docx") {
       const text = docxText(bytes);
       if (text?.trim()) return { text, mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
-      return { error: `${name} has no text to read` };
+      return { error: t("{name} has no text to read", { name }) };
     }
     if (!bytes.includes(0)) {
       const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^﻿/, "");
-      if (!text.trim()) return { error: `${name} is empty` };
+      if (!text.trim()) return { error: t("{name} is empty", { name }) };
       if (ext === ".html" || ext === ".htm") return { text: htmlText(text), mime: "text/html" };
       return { text, mime: "text/plain" };
     }
   } catch (err) {
     console.error(`[knowledge] couldn't read ${name}:`, err);
-    return { error: `${name} couldn't be read. It may be damaged or protected` };
+    return { error: t("{name} couldn't be read. It may be damaged or protected", { name }) };
   }
-  return { error: "Knowledge takes PDFs, Word documents (.docx) and text files like .txt, .md, .csv or code" };
+  return { error: t("Knowledge takes PDFs, Word documents (.docx) and text files like .txt, .md, .csv or code") };
 }
 
 /**
@@ -230,16 +231,16 @@ export function partsOf(text: string): string[] {
 
 /** Keeps a document in a knowledge base and indexes its text. A sentence comes back when it can't. */
 export async function addDocument(kb: KnowledgeBaseRow, rawName: string, bytes: Buffer): Promise<KnowledgeDocRow | { error: string }> {
-  if (!bytes.length) return { error: "This file is empty" };
-  if (bytes.length > MAX_DOC_BYTES) return { error: `Documents can be up to ${MAX_DOC_BYTES / (1024 * 1024)} MB` };
+  if (!bytes.length) return { error: t("This file is empty") };
+  if (bytes.length > MAX_DOC_BYTES) return { error: t("Documents can be up to {MAX_DOC_BYTES} MB", { MAX_DOC_BYTES: MAX_DOC_BYTES / (1024 * 1024) }) };
   const { n } = db.prepare("SELECT COUNT(*) AS n FROM knowledge_docs WHERE kb_id = ?").get(kb.id) as { n: number };
-  if (n >= MAX_DOCS) return { error: `A knowledge base holds up to ${MAX_DOCS} documents` };
+  if (n >= MAX_DOCS) return { error: t("A knowledge base holds up to {MAX_DOCS} documents", { MAX_DOCS }) };
   const name = safeName(rawName);
   const read = await documentText(name, bytes);
   if ("error" in read) return read;
   const text = read.text.slice(0, MAX_DOC_CHARS);
   const parts = partsOf(text);
-  if (!parts.length) return { error: `${name} has no text to read` };
+  if (!parts.length) return { error: t("{name} has no text to read", { name }) };
 
   const id = randomBytes(9).toString("base64url");
   const folder = folderOf(kb.id);

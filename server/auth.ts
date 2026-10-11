@@ -3,6 +3,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { db, nowIso } from "./db.ts";
 import { hashToken, newToken } from "./crypto.ts";
 import { env } from "./env.ts";
+import { t } from "./i18n.ts";
 import { keepWithinLimit, noteUse, seenFrom } from "./sessions.ts";
 
 export type SessionUser = { id: number; email: string; role: "admin" | "user" };
@@ -75,13 +76,13 @@ export const sessionMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
 };
 
 export const requireUser: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (!c.var.user) return c.json({ error: "Sign in to continue" }, 401);
+  if (!c.var.user) return c.json({ error: t("Sign in to continue") }, 401);
   await next();
 };
 
 export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (!c.var.user) return c.json({ error: "Sign in to continue" }, 401);
-  if (c.var.user.role !== "admin") return c.json({ error: "Admins only" }, 403);
+  if (!c.var.user) return c.json({ error: t("Sign in to continue") }, 401);
+  if (c.var.user.role !== "admin") return c.json({ error: t("Admins only") }, 403);
   await next();
 };
 
@@ -114,17 +115,17 @@ export const sameOriginGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
   const origin = c.req.header("origin");
   // A sandboxed page (code from a reply, running in the preview) has no origin of its own and
   // never needs the API, whatever the method.
-  if (origin === "null") return c.json({ error: "Cross-site request blocked" }, 403);
+  if (origin === "null") return c.json({ error: t("Cross-site request blocked") }, 403);
   if (c.req.method === "GET" || c.req.method === "HEAD") return next();
   const site = c.req.header("sec-fetch-site");
-  if (site && site !== "same-origin") return c.json({ error: "Cross-site request blocked" }, 403);
-  if (!origin) return c.json({ error: "Open the site in a browser to do this" }, 403);
+  if (site && site !== "same-origin") return c.json({ error: t("Cross-site request blocked") }, 403);
+  if (!origin) return c.json({ error: t("Open the site in a browser to do this") }, 403);
   const host = c.req.header("x-forwarded-host") ?? c.req.header("host");
   if (!URL.canParse(origin) || (host && new URL(origin).host !== host)) {
-    return c.json({ error: "Cross-site request blocked" }, 403);
+    return c.json({ error: t("Cross-site request blocked") }, 403);
   }
   if (c.req.method === "POST" && !c.req.header("content-type")?.startsWith("application/json")) {
-    return c.json({ error: "Expected a JSON body" }, 415);
+    return c.json({ error: t("Expected a JSON body") }, 415);
   }
   await next();
 };

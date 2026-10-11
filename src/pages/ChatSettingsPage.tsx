@@ -10,7 +10,8 @@ import { SharePanel } from "../components/SharePanel.tsx";
 import { SlideLink } from "../components/SlideLink.tsx";
 import { api, type Instructions, type KnowledgeBase, type Message, type Persona, type Policy, type Share, type SharingMode } from "../lib/api.ts";
 import { Icon } from "../icons/Icon.tsx";
-import { plural } from "../lib/format.ts";
+import { formatNumber, plural } from "../lib/format.ts";
+import { sentences, t, tn } from "../lib/i18n.ts";
 import { ABOUT_HINT, charsLeft, MAX_INSTRUCTION_CHARS, STYLE_HINT } from "../lib/instructions.ts";
 import { useSession } from "../lib/session.tsx";
 import { useSlideNavigate } from "../lib/slide.ts";
@@ -35,9 +36,9 @@ type Saved = { name: string; aboutMe: string; answerStyle: string; projectId: st
 /** What the delete line says, by how long the site keeps deleted chats for its admins. */
 function deleteWarning(policy: Policy | null): string {
   const days = policy?.retainDeletedDays;
-  if (days === 0) return "Delete this chat? It's gone for good, for admins too";
-  if (days != null) return `Delete this chat? Admins of this site can still see it for ${plural(days, "day", "days")}`;
-  return "Delete this chat? Admins of this site can still see it";
+  if (days === 0) return t("Delete this chat? It's gone for good, for admins too");
+  if (days != null) return tn(days, "Delete this chat? Admins of this site can still see it for {days} day", "Delete this chat? Admins of this site can still see it for {days} days", { days: formatNumber(days) });
+  return t("Delete this chat? Admins of this site can still see it");
 }
 
 /**
@@ -122,7 +123,7 @@ export function ChatSettingsPage() {
   const save = async (e: FormEvent) => {
     e.preventDefault();
     if (!isNew && !name.trim()) {
-      setError("Give the chat a name");
+      setError(t("Give the chat a name"));
       return;
     }
     setBusy(true);
@@ -131,7 +132,7 @@ export function ChatSettingsPage() {
       if (isNew) {
         setNewChatInstructions(next);
         setNewChatKnowledge(knowledge);
-        slideTo(back, "back", { state: { note: "Saved for this chat" } });
+        slideTo(back, "back", { state: { note: t("Saved for this chat") } });
         return;
       }
       const patch = {
@@ -145,7 +146,7 @@ export function ChatSettingsPage() {
       if (nameChanged || projectChanged || pinChanged) void refreshConversations();
       if (projectChanged) void refreshProjects();
       const reachesModel = instructionsChanged || projectChanged || knowledgeChanged;
-      slideTo(back, "back", { state: { note: reachesModel ? "Saved. The changes apply from your next message" : "Saved" } });
+      slideTo(back, "back", { state: { note: reachesModel ? t("Saved. The changes apply from your next message") : t("Saved") } });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -160,15 +161,15 @@ export function ChatSettingsPage() {
   };
 
   // The page slid in from the chat, so every way back slides it away again.
-  const backLink = { label: isNew ? "New chat" : (chat?.conversation.title ?? "Chat"), to: back };
+  const backLink = { label: isNew ? t("New chat") : (chat?.conversation.title ?? t("Chat")), to: back };
 
   if (missing) {
     return (
       <>
-        <PageHeader title="Chat settings" back={{ label: "Chats", to: "/chats" }} />
+        <PageHeader title={t("Chat settings")} back={{ label: t("Chats"), to: "/chats" }} />
         <div className="oy-page-column page-body">
-          <EmptyState doodle="chat" title="This chat isn't here">
-            It may have been deleted
+          <EmptyState doodle="chat" title={t("This chat isn't here")}>
+            {t("It may have been deleted")}
           </EmptyState>
         </div>
       </>
@@ -177,7 +178,7 @@ export function ChatSettingsPage() {
 
   return (
     <>
-      <PageHeader title="Chat settings" subtitle={isNew ? "For the chat you're about to start" : undefined} back={backLink} />
+      <PageHeader title={t("Chat settings")} subtitle={isNew ? t("For the chat you're about to start") : undefined} back={backLink} />
       <div className="oy-page-column page-body">
         {/* Personas load with the rest, so their list never pops in above the fields. */}
         {!ready || !personas ? (
@@ -186,13 +187,13 @@ export function ChatSettingsPage() {
           <>
             <form className="form-page" onSubmit={save}>
               {!isNew && (
-                <LineField id="chat-name" label="Name" value={name} maxLength={120} autoComplete="off" onChange={(e) => setName(e.target.value)} />
+                <LineField id="chat-name" label={t("Name")} value={name} maxLength={120} autoComplete="off" onChange={(e) => setName(e.target.value)} />
               )}
               {personas.length > 0 && (
                 // Picking one copies its words into the fields below; the tick follows whichever
                 // persona the words still match.
                 <OptionList
-                  label="Persona"
+                  label={t("Persona")}
                   value={personas.find((p) => p.aboutMe === aboutMe.trim() && p.answerStyle === answerStyle.trim())?.id ?? ""}
                   onChange={(pick) => {
                     const p = personas.find((x) => x.id === pick);
@@ -200,12 +201,12 @@ export function ChatSettingsPage() {
                     setAboutMe(p.aboutMe);
                     setAnswerStyle(p.answerStyle);
                   }}
-                  options={personas.map((p) => ({ id: p.id, label: p.name, detail: p.forNewChats ? "New chats start as this one" : undefined }))}
+                  options={personas.map((p) => ({ id: p.id, label: p.name, detail: p.forNewChats ? t("New chats start as this one") : undefined }))}
                 />
               )}
               <LineArea
                 id="chat-about"
-                label="What should the AI know about you?"
+                label={t("What should the AI know about you?")}
                 value={aboutMe}
                 maxLength={MAX_INSTRUCTION_CHARS}
                 onChange={(e) => setAboutMe(e.target.value)}
@@ -213,7 +214,7 @@ export function ChatSettingsPage() {
               />
               <LineArea
                 id="chat-style"
-                label="How should it answer?"
+                label={t("How should it answer?")}
                 value={answerStyle}
                 maxLength={MAX_INSTRUCTION_CHARS}
                 onChange={(e) => setAnswerStyle(e.target.value)}
@@ -221,30 +222,30 @@ export function ChatSettingsPage() {
               />
               <p className="panel-note">
                 {isNew
-                  ? "For this chat only. Which persona new chats start as is under Settings"
-                  : "For this chat only. A change applies from your next message"}
+                  ? t("For this chat only. Which persona new chats start as is under Settings")
+                  : t("For this chat only. A change applies from your next message")}
               </p>
 
               {projects.length > 0 && (
                 <OptionList
-                  label="Project"
+                  label={t("Project")}
                   value={projectId}
                   onChange={setProjectId}
                   options={[
-                    { id: "", label: "None" },
-                    ...projects.map((p) => ({ id: p.id, label: p.name, detail: p.instructions.trim() ? "Its instructions join this chat's" : undefined })),
+                    { id: "", label: t("None") },
+                    ...projects.map((p) => ({ id: p.id, label: p.name, detail: p.instructions.trim() ? t("Its instructions join this chat's") : undefined })),
                   ]}
                 />
               )}
 
               <CheckList
-                label={project ? "Knowledge, besides the project's" : "Knowledge it can search"}
+                label={project ? t("Knowledge, besides the project's") : t("Knowledge it can search")}
                 values={knowledge}
                 onChange={setKnowledge}
                 options={bases.map((k) => {
-                  const shared = k.shared && !k.mine ? "Shared by your admins" : "";
+                  const shared = k.shared && !k.mine ? t("Shared by your admins") : "";
                   const docs = plural(k.docs, "document", "documents");
-                  const plain = [shared, docs].filter(Boolean).join(". ");
+                  const plain = sentences([shared, docs].filter(Boolean));
                   if (!projects.length) return { id: k.id, label: k.name, detail: plain };
                   // With projects to pick from, each row keeps room for the longer line, so picking a
                   // project above never grows the rows here.
@@ -255,14 +256,14 @@ export function ChatSettingsPage() {
                     detail: (
                       <span className="swap">
                         <span className={inProject ? undefined : "reserve"} aria-hidden={inProject ? undefined : true}>
-                          {[shared, "The project has it already", docs].filter(Boolean).join(". ")}
+                          {sentences([shared, t("The project has it already"), docs].filter(Boolean))}
                         </span>
                         {!inProject && <span>{plain}</span>}
                       </span>
                     ),
                   };
                 })}
-                empty="You have no knowledge bases yet. Make one under Knowledge to let chats search your documents"
+                empty={t("You have no knowledge bases yet. Make one under Knowledge to let chats search your documents")}
               />
 
               {!isNew && (
@@ -271,7 +272,7 @@ export function ChatSettingsPage() {
                     <Icon name="pin" size={20} />
                     <div className="text">
                       <label className="title" htmlFor="chat-pinned">
-                        Pin to the top of your chats
+                        {t("Pin to the top of your chats")}
                       </label>
                     </div>
                     <Switch id="chat-pinned" checked={pinned} onChange={setPinned} />
@@ -282,10 +283,10 @@ export function ChatSettingsPage() {
               {error && <Advisory>{error}</Advisory>}
               <div className="form-page-actions">
                 <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!changed}>
-                  Save
+                  {t("Save")}
                 </BusyButton>
                 <SlideLink to={back} direction="back" className="btn-secondary">
-                  Cancel
+                  {t("Cancel")}
                 </SlideLink>
               </div>
             </form>
@@ -294,7 +295,7 @@ export function ChatSettingsPage() {
               <>
                 {(chat.sharing !== "off" || share) && (
                   <div className="oy-group settings-group">
-                    <p className="oy-overline">Sharing</p>
+                    <p className="oy-overline">{t("Sharing")}</p>
                     <SharePanel
                       conversationId={id}
                       share={share}
@@ -311,13 +312,13 @@ export function ChatSettingsPage() {
                 )}
                 {chat.messages.length > 0 && (
                   <div className="oy-group settings-group">
-                    <p className="oy-overline">Export</p>
+                    <p className="oy-overline">{t("Export")}</p>
                     <div className="settings-panel">
-                      <p className="settings-text">Save this chat as a Markdown file: what's on screen, without the AI's thinking</p>
+                      <p className="settings-text">{t("Save this chat as a Markdown file: what's on screen, without the AI's thinking")}</p>
                       <div className="form-page-actions">
                         <a className="btn-secondary" href={`/api/conversations/${id}/export`} download>
                           <Icon name="download" size={16} />
-                          Download as Markdown
+                          {t("Download as Markdown")}
                         </a>
                       </div>
                     </div>
@@ -325,7 +326,7 @@ export function ChatSettingsPage() {
                 )}
                 {/* The row turns into its "are you sure" line in the same place, so nothing jumps. */}
                 <div className="settings-danger">
-                  <DangerRow label="Delete this chat" confirmLabel={deleteWarning(policy)} onConfirm={remove} />
+                  <DangerRow label={t("Delete this chat")} confirmLabel={deleteWarning(policy)} onConfirm={remove} />
                 </div>
               </>
             )}

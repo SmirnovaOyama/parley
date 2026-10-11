@@ -4,6 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { pathTo, toPublic, type ConversationRow, type PublicMessage } from "./chat-store.ts";
 import { db, nowIso } from "./db.ts";
+import { t } from "./i18n.ts";
 
 export type ShareRow = {
   id: string;
@@ -57,7 +58,7 @@ export function sharedMessages(leafId: number): PublicMessage[] {
     return {
       ...p,
       parentId: null,
-      error: p.status === "declined" ? "The AI declined to answer this message" : null,
+      error: p.status === "declined" ? t("The AI declined to answer this message") : null,
       note: null,
       thinking: null,
       thinkingMs: null,

@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { requireUser, type AppEnv } from "../auth.ts";
 import { tx } from "../chat-store.ts";
 import { db, nowIso } from "../db.ts";
+import { t } from "../i18n.ts";
 import { MAX_INSTRUCTION_CHARS, personasOf } from "../instructions.ts";
 
 export const personaRoutes = new Hono<AppEnv>();
@@ -20,13 +21,13 @@ function parsePersona(body: Record<string, unknown>, partial: boolean) {
   const out: { name?: string; aboutMe?: string; answerStyle?: string; forNewChats?: boolean } = {};
   if (body.name !== undefined || !partial) {
     const name = String(body.name ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
-    if (!name) return { error: "Give the persona a name" };
+    if (!name) return { error: t("Give the persona a name") };
     out.name = name;
   }
   for (const key of ["aboutMe", "answerStyle"] as const) {
     if (body[key] === undefined) continue;
     const text = String(body[key] ?? "").trim();
-    if (text.length > MAX_INSTRUCTION_CHARS) return { error: `Keep each one under ${MAX_INSTRUCTION_CHARS} characters` };
+    if (text.length > MAX_INSTRUCTION_CHARS) return { error: t("Keep each one under {MAX_INSTRUCTION_CHARS} characters", { MAX_INSTRUCTION_CHARS }) };
     out[key] = text;
   }
   if (body.forNewChats !== undefined) out.forNewChats = !!body.forNewChats;
@@ -46,7 +47,7 @@ personaRoutes.post("/personas", async (c) => {
   const parsed = parsePersona(await c.req.json().catch(() => ({})), false);
   if ("error" in parsed) return c.json(parsed, 400);
   const { n } = db.prepare("SELECT COUNT(*) AS n FROM personas WHERE user_id = ?").get(userId) as { n: number };
-  if (n >= MAX_PERSONAS) return c.json({ error: "You can have up to five personas. Delete one to make another" }, 400);
+  if (n >= MAX_PERSONAS) return c.json({ error: t("You can have up to five personas. Delete one to make another") }, 400);
   const id = randomUUID();
   const now = nowIso();
   tx(() => {
@@ -60,7 +61,7 @@ personaRoutes.post("/personas", async (c) => {
 
 personaRoutes.get("/personas/:id", (c) => {
   const p = persona(c.var.user!.id, c.req.param("id"));
-  if (!p) return c.json({ error: "This persona doesn't exist" }, 404);
+  if (!p) return c.json({ error: t("This persona doesn't exist") }, 404);
   return c.json({ persona: p });
 });
 
@@ -68,7 +69,7 @@ personaRoutes.get("/personas/:id", (c) => {
 personaRoutes.patch("/personas/:id", async (c) => {
   const userId = c.var.user!.id;
   const p = persona(userId, c.req.param("id"));
-  if (!p) return c.json({ error: "This persona doesn't exist" }, 404);
+  if (!p) return c.json({ error: t("This persona doesn't exist") }, 404);
   const parsed = parsePersona(await c.req.json().catch(() => ({})), true);
   if ("error" in parsed) return c.json(parsed, 400);
   tx(() => {
@@ -83,7 +84,7 @@ personaRoutes.patch("/personas/:id", async (c) => {
 /** Deletes a persona. If new chats started as it, they start as none until another is picked. */
 personaRoutes.delete("/personas/:id", (c) => {
   const p = persona(c.var.user!.id, c.req.param("id"));
-  if (!p) return c.json({ error: "This persona doesn't exist" }, 404);
+  if (!p) return c.json({ error: t("This persona doesn't exist") }, 404);
   db.prepare("DELETE FROM personas WHERE id = ?").run(p.id);
   return c.json({ ok: true });
 });

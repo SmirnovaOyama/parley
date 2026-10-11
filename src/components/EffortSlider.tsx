@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { t } from "../lib/i18n.ts";
 
 type Level = { id: string; label: string };
 
@@ -54,19 +55,19 @@ export function EffortSlider({ levels, value, onChange }: Props) {
   return (
     <div className="effort-slider">
       <p className="effort-head">
-        <span className="effort-head-label">Thinking</span>
+        <span className="effort-head-label">{t("Thinking")}</span>
         <span className="effort-head-value">{current?.label}</span>
       </p>
       <div className="effort-ends" aria-hidden="true">
-        <span>Faster</span>
-        <span>Smarter</span>
+        <span>{t("Faster")}</span>
+        <span>{t("Smarter")}</span>
       </div>
       <div
         ref={trackRef}
         className="effort-track"
         role="slider"
         tabIndex={0}
-        aria-label="Thinking"
+        aria-label={t("Thinking")}
         aria-valuemin={0}
         aria-valuemax={n - 1}
         aria-valuenow={index}

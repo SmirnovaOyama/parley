@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { extname, join } from "node:path";
 import { db, nowIso } from "./db.ts";
 import { FILES_DIR, safeName } from "./files.ts";
+import { andText, t } from "./i18n.ts";
 import { readsFor, type KeyRow } from "./keys.ts";
 import { hasTools } from "./providers/catalog.ts";
 import { anthropicClient, OPENAI_API, openaiClient } from "./providers/clients.ts";
@@ -70,8 +71,8 @@ export function sniff(bytes: Buffer): { kind: AttachmentKind; mime: string } {
 
 /** The sentence for a file that's too big for its kind, or null when it fits. */
 function tooBig(kind: AttachmentKind, size: number): string | null {
-  if (kind === "image" && size > MAX_IMAGE_BYTES) return `Images can be up to ${mb(MAX_IMAGE_BYTES)}`;
-  if (size > MAX_BYTES) return `Files can be up to ${mb(MAX_BYTES)}`;
+  if (kind === "image" && size > MAX_IMAGE_BYTES) return t("Images can be up to {mb}", { mb: mb(MAX_IMAGE_BYTES) });
+  if (size > MAX_BYTES) return t("Files can be up to {mb}", { mb: mb(MAX_BYTES) });
   return null;
 }
 
@@ -87,9 +88,9 @@ const toPublicAttachment = (a: Pick<AttachmentRow, "id" | "name" | "mime" | "siz
 
 /** Keeps an upload until it's sent (or cleared). Returns a sentence instead when it can't be kept. */
 export function saveUpload(userId: number, rawName: string, bytes: Buffer): PublicAttachment | { error: string } {
-  if (!bytes.length) return { error: "This file is empty" };
+  if (!bytes.length) return { error: t("This file is empty") };
   const pending = db.prepare("SELECT COUNT(*) AS n FROM attachments WHERE user_id = ? AND message_id IS NULL").get(userId) as { n: number };
-  if (pending.n >= MAX_PENDING) return { error: "Send or remove some of the files you've added first" };
+  if (pending.n >= MAX_PENDING) return { error: t("Send or remove some of the files you've added first") };
   const { kind, mime } = sniff(bytes);
   const big = tooBig(kind, bytes.length);
   if (big) return { error: big };
@@ -164,9 +165,9 @@ export function historyAttachments(messageId: number): HistoryAttachment[] {
  */
 export function pickAttachments(userId: number, conversationId: string | null, ids: unknown): AttachmentRow[] | { error: string } {
   if (ids == null) return [];
-  if (!Array.isArray(ids)) return { error: "Those files couldn't be found" };
+  if (!Array.isArray(ids)) return { error: t("Those files couldn't be found") };
   const unique = [...new Set(ids.map(String))];
-  if (unique.length > MAX_PER_MESSAGE) return { error: `Attach up to ${MAX_PER_MESSAGE} files to one message` };
+  if (unique.length > MAX_PER_MESSAGE) return { error: t("Attach up to {MAX_PER_MESSAGE} files to one message", { MAX_PER_MESSAGE }) };
   const rows: AttachmentRow[] = [];
   for (const id of unique) {
     const row = db
@@ -175,7 +176,7 @@ export function pickAttachments(userId: number, conversationId: string | null, i
          WHERE a.id = ? AND a.user_id = ? AND (a.message_id IS NULL OR m.conversation_id IS ?)`,
       )
       .get(id, userId, conversationId) as AttachmentRow | undefined;
-    if (!row || !existsSync(row.path)) return { error: "One of the files isn't here any more. Remove it and add it again" };
+    if (!row || !existsSync(row.path)) return { error: t("One of the files isn't here any more. Remove it and add it again") };
     rows.push(row);
   }
   return rows;
@@ -183,8 +184,8 @@ export function pickAttachments(userId: number, conversationId: string | null, i
 
 /** "text files", "images and text files", "images, PDFs and text files". */
 function kindsPhrase(kinds: AttachmentKind[]): string {
-  const names = (["image", "pdf", "text"] as const).filter((k) => kinds.includes(k)).map((k) => ({ image: "images", pdf: "PDFs", text: "text files" })[k]);
-  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? "no files");
+  const names = (["image", "pdf", "text"] as const).filter((k) => kinds.includes(k)).map((k) => t({ image: "images", pdf: "PDFs", text: "text files" }[k]));
+  return names.length ? andText(names) : t("no files");
 }
 
 /**
@@ -198,9 +199,17 @@ export function unreadable(rows: Pick<AttachmentRow, "kind" | "name">[], key: Ke
   if (!unread.length) return null;
   const other = unread.find((r) => r.kind === "other");
   if (other && hasTools(key.provider)) {
-    return `${modelName} can open ${other.name} only in a chat where it can run code. Images, PDFs and text files up to ${mb(MAX_TEXT_BYTES)} work in any chat`;
+    return t("{modelName} can open {name} only in a chat where it can run code. Images, PDFs and text files up to {mb} work in any chat", {
+      modelName,
+      name: other.name,
+      mb: mb(MAX_TEXT_BYTES),
+    });
   }
-  return `${modelName} reads ${kindsPhrase(reads)} only. Pick another model to send ${unread.length === 1 ? unread[0].name : "these files"}`;
+  return t("{modelName} reads {kindsPhrase} only. Pick another model to send {value}", {
+    modelName,
+    kindsPhrase: kindsPhrase(reads),
+    value: unread.length === 1 ? unread[0].name : t("these files"),
+  });
 }
 
 /** Ties the files to the message they were sent with. Files from another message are copied. */

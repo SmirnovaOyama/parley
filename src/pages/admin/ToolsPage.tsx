@@ -10,7 +10,8 @@ import { SlideLink } from "../../components/SlideLink.tsx";
 import { Icon } from "../../icons/Icon.tsx";
 import { api } from "../../lib/api.ts";
 import { wordDiff, type Piece } from "../../lib/diff.ts";
-import { atOrOn, plural } from "../../lib/format.ts";
+import { atOrOn, formatNumber, plural } from "../../lib/format.ts";
+import { t, tn } from "../../lib/i18n.ts";
 import { useSlideNavigate } from "../../lib/slide.ts";
 import type { Group } from "./GroupsPage.tsx";
 
@@ -73,22 +74,21 @@ export function ToolsPage() {
 
       <div className="oy-group">
         <div className="group-head">
-          <p className="oy-overline">MCP servers</p>
+          <p className="oy-overline">{t("MCP servers")}</p>
           <button type="button" className="btn-ghost is-accent" onClick={() => slideTo("/admin/mcp/new", "forward")}>
             <Icon name="plus" size={16} />
-            Add a server
+            {t("Add a server")}
           </button>
         </div>
         <p className="group-intro">
-          Connect a service that speaks the Model Context Protocol, like GitHub, Notion or one of your own, and every model can use its tools. A
-          chat gets the tools that were on when it started
+          {t("Connect a service that speaks the Model Context Protocol, like GitHub, Notion or one of your own, and every model can use its tools. A chat gets the tools that were on when it started")}
         </p>
         {error ? (
           <Advisory>{error}</Advisory>
         ) : !servers ? (
           <Spinner />
         ) : servers.length === 0 ? (
-          <p className="group-empty">None yet</p>
+          <p className="group-empty">{t("None yet")}</p>
         ) : (
           <div className="oy-section is-plain">
             {servers.map((s) => {
@@ -99,13 +99,16 @@ export function ToolsPage() {
                   <div className="text">
                     <p className="title truncate">
                       {s.name}
-                      {!s.enabled && <span className="tag is-warning">Off</span>}
-                      {s.error && <span className="tag is-warning">Not answering</span>}
-                      {s.pending && <span className="tag is-warning">Changed tools</span>}
+                      {!s.enabled && <span className="tag is-warning">{t("Off")}</span>}
+                      {s.error && <span className="tag is-warning">{t("Not answering")}</span>}
+                      {s.pending && <span className="tag is-warning">{t("Changed tools")}</span>}
                     </p>
                     <div className="desc">
-                      {plural(on, "tool", "tools")} for {s.shared ? "everyone" : s.groupIds.length ? plural(s.groupIds.length, "group", "groups") : "nobody yet"}
-                      {s.authMode !== "shared" && `, each on their own account. ${plural(s.people.length, "person has", "people have")} connected`}
+                      {t("{plural} for", { plural: plural(on, "tool", "tools") })} {s.shared ? t("everyone") : s.groupIds.length ? plural(s.groupIds.length, "group", "groups") : t("nobody yet")}
+                      {s.authMode !== "shared" &&
+                        tn(s.people.length, ", each on their own account. {count} person has connected", ", each on their own account. {count} people have connected", {
+                          count: formatNumber(s.people.length),
+                        })}
                     </div>
                   </div>
                   <Icon name="chevron-right" size={18} className="chevron" />
@@ -159,26 +162,25 @@ function SearchForm() {
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">Web search for other models</p>
+      <p className="oy-overline">{t("Web search for other models")}</p>
       <p className="group-intro">
-        Claude and OpenAI search with their own tools. DeepSeek, Gemini, Grok and other services search through the service picked here,
-        and can read the pages they find, on keys with web search on
+        {t("Claude and OpenAI search with their own tools. DeepSeek, Gemini, Grok and other services search through the service picked here, and can read the pages they find, on keys with web search on")}
       </p>
       <form className="form-page" onSubmit={save}>
         <OptionList
-          label="Search service"
+          label={t("Search service")}
           value={provider}
           onChange={(p) => {
             setProvider(p);
             setSaved(false);
             setError(null);
           }}
-          options={[{ id: "off", label: "None", detail: "Those models answer from what they know" }, ...settings.services.map((s) => ({ id: s.id, label: s.label, detail: s.detail }))]}
+          options={[{ id: "off", label: t("None"), detail: t("Those models answer from what they know") }, ...settings.services.map((s) => ({ id: s.id, label: s.label, detail: s.detail }))]}
         />
         {service?.needs === "key" && (
           <LineField
             id="search-key"
-            label={settings.hasKey && settings.provider === provider ? "A new API key (empty keeps the saved one)" : `${service.label} API key`}
+            label={settings.hasKey && settings.provider === provider ? t("A new API key (empty keeps the saved one)") : t("{label} API key", { label: service.label })}
             type="password"
             autoComplete="off"
             spellCheck={false}
@@ -192,7 +194,7 @@ function SearchForm() {
         {service?.needs === "url" && (
           <LineField
             id="search-url"
-            label="Your SearXNG's address"
+            label={t("Your SearXNG's address")}
             autoComplete="off"
             spellCheck={false}
             value={url}
@@ -200,14 +202,14 @@ function SearchForm() {
               setUrl(e.target.value);
               setSaved(false);
             }}
-            hint="Its settings need JSON among the result formats"
+            hint={t("Its settings need JSON among the result formats")}
           />
         )}
         {error && <Advisory>{error}</Advisory>}
         <div className="form-actions">
-          <p className="oy-field-hint">A test search runs before it's saved</p>
+          <p className="oy-field-hint">{t("A test search runs before it's saved")}</p>
           <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
-            {saved && !dirty ? "Saved" : "Save"}
+            {saved && !dirty ? t("Saved") : t("Save")}
           </BusyButton>
         </div>
       </form>
@@ -216,23 +218,23 @@ function SearchForm() {
 }
 
 /** What the server says a tool does, beside the choice to let it run without asking. */
-function hintOf(t: { readOnly: boolean | null; openWorld: boolean | null; destructive?: boolean | null }): string {
-  if (t.readOnly) return t.openWorld ? "Only reads, the server says, but from services beyond it, so it could pass on what it's sent" : "Only reads, the server says";
-  if (t.readOnly === false) {
-    if (t.destructive === false) return "Can add things but not change or delete them, the server says";
-    return t.destructive ? "Can change or delete things, the server says" : "Can make changes, the server says";
+function hintOf(tool: { readOnly: boolean | null; openWorld: boolean | null; destructive?: boolean | null }): string {
+  if (tool.readOnly) return tool.openWorld ? t("Only reads, the server says, but from services beyond it, so it could pass on what it's sent") : t("Only reads, the server says");
+  if (tool.readOnly === false) {
+    if (tool.destructive === false) return t("Can add things but not change or delete them, the server says");
+    return tool.destructive ? t("Can change or delete things, the server says") : t("Can make changes, the server says");
   }
-  return "The server doesn't say whether it makes changes";
+  return t("The server doesn't say whether it makes changes");
 }
 
-const PART_LABELS: Record<ToolPart, string> = { title: "Title", description: "Description", input: "Input", hints: "What it does" };
+const PART_LABELS: Record<ToolPart, string> = { title: t("Title"), description: t("Description"), input: t("Input"), hints: t("What it does") };
 
 /** One part of a tool as words to compare. */
-function partText(t: ToolText, part: ToolPart): string {
-  if (part === "title") return t.title ?? "";
-  if (part === "description") return t.description;
-  if (part === "input") return t.input;
-  return `${hintOf(t)}\n${t.runs ? "Runs without asking" : "Asks the person first"}`;
+function partText(tool: ToolText, part: ToolPart): string {
+  if (part === "title") return tool.title ?? "";
+  if (part === "description") return tool.description;
+  if (part === "input") return tool.input;
+  return tool.runs ? t("{hintOf}\nRuns without asking", { hintOf: hintOf(tool) }) : t("{hintOf}\nAsks the person first", { hintOf: hintOf(tool) });
 }
 
 /** Changed words, marked line by line: the space or indent around them would show as stray patches. */
@@ -255,7 +257,7 @@ function PartText({ part, pieces, mark }: { part: ToolPart; pieces: Piece[]; mar
   return (
     <Tag className={`mcp-text${part === "input" ? " is-code" : ""}`}>
       {pieces.every((p) => !p.text) ? (
-        <span className="mcp-none">None</span>
+        <span className="mcp-none">{t("None")}</span>
       ) : (
         pieces.map((p, i) => <Fragment key={i}>{p.changed && mark ? <Marked text={p.text} as={mark} /> : p.text}</Fragment>)
       )}
@@ -269,12 +271,12 @@ function ToolChangeView({ change: c }: { change: ToolChange }) {
     <div className="mcp-change" role="group" aria-label={c.name}>
       <p className="mcp-change-name">
         {c.name}
-        {c.change === "new" ? <span className="tag is-accent">New</span> : c.change === "changed" ? <span className="tag is-warning">Changed</span> : <span className="tag">Gone</span>}
+        {c.change === "new" ? <span className="tag is-accent">{t("New")}</span> : c.change === "changed" ? <span className="tag is-warning">{t("Changed")}</span> : <span className="tag">{t("Gone")}</span>}
       </p>
-      {c.change === "gone" && <p className="mcp-change-note">It isn't listed any more. Using the new ones takes it out of new chats</p>}
+      {c.change === "gone" && <p className="mcp-change-note">{t("It isn't listed any more. Using the new ones takes it out of new chats")}</p>}
       {c.change === "new" && (
         <>
-          <p className="mcp-change-note">No chat gets it until you use the new ones</p>
+          <p className="mcp-change-note">{t("No chat gets it until you use the new ones")}</p>
           {c.parts
             .filter((part) => part !== "title" || c.after!.title)
             .map((part) => (
@@ -293,9 +295,9 @@ function ToolChangeView({ change: c }: { change: ToolChange }) {
               <p className="mcp-part-label">{PART_LABELS[part]}</p>
               {/* What it does is a sentence swapped whole, so its words aren't marked. */}
               <div className="mcp-pair">
-                <span className="mcp-when">Before</span>
+                <span className="mcp-when">{t("Before")}</span>
                 <PartText part={part} pieces={diff.before} mark={part === "hints" ? undefined : "del"} />
-                <span className="mcp-when">Now</span>
+                <span className="mcp-when">{t("Now")}</span>
                 <PartText part={part} pieces={diff.after} mark={part === "hints" ? undefined : "ins"} />
               </div>
             </div>
@@ -321,11 +323,10 @@ function ListingReview({ pending, busy, error, onSettle, sectionRef }: ReviewPro
   return (
     <section ref={sectionRef} className="oy-group mcp-review" aria-labelledby="mcp-review-title">
       <p className="oy-overline" id="mcp-review-title">
-        Tools to look over
+        {t("Tools to look over")}
       </p>
       <p className="group-intro">
-        The server listed tools that are new or read differently. New chats keep getting the old ones until you choose. A tool's words reach the
-        model in every chat that has it, so look for instructions that don't belong there
+        {t("The server listed tools that are new or read differently. New chats keep getting the old ones until you choose. A tool's words reach the model in every chat that has it, so look for instructions that don't belong there")}
       </p>
       <div className="mcp-changes">
         {pending.changes.map((c) => (
@@ -335,10 +336,10 @@ function ListingReview({ pending, busy, error, onSettle, sectionRef }: ReviewPro
       {error && <Advisory>{error}</Advisory>}
       <div className="form-page-actions">
         <BusyButton type="button" className="btn-secondary" busy={busy === "keep"} disabled={busy === "use"} onClick={() => onSettle(false)}>
-          Keep the old ones
+          {t("Keep the old ones")}
         </BusyButton>
         <BusyButton type="button" className="btn-primary" busy={busy === "use"} disabled={busy === "keep"} onClick={() => onSettle(true)}>
-          Use the new ones
+          {t("Use the new ones")}
         </BusyButton>
       </div>
     </section>
@@ -347,15 +348,17 @@ function ListingReview({ pending, busy, error, onSettle, sectionRef }: ReviewPro
 
 /** How a sign-in from this page came back (?result=…, from /api/mcp/callback). */
 const SIGN_IN_RESULTS: Record<string, string> = {
-  connected: "You're signed in, and it listed its tools",
-  denied: "You didn't allow it on its sign-in page, so it can't list its tools yet",
-  failed: "The sign-in didn't finish. Try again",
+  connected: t("You're signed in, and it listed its tools"),
+  denied: t("You didn't allow it on its sign-in page, so it can't list its tools yet"),
+  failed: t("The sign-in didn't finish. Try again"),
 };
 
 /** Who has connected their own account, as a sentence. */
 function personText(p: McpServer["people"][number]): string {
-  if (p.status === "expired") return "Their account stopped working, until they connect it again";
-  return `Connected ${atOrOn(p.connectedAt)}${p.usedAt ? `, last used ${atOrOn(p.usedAt)}` : ""}`;
+  if (p.status === "expired") return t("Their account stopped working, until they connect it again");
+  return p.usedAt
+    ? t("Connected {connectedAt}, last used {usedAt}", { connectedAt: atOrOn(p.connectedAt), usedAt: atOrOn(p.usedAt) })
+    : t("Connected {connectedAt}", { connectedAt: atOrOn(p.connectedAt) });
 }
 
 /** Add an MCP server (/admin/mcp/new) or change one (/admin/mcp/:id): where it is, whose account it uses, who can use it, which tools are on. */
@@ -426,7 +429,7 @@ export function McpFormPage() {
       (r) => {
         const found = r.servers.find((s) => String(s.id) === id);
         if (found) fill(found);
-        else setLoadError("This server doesn't exist any more");
+        else setLoadError(t("This server doesn't exist any more"));
       },
       (err) => setLoadError((err as Error).message),
     );
@@ -549,9 +552,9 @@ export function McpFormPage() {
   return (
     <div className="admin-page">
       <PageHeader
-        title={adding ? "New MCP server" : (server?.name ?? "MCP server")}
-        subtitle={server?.checkedAt ? `Listed its tools ${atOrOn(server.checkedAt)}` : undefined}
-        back={{ label: "Tools", to: "/admin/tools" }}
+        title={adding ? t("New MCP server") : (server?.name ?? t("MCP server"))}
+        subtitle={server?.checkedAt ? t("Listed its tools {checkedAt}", { checkedAt: atOrOn(server.checkedAt) }) : undefined}
+        back={{ label: t("Tools"), to: "/admin/tools" }}
       />
       <div className="oy-page-column page-body">
         {loadError ? (
@@ -567,48 +570,48 @@ export function McpFormPage() {
             )}
             {server?.pending && <ListingReview sectionRef={reviewRef} pending={server.pending} busy={settling} error={reviewError} onSettle={(use) => void settle(use)} />}
             <form className="form-page" onSubmit={save}>
-              <LineField id="mcp-name" label="Name" value={name} maxLength={40} autoComplete="off" onChange={(e) => setName(e.target.value)} hint="Tools are named after it, like github__create_issue" />
-              <LineField id="mcp-url" label="Address" value={url} autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} hint="Its Streamable HTTP or SSE endpoint, often ending in /mcp" />
+              <LineField id="mcp-name" label={t("Name")} value={name} maxLength={40} autoComplete="off" onChange={(e) => setName(e.target.value)} hint={t("Tools are named after it, like github__create_issue")} />
+              <LineField id="mcp-url" label={t("Address")} value={url} autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} hint={t("Its Streamable HTTP or SSE endpoint, often ending in /mcp")} />
               <OptionList
-                label="Whose account it uses"
+                label={t("Whose account it uses")}
                 value={authMode}
                 onChange={setAuthMode}
                 options={[
-                  { id: "shared", label: "One shared account", detail: "Everyone who can use it acts with the headers below" },
-                  { id: "oauth", label: "Each person signs in", detail: "On the server's own sign-in page, from Settings, under Connected services" },
-                  { id: "token", label: "Each person adds a token", detail: "A token of their own, from Settings, under Connected services" },
+                  { id: "shared", label: t("One shared account"), detail: t("Everyone who can use it acts with the headers below") },
+                  { id: "oauth", label: t("Each person signs in"), detail: t("On the server's own sign-in page, from Settings, under Connected services") },
+                  { id: "token", label: t("Each person adds a token"), detail: t("A token of their own, from Settings, under Connected services") },
                 ]}
               />
               {authMode === "shared" && (
                 <LineArea
                   id="mcp-headers"
-                  label={server?.headerNames.length ? `New headers (${server.headerNames.join(", ")} kept when empty)` : "Headers (optional)"}
+                  label={server?.headerNames.length ? t("New headers ({headerNames} kept when empty)", { headerNames: server.headerNames.join(", ") }) : t("Headers (optional)")}
                   value={headers}
                   spellCheck={false}
                   onChange={(e) => setHeaders(e.target.value)}
-                  hint="One per line, like Authorization: Bearer abc123, or just a token. Everyone who can use the server acts with these. Kept encrypted and never shown again"
+                  hint={t("One per line, like Authorization: Bearer abc123, or just a token. Everyone who can use the server acts with these. Kept encrypted and never shown again")}
                 />
               )}
               {authMode === "token" && (
                 <>
                   <LineField
                     id="mcp-own-token"
-                    label={server?.authMode === "token" && server.yours === "connected" ? "A new token of yours (yours is kept when empty)" : "Your own token"}
+                    label={server?.authMode === "token" && server.yours === "connected" ? t("A new token of yours (yours is kept when empty)") : t("Your own token")}
                     type="password"
                     autoComplete="off"
                     spellCheck={false}
                     value={ownToken}
                     onChange={(e) => setOwnToken(e.target.value)}
-                    hint="It lists the server's tools, and your own chats use it. Nobody else's do. Kept encrypted and never shown again"
+                    hint={t("It lists the server's tools, and your own chats use it. Nobody else's do. Kept encrypted and never shown again")}
                   />
                   <LineField
                     id="mcp-token-hint"
-                    label="What to tell people (optional)"
+                    label={t("What to tell people (optional)")}
                     value={tokenHint}
                     maxLength={300}
                     autoComplete="off"
                     onChange={(e) => setTokenHint(e.target.value)}
-                    hint="Shown where they add theirs, like where to make one and what it needs"
+                    hint={t("Shown where they add theirs, like where to make one and what it needs")}
                   />
                 </>
               )}
@@ -616,17 +619,19 @@ export function McpFormPage() {
                 <>
                   <LineField
                     id="mcp-client-id"
-                    label="Client ID (optional)"
+                    label={t("Client ID (optional)")}
                     value={clientId}
                     autoComplete="off"
                     spellCheck={false}
                     onChange={(e) => setClientId(e.target.value)}
-                    hint={`Only for a sign-in service that doesn't let Parley register itself. Register Parley there with ${server?.callbackUrl ?? `${window.location.origin}/api/mcp/callback`} as its callback address`}
+                    hint={t("Only for a sign-in service that doesn't let Parley register itself. Register Parley there with {callbackUrl} as its callback address", {
+                      callbackUrl: server?.callbackUrl ?? `${window.location.origin}/api/mcp/callback`,
+                    })}
                   />
                   {clientId.trim() && (
                     <LineField
                       id="mcp-client-secret"
-                      label={server?.hasClientSecret ? "A new client secret (the saved one is kept when empty)" : "Client secret (optional)"}
+                      label={server?.hasClientSecret ? t("A new client secret (the saved one is kept when empty)") : t("Client secret (optional)")}
                       type="password"
                       autoComplete="off"
                       spellCheck={false}
@@ -636,27 +641,27 @@ export function McpFormPage() {
                   )}
                   <p className="panel-note">
                     {adding
-                      ? "Connecting takes you to its sign-in page. Your own account there lists its tools"
-                      : "A new address, or a new way of signing in, disconnects everyone, so each person connects again"}
+                      ? t("Connecting takes you to its sign-in page. Your own account there lists its tools")
+                      : t("A new address, or a new way of signing in, disconnects everyone, so each person connects again")}
                   </p>
                 </>
               )}
               <OptionList
-                label="Who can use it"
+                label={t("Who can use it")}
                 value={who}
                 onChange={setWho}
                 options={[
-                  { id: "everyone", label: "Everyone" },
-                  { id: "groups", label: "Only some groups" },
+                  { id: "everyone", label: t("Everyone") },
+                  { id: "groups", label: t("Only some groups") },
                 ]}
               />
               {who === "groups" && (
                 <CheckList
-                  label="Groups"
+                  label={t("Groups")}
                   values={groupIds}
                   onChange={setGroupIds}
                   options={groups.map((g) => ({ id: String(g.id), label: g.name, detail: plural(g.memberIds.length, "person", "people") }))}
-                  empty="There are no groups yet. Make them under Groups"
+                  empty={t("There are no groups yet. Make them under Groups")}
                 />
               )}
               <div className="oy-section is-plain">
@@ -664,9 +669,9 @@ export function McpFormPage() {
                   <div className="oy-row">
                     <div className="text">
                       <label className="title" htmlFor="mcp-enabled">
-                        On
+                        {t("On")}
                       </label>
-                      <div className="desc">Off, its tools stop working in every chat until it's back on</div>
+                      <div className="desc">{t("Off, its tools stop working in every chat until it's back on")}</div>
                     </div>
                     <Switch id="mcp-enabled" checked={enabled} onChange={setEnabled} />
                   </div>
@@ -674,9 +679,9 @@ export function McpFormPage() {
                 <div className="oy-row">
                   <div className="text">
                     <label className="title" htmlFor="mcp-send-user">
-                      Tell it who's asking
+                      {t("Tell it who's asking")}
                     </label>
-                    <div className="desc">Each request carries the person's email in an X-Parley-User header, so the server can tell people apart</div>
+                    <div className="desc">{t("Each request carries the person's email in an X-Parley-User header, so the server can tell people apart")}</div>
                   </div>
                   <Switch id="mcp-send-user" checked={sendUser} onChange={setSendUser} />
                 </div>
@@ -684,49 +689,53 @@ export function McpFormPage() {
               {!adding && server && (
                 <>
                   <CheckList
-                    label="Tools people can use"
+                    label={t("Tools people can use")}
                     values={onTools}
                     onChange={setOnTools}
                     options={server.tools.map((t) => ({ id: t.name, label: t.title || t.name, detail: t.description.split("\n")[0].slice(0, 160) || undefined }))}
-                    empty={needsYourSignIn ? "Sign in to it to list them" : "It lists no tools"}
+                    empty={needsYourSignIn ? t("Sign in to it to list them") : t("It lists no tools")}
                   />
                   <CheckList
-                    label="Run without asking"
+                    label={t("Run without asking")}
                     values={runTools}
                     onChange={setRunTools}
                     options={server.tools.filter((t) => onTools.includes(t.name)).map((t) => ({ id: t.name, label: t.title || t.name, detail: hintOf(t) }))}
-                    empty="No tools are on"
+                    empty={t("No tools are on")}
                   />
-                  <p className="panel-note">The rest ask the person on a line in the chat each time, showing what they'd send</p>
+                  <p className="panel-note">{t("The rest ask the person on a line in the chat each time, showing what they'd send")}</p>
                   {needsYourSignIn ? (
                     <BusyButton type="button" className="btn-ghost is-accent push-left mcp-check" busy={checking} onClick={() => void signInToList(server.id)}>
                       <Icon name="plug" size={16} />
-                      {server.yours === "expired" ? "Sign in again to list its tools" : "Sign in to list its tools"}
+                      {server.yours === "expired" ? t("Sign in again to list its tools") : t("Sign in to list its tools")}
                     </BusyButton>
                   ) : (
                     <BusyButton type="button" className="btn-ghost is-accent push-left mcp-check" busy={checking} onClick={() => void check()}>
                       <Icon name="retry" size={16} />
-                      Ask it for its tools again
+                      {t("Ask it for its tools again")}
                     </BusyButton>
                   )}
                 </>
               )}
-              {adding && authMode !== "oauth" && <p className="panel-note">Saving connects to it and lists its tools</p>}
+              {adding && authMode !== "oauth" && <p className="panel-note">{t("Saving connects to it and lists its tools")}</p>}
               {error && <Advisory>{error}</Advisory>}
               <div className="form-page-actions">
                 <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!name.trim() || !url.trim() || (adding && authMode === "token" && !ownToken.trim())}>
-                  {adding ? "Connect" : "Save"}
+                  {adding ? t("Connect") : t("Save")}
                 </BusyButton>
                 <SlideLink to="/admin/tools" direction="back" className="btn-secondary">
-                  Cancel
+                  {t("Cancel")}
                 </SlideLink>
               </div>
             </form>
             {!adding && server && server.authMode !== "shared" && (
               <div className="oy-group settings-group">
-                <p className="oy-overline">{server.people.length ? `${plural(server.people.length, "person", "people")} connected` : "People connected"}</p>
+                <p className="oy-overline">
+                  {server.people.length
+                    ? tn(server.people.length, "{count} person connected", "{count} people connected", { count: formatNumber(server.people.length) })
+                    : t("People connected")}
+                </p>
                 {server.people.length === 0 ? (
-                  <p className="group-empty">Nobody yet. People connect their own account under Settings, in Connected services</p>
+                  <p className="group-empty">{t("Nobody yet. People connect their own account under Settings, in Connected services")}</p>
                 ) : (
                   <div className="oy-section is-plain">
                     {server.people.map((p) => (
@@ -740,16 +749,16 @@ export function McpFormPage() {
                     ))}
                   </div>
                 )}
-                <p className="panel-note">You see who has connected, never what with. Each person's token is kept encrypted, like API keys</p>
+                <p className="panel-note">{t("You see who has connected, never what with. Each person's token is kept encrypted, like API keys")}</p>
               </div>
             )}
             {!adding && (
               <div className="settings-danger">
                 {server && server.authMode !== "shared" && server.people.length > 0 && (
                   <DangerRow
-                    label="Disconnect everyone"
-                    confirmLabel="Disconnect everyone? Each person connects again before chats can use its tools"
-                    action="Disconnect"
+                    label={t("Disconnect everyone")}
+                    confirmLabel={t("Disconnect everyone? Each person connects again before chats can use its tools")}
+                    action={t("Disconnect")}
                     onConfirm={async () => {
                       const { server: next } = await api.post<{ server: McpServer }>(`/admin/mcp/${id}/disconnect`);
                       fill(next);
@@ -757,8 +766,8 @@ export function McpFormPage() {
                   />
                 )}
                 <DangerRow
-                  label="Remove this server"
-                  confirmLabel="Remove it? Its tools stop working in every chat"
+                  label={t("Remove this server")}
+                  confirmLabel={t("Remove it? Its tools stop working in every chat")}
                   onConfirm={async () => {
                     await api.del(`/admin/mcp/${id}`);
                     slideTo("/admin/tools", "back", { replace: true });

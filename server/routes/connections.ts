@@ -3,6 +3,7 @@
 // disconnecting it. Admins connect their own here too, from a server's page, to list its tools.
 import { Hono } from "hono";
 import { originOf, requireUser, type AppEnv, type SessionUser } from "../auth.ts";
+import { t } from "../i18n.ts";
 import {
   canUseServer,
   disconnect,
@@ -67,7 +68,7 @@ connectionRoutes.post("/mcp/connections/:id/sign-in", requireUser, async (c) => 
   const body = await c.req.json().catch(() => ({}));
   const from: SignInFrom = body.from === "admin" && user.role === "admin" ? "admin" : "account";
   const s = serverToConnect(Number(c.req.param("id")), user);
-  if (!s || s.auth_mode !== "oauth") return c.json({ error: "There's no server to sign in to here" }, 404);
+  if (!s || s.auth_mode !== "oauth") return c.json({ error: t("There's no server to sign in to here") }, 404);
   try {
     return c.json({ url: await startSignIn(s, user.id, callbackUrl(originOf(c)), from) });
   } catch (err) {
@@ -109,18 +110,18 @@ connectionRoutes.get("/mcp/callback", async (c) => {
 connectionRoutes.put("/mcp/connections/:id", requireUser, async (c) => {
   const user = c.var.user!;
   const s = serverToConnect(Number(c.req.param("id")), user);
-  if (!s || s.auth_mode !== "token") return c.json({ error: "There's no server to add a token to here" }, 404);
+  if (!s || s.auth_mode !== "token") return c.json({ error: t("There's no server to add a token to here") }, 404);
   const parsed = parseHeaders((await c.req.json().catch(() => ({}))).token);
   if ("error" in parsed) return c.json(parsed, 400);
   const headers = ownHeaders(parsed as Record<string, string>);
-  if (Object.keys(headers).length < Object.keys(parsed).length) return c.json({ error: "Leave out X-Parley-User: Parley sets that itself" }, 400);
-  if (!Object.keys(headers).length) return c.json({ error: "Paste your token" }, 400);
+  if (Object.keys(headers).length < Object.keys(parsed).length) return c.json({ error: t("Leave out X-Parley-User: Parley sets that itself") }, 400);
+  if (!Object.keys(headers).length) return c.json({ error: t("Paste your token") }, 400);
   // Tried before it's kept: the server lists its tools with it.
   try {
     await listTools(s.url, fetchWithHeaders(headers));
   } catch (err) {
     const message = mcpErrorMessage(err);
-    return c.json({ error: message.startsWith("The server turned") ? "The server turned that token down" : message }, 400);
+    return c.json({ error: message === t("The server turned the request down. Check its token") ? t("The server turned that token down") : message }, 400);
   }
   saveCredential(s.id, user.id, { kind: "token", headers });
   forgetPerson(s.id, user.id);

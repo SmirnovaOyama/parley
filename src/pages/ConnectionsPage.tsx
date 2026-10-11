@@ -9,20 +9,25 @@ import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api, type Connection } from "../lib/api.ts";
 import { atOrOn } from "../lib/format.ts";
+import { t } from "../lib/i18n.ts";
 import { useSlideNavigate } from "../lib/slide.ts";
 
 /** How a sign-in came back (the server's sign-in page returns through /api/mcp/callback). */
 const RESULTS: Record<string, string> = {
-  connected: "Connected. Its tools work as you now",
-  denied: "You didn't allow it on its sign-in page, so it isn't connected",
-  failed: "The sign-in didn't finish. Try again",
+  connected: t("Connected. Its tools work as you now"),
+  denied: t("You didn't allow it on its sign-in page, so it isn't connected"),
+  failed: t("The sign-in didn't finish. Try again"),
 };
 
 /** Where you stand with a server, as a sentence. */
 function statusText(c: Connection): string {
-  if (c.status === "connected") return `Connected ${atOrOn(c.connectedAt!)}${c.usedAt ? `, last used ${atOrOn(c.usedAt)}` : ""}`;
-  if (c.mode === "oauth") return c.status === "expired" ? "Your sign-in stopped working. Sign in again" : `Not connected. You'll sign in at ${c.host}`;
-  return c.status === "expired" ? "Your token stopped working. Add a new one" : "Not connected. Add a token of yours";
+  if (c.status === "connected") {
+    return c.usedAt
+      ? t("Connected {connectedAt}, last used {usedAt}", { connectedAt: atOrOn(c.connectedAt!), usedAt: atOrOn(c.usedAt) })
+      : t("Connected {connectedAt}", { connectedAt: atOrOn(c.connectedAt!) });
+  }
+  if (c.mode === "oauth") return c.status === "expired" ? t("Your sign-in stopped working. Sign in again") : t("Not connected. You'll sign in at {host}", { host: c.host });
+  return c.status === "expired" ? t("Your token stopped working. Add a new one") : t("Not connected. Add a token of yours");
 }
 
 /**
@@ -68,19 +73,18 @@ export function ConnectionsPage() {
 
   return (
     <>
-      <PageHeader title="Connected services" subtitle="Tools that act with your own account" back={{ label: "Settings", to: "/settings" }} />
+      <PageHeader title={t("Connected services")} subtitle={t("Tools that act with your own account")} back={{ label: t("Settings"), to: "/settings" }} />
       <div className="oy-page-column page-body">
-        {result.result === "expired" && <Advisory>That sign-in ran out, or was started somewhere else. Try again</Advisory>}
+        {result.result === "expired" && <Advisory>{t("That sign-in ran out, or was started somewhere else. Try again")}</Advisory>}
         {error && <Advisory>{error}</Advisory>}
         {!connections ? (
           !error && <Spinner />
         ) : connections.length === 0 ? (
-          <p className="group-empty">None of this site's tools need your own account</p>
+          <p className="group-empty">{t("None of this site's tools need your own account")}</p>
         ) : (
           <>
             <p className="group-intro">
-              These services' tools act as you, with your own account there, so they can do only what you could. Until you connect one,
-              chats can't use its tools
+              {t("These services' tools act as you, with your own account there, so they can do only what you could. Until you connect one, chats can't use its tools")}
             </p>
             <div className="oy-section">
               {connections.map((c) => {
@@ -107,18 +111,18 @@ export function ConnectionsPage() {
                     </div>
                     {c.status === "connected" ? (
                       <button type="button" className="btn-secondary btn-sm" onClick={() => setLeaving(c.id)}>
-                        Disconnect
+                        {t("Disconnect")}
                       </button>
                     ) : (
                       <BusyButton type="button" className="btn-tonal btn-sm" busy={busy === c.id} disabled={busy !== null} onClick={() => void signIn(c)}>
-                        {c.status === "expired" ? "Sign in again" : "Connect"}
+                        {c.status === "expired" ? t("Sign in again") : t("Connect")}
                       </BusyButton>
                     )}
                     {leaving === c.id && (
                       <InlineConfirm
                         overlay
-                        message={`Disconnect ${c.name}?`}
-                        action="Disconnect"
+                        message={t("Disconnect {name}?", { name: c.name })}
+                        action={t("Disconnect")}
                         onCancel={() => setLeaving(null)}
                         onConfirm={async () => {
                           try {
@@ -157,7 +161,7 @@ export function ConnectionTokenPage() {
       (r) => {
         const found = r.connections.find((c) => String(c.id) === id && c.mode === "token");
         if (found) setConnection(found);
-        else setLoadError("This service isn't here any more");
+        else setLoadError(t("This service isn't here any more"));
       },
       (err) => setLoadError((err as Error).message),
     );
@@ -180,9 +184,9 @@ export function ConnectionTokenPage() {
   return (
     <>
       <PageHeader
-        title={connection?.name ?? "Connected service"}
+        title={connection?.name ?? t("Connected service")}
         subtitle={connection ? statusText(connection) : undefined}
-        back={{ label: "Connected services", to: "/settings/connections" }}
+        back={{ label: t("Connected services"), to: "/settings/connections" }}
       />
       <div className="oy-page-column page-body">
         {loadError ? (
@@ -195,30 +199,30 @@ export function ConnectionTokenPage() {
               {connection.hint && <p className="group-intro">{connection.hint}</p>}
               <LineField
                 id="connection-token"
-                label={connected ? "A new token (yours is kept until you save one)" : "Your token"}
+                label={connected ? t("A new token (yours is kept until you save one)") : t("Your token")}
                 type="password"
                 autoComplete="off"
                 spellCheck={false}
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                hint="Sent as a bearer token, or write a header like X-Api-Key: abc123. It's tried with the service first, then kept encrypted"
+                hint={t("Sent as a bearer token, or write a header like X-Api-Key: abc123. It's tried with the service first, then kept encrypted")}
               />
               {error && <Advisory>{error}</Advisory>}
               <div className="form-page-actions">
                 <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!token.trim()}>
-                  {connected ? "Save" : "Connect"}
+                  {connected ? t("Save") : t("Connect")}
                 </BusyButton>
                 <SlideLink to="/settings/connections" direction="back" className="btn-secondary">
-                  Cancel
+                  {t("Cancel")}
                 </SlideLink>
               </div>
             </form>
             {connected && (
               <div className="settings-danger">
                 <DangerRow
-                  label="Disconnect"
-                  confirmLabel={`Disconnect ${connection.name}? Parley forgets your token, which still works at ${connection.host} until you withdraw it there`}
-                  action="Disconnect"
+                  label={t("Disconnect")}
+                  confirmLabel={t("Disconnect {name}? Parley forgets your token, which still works at {host} until you withdraw it there", { name: connection.name, host: connection.host })}
+                  action={t("Disconnect")}
                   onConfirm={async () => {
                     await api.del(`/mcp/connections/${id}`);
                     slideTo("/settings/connections", "back", { replace: true });

@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Advisory, EmptyState, Spinner } from "../../components/Feedback.tsx";
 import { Icon } from "../../icons/Icon.tsx";
 import { api } from "../../lib/api.ts";
-import { plural } from "../../lib/format.ts";
+import { formatNumber, plural } from "../../lib/format.ts";
+import { t, tn } from "../../lib/i18n.ts";
 import { useSlideNavigate } from "../../lib/slide.ts";
 
 export type ModelOption = {
@@ -79,14 +80,14 @@ export function KeysPage() {
   if (keys.length === 0) {
     return (
       <EmptyState
-        title="No API keys yet"
+        title={t("No API keys yet")}
         action={
           <button type="button" className="btn-primary" onClick={() => slideTo("/admin/keys/new", "forward")}>
-            Add a key
+            {t("Add a key")}
           </button>
         }
       >
-        Add a key for Claude, OpenAI, Gemini, Grok, DeepSeek or another service so people can start chatting
+        {t("Add a key for Claude, OpenAI, Gemini, Grok, DeepSeek or another service so people can start chatting")}
       </EmptyState>
     );
   }
@@ -97,7 +98,7 @@ export function KeysPage() {
         <p className="text-muted">{plural(keys.length, "key", "keys")}</p>
         <button type="button" className="btn-ghost is-accent" onClick={() => slideTo("/admin/keys/new", "forward")}>
           <Icon name="plus" size={16} />
-          Add a key
+          {t("Add a key")}
         </button>
       </div>
       <div className="oy-section is-plain">
@@ -106,17 +107,27 @@ export function KeysPage() {
             <div className="text">
               <p className="title">
                 {k.label}
-                {k.isDefault && <span className="tag is-accent">Default</span>}
-                {k.webSearch && <span className="tag">Web search</span>}
-                {k.codeExecution && <span className="tag">Makes files</span>}
+                {k.isDefault && <span className="tag is-accent">{t("Default")}</span>}
+                {k.webSearch && <span className="tag">{t("Web search")}</span>}
+                {k.codeExecution && <span className="tag">{t("Makes files")}</span>}
               </p>
               <div className="desc">
-                {k.endpoint ? `Offers ${plural(k.models.length, "model", "models")} on ${k.providerLabel} and starts new chats on ${k.modelLabel}` : `Offers ${plural(k.models.length, "model", "models")} and starts new chats on ${k.modelLabel} with thinking set to ${k.effortLabel.toLowerCase()}`}
-                {k.last4 ? `. The key ends in ${k.last4}` : ". It has no API key"}
+                {k.endpoint
+                  ? tn(k.models.length, "Offers {count} model on {providerLabel} and starts new chats on {modelLabel}", "Offers {count} models on {providerLabel} and starts new chats on {modelLabel}", {
+                      count: formatNumber(k.models.length),
+                      providerLabel: k.providerLabel,
+                      modelLabel: k.modelLabel,
+                    })
+                  : tn(k.models.length, "Offers {count} model and starts new chats on {modelLabel} with thinking set to {effortLabel}", "Offers {count} models and starts new chats on {modelLabel} with thinking set to {effortLabel}", {
+                      count: formatNumber(k.models.length),
+                      modelLabel: k.modelLabel,
+                      effortLabel: k.effortLabel.toLowerCase(),
+                    })}
+                {k.last4 ? t(". The key ends in {last4}", { last4: k.last4 }) : t(". It has no API key")}
               </div>
               <div className="desc">
-                {k.shared ? "Everyone can pick it" : `${plural(k.grantedUsers, "person", "people")} can pick it`}
-                {k.fallbackLabel ? `. If it fails, ${k.fallbackLabel} answers instead` : ""}
+                {k.shared ? t("Everyone can pick it") : tn(k.grantedUsers, "{grantedUsers} person can pick it", "{grantedUsers} people can pick it", { grantedUsers: formatNumber(k.grantedUsers) })}
+                {k.fallbackLabel ? t(". If it fails, {fallbackLabel} answers instead", { fallbackLabel: k.fallbackLabel }) : ""}
               </div>
             </div>
             <Icon name="chevron-right" size={18} className="chevron" />

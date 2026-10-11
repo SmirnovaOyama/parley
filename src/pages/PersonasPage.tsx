@@ -9,6 +9,7 @@ import { PageHeader } from "../components/PageHeader.tsx";
 import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api, type Persona } from "../lib/api.ts";
+import { t } from "../lib/i18n.ts";
 import { ABOUT_HINT, charsLeft, instructionsSummary, MAX_INSTRUCTION_CHARS, STYLE_HINT } from "../lib/instructions.ts";
 import { useSlideNavigate } from "../lib/slide.ts";
 
@@ -30,14 +31,14 @@ export function PersonasPage() {
   return (
     <>
       <PageHeader
-        title="Personas"
-        subtitle="Who you are to the AI, and how it should answer"
-        back={{ label: "Settings", to: "/settings" }}
+        title={t("Personas")}
+        subtitle={t("Who you are to the AI, and how it should answer")}
+        back={{ label: t("Settings"), to: "/settings" }}
         trailing={
           // Always there, so the header never shifts; it rests once there are five.
           <button type="button" className="btn-primary" onClick={add} disabled={!list || full}>
             <Icon name="plus" size={20} />
-            New
+            {t("New")}
           </button>
         }
       />
@@ -49,14 +50,14 @@ export function PersonasPage() {
         ) : list.personas.length === 0 ? (
           <EmptyState
             doodle="persona"
-            title="No personas yet"
+            title={t("No personas yet")}
             action={
               <button type="button" className="btn-primary" onClick={add}>
-                Make a persona
+                {t("Make a persona")}
               </button>
             }
           >
-            Make up to five, say one for work and one for study, each with what the AI should know about you and how it should answer
+            {t("Make up to five, say one for work and one for study, each with what the AI should know about you and how it should answer")}
           </EmptyState>
         ) : (
           <>
@@ -67,9 +68,9 @@ export function PersonasPage() {
                   <div className="text">
                     <p className="title truncate">
                       {p.name}
-                      {p.forNewChats && <span className="tag is-accent">New chats</span>}
+                      {p.forNewChats && <span className="tag is-accent">{t("New chats")}</span>}
                     </p>
-                    <div className="desc truncate">{instructionsSummary(p) ?? "Nothing written yet"}</div>
+                    <div className="desc truncate">{instructionsSummary(p) ?? t("Nothing written yet")}</div>
                   </div>
                   <Icon name="chevron-right" size={18} className="chevron" />
                 </SlideLink>
@@ -77,8 +78,8 @@ export function PersonasPage() {
             </div>
             <p className="footnote">
               {full
-                ? "That's five, the most you can have. Delete one to make another"
-                : "New chats start as the one marked for them. A chat's settings can switch it to another"}
+                ? t("That's five, the most you can have. Delete one to make another")
+                : t("New chats start as the one marked for them. A chat's settings can switch it to another")}
             </p>
           </>
         )}
@@ -153,21 +154,21 @@ export function PersonaFormPage() {
 
   return (
     <>
-      <PageHeader title={adding ? "New persona" : (persona?.name ?? "Persona")} back={{ label: "Personas", to: "/settings/personas" }} />
+      <PageHeader title={adding ? t("New persona") : (persona?.name ?? t("Persona"))} back={{ label: t("Personas"), to: "/settings/personas" }} />
       <div className="oy-page-column page-body">
         {loadError ? (
           <Advisory>{loadError}</Advisory>
         ) : !ready ? (
           <Spinner />
         ) : adding && full ? (
-          <Advisory>You have five personas, the most there can be. Delete one to make another</Advisory>
+          <Advisory>{t("You have five personas, the most there can be. Delete one to make another")}</Advisory>
         ) : (
           <>
             <form className="form-page" onSubmit={save}>
-              <LineField id="persona-name" label="Name" value={name} maxLength={60} autoComplete="off" onChange={(e) => setName(e.target.value)} />
+              <LineField id="persona-name" label={t("Name")} value={name} maxLength={60} autoComplete="off" onChange={(e) => setName(e.target.value)} />
               <LineArea
                 id="persona-about"
-                label="What should the AI know about you?"
+                label={t("What should the AI know about you?")}
                 value={aboutMe}
                 maxLength={MAX_INSTRUCTION_CHARS}
                 onChange={(e) => setAboutMe(e.target.value)}
@@ -175,7 +176,7 @@ export function PersonaFormPage() {
               />
               <LineArea
                 id="persona-style"
-                label="How should it answer?"
+                label={t("How should it answer?")}
                 value={answerStyle}
                 maxLength={MAX_INSTRUCTION_CHARS}
                 onChange={(e) => setAnswerStyle(e.target.value)}
@@ -186,26 +187,26 @@ export function PersonaFormPage() {
                   <Icon name="compose" size={20} />
                   <div className="text">
                     <label className="title" htmlFor="persona-new-chats">
-                      Start new chats as this persona
+                      {t("Start new chats as this persona")}
                     </label>
                   </div>
                   <Switch id="persona-new-chats" checked={forNewChats} onChange={setForNewChats} />
                 </div>
               </div>
-              <p className="panel-note">A chat keeps the words it started with, so a change here reaches new chats</p>
+              <p className="panel-note">{t("A chat keeps the words it started with, so a change here reaches new chats")}</p>
               {error && <Advisory>{error}</Advisory>}
               <div className="form-page-actions">
                 <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!name.trim()}>
-                  {adding ? "Make persona" : "Save"}
+                  {adding ? t("Make persona") : t("Save")}
                 </BusyButton>
                 <SlideLink to="/settings/personas" direction="back" className="btn-secondary">
-                  Cancel
+                  {t("Cancel")}
                 </SlideLink>
               </div>
             </form>
             {!adding && (
               <div className="settings-danger">
-                <DangerRow label="Delete this persona" confirmLabel="Delete this persona? Chats started as it keep its words" onConfirm={remove} />
+                <DangerRow label={t("Delete this persona")} confirmLabel={t("Delete this persona? Chats started as it keep its words")} onConfirm={remove} />
               </div>
             )}
           </>

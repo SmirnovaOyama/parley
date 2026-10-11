@@ -5,6 +5,7 @@ import { EmptyState, Spinner } from "../../components/Feedback.tsx";
 import { ModelArt } from "../../components/ModelArt.tsx";
 import { api } from "../../lib/api.ts";
 import { compactNumber, formatCost, formatNumber, plural, shortDate } from "../../lib/format.ts";
+import { LOCALE, t, tn } from "../../lib/i18n.ts";
 
 type Row = {
   name: string;
@@ -27,9 +28,9 @@ type Usage = { byUser: Row[]; byKey: Row[]; series: Series };
 type Range = "month" | "30d" | "all";
 
 const RANGES = [
-  { id: "month", label: "This month", during: "this month" },
-  { id: "30d", label: "Last 30 days", during: "in the last 30 days" },
-  { id: "all", label: "All time", during: "in all" },
+  { id: "month", label: t("This month"), during: t("this month") },
+  { id: "30d", label: t("Last 30 days"), during: t("in the last 30 days") },
+  { id: "all", label: t("All time"), during: t("in all") },
 ] as const;
 
 const tokensIn = (r: Row) => r.input + r.cache_read + r.cache_write;
@@ -69,29 +70,29 @@ export function UsagePage() {
   return (
     <div className={`overview${loading && data ? " is-refreshing" : ""}`}>
       <div className="admin-toolbar">
-        <Segmented aria-label="Period" value={range} onChange={setRange} options={RANGES} />
+        <Segmented aria-label={t("Period")} value={range} onChange={setRange} options={RANGES} />
       </div>
 
       {!data ? (
         <Spinner />
       ) : rows.length === 0 ? (
-        <EmptyState doodle="coins" title="Nothing to count yet">
-          Usage shows up here after the first replies
+        <EmptyState doodle="coins" title={t("Nothing to count yet")}>
+          {t("Usage shows up here after the first replies")}
         </EmptyState>
       ) : (
         <>
           <div className="stat-grid is-four">
-            <Stat label="Cost" tag={plural(replies, "reply", "replies")} value={formatCost(cost)}>
-              Estimated from list prices, {period}
+            <Stat label={t("Cost")} tag={plural(replies, "reply", "replies")} value={formatCost(cost)}>
+              {t("Estimated from list prices, {period}", { period })}
             </Stat>
-            <Stat label="Tokens in" tag={input ? `${Math.round((cached / input) * 100)}% cached` : undefined} value={compactNumber(input)}>
-              History and messages sent to the models
+            <Stat label={t("Tokens in")} tag={input ? t("{round}% cached", { round: Math.round((cached / input) * 100) }) : undefined} value={compactNumber(input)}>
+              {t("History and messages sent to the models")}
             </Stat>
-            <Stat label="Tokens out" value={compactNumber(output)}>
-              Written by the models, thinking included
+            <Stat label={t("Tokens out")} value={compactNumber(output)}>
+              {t("Written by the models, thinking included")}
             </Stat>
-            <Stat label="Web searches" tag={searches ? formatCost(searches * 0.01) : undefined} value={formatNumber(searches)}>
-              Claude and OpenAI, $10 per 1,000
+            <Stat label={t("Web searches")} tag={searches ? formatCost(searches * 0.01) : undefined} value={formatNumber(searches)}>
+              {t("Claude and OpenAI, $10 per 1,000")}
             </Stat>
           </div>
 
@@ -99,13 +100,13 @@ export function UsagePage() {
             <UsageCharts series={data.series} range={RANGES.find((r) => r.id === range)!} active={active} onActive={setActive} />
           )}
 
-          <UsageGroup title="By person" rows={data.byUser} total={cost} />
-          <UsageGroup title="By key" rows={data.byKey} total={cost} withArt />
+          <UsageGroup title={t("By person")} rows={data.byUser} total={cost} />
+          <UsageGroup title={t("By key")} rows={data.byKey} total={cost} withArt />
 
           <p className="footnote">
-            Costs are estimates from list prices; DeepSeek is counted at its peak-hour rate, and another service's
-            models at the prices given on their key. Tokens in include history read from the cache. Replies stopped
-            early aren't counted.
+            {t(
+              "Costs are estimates from list prices; DeepSeek is counted at its peak-hour rate, and another service's models at the prices given on their key. Tokens in include history read from the cache. Replies stopped early aren't counted.",
+            )}
           </p>
         </>
       )}
@@ -150,21 +151,21 @@ function UsageGroup({ title, rows, total, withArt }: { title: string; rows: Row[
                 <div
                   className="share-meter"
                   role="meter"
-                  aria-label={`Share of spend: ${percent}%`}
+                  aria-label={t("Share of spend: {percent}%", { percent })}
                   aria-valuenow={percent}
                   aria-valuemin={0}
                   aria-valuemax={100}
                 >
                   <span style={{ width: `${Math.max(share * 100, share > 0 ? 2 : 0)}%` }} />
                 </div>
-                <p className="usage-card-share">{share > 0 && percent === 0 ? "Under 1%" : `${percent}%`} of spend</p>
+                <p className="usage-card-share">{share > 0 && percent === 0 ? t("Under 1%") : `${percent}%`} {t("of spend")}</p>
                 <div className="chip-row">
                   <span className="chip-quiet">{plural(r.replies, "reply", "replies")}</span>
                   <span className="chip-quiet" title={formatNumber(tokensIn(r))}>
-                    {compactNumber(tokensIn(r))} in
+                    {t("{r} in", { r: compactNumber(tokensIn(r)) })}
                   </span>
                   <span className="chip-quiet" title={formatNumber(r.output)}>
-                    {compactNumber(r.output)} out
+                    {t("{output} out", { output: compactNumber(r.output) })}
                   </span>
                   {(r.searches ?? 0) > 0 && <span className="chip-quiet">{plural(r.searches ?? 0, "search", "searches")}</span>}
                 </div>
@@ -177,8 +178,8 @@ function UsageGroup({ title, rows, total, withArt }: { title: string; rows: Row[
   );
 }
 
-const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" });
-const monthFmt = new Intl.DateTimeFormat(undefined, { month: "short", year: "numeric" });
+const dayFmt = new Intl.DateTimeFormat(LOCALE, { weekday: "short", day: "numeric", month: "short" });
+const monthFmt = new Intl.DateTimeFormat(LOCALE, { month: "short", year: "numeric" });
 const parseKey = (key: string) => {
   const [y, m, d] = key.split("-").map(Number);
   return new Date(y, m - 1, d || 1);
@@ -186,9 +187,9 @@ const parseKey = (key: string) => {
 
 /** Token kinds, bottom of each column first: what they are and how each part is coloured. */
 const TOKEN_SERIES = [
-  { id: "cached", label: "From cache", className: "series-cached" },
-  { id: "sent", label: "Sent", className: "series-sent" },
-  { id: "written", label: "Written", className: "series-written" },
+  { id: "cached", label: t("From cache"), className: "series-cached" },
+  { id: "sent", label: t("Sent"), className: "series-sent" },
+  { id: "written", label: t("Written"), className: "series-written" },
 ] as const;
 
 /**
@@ -198,38 +199,51 @@ const TOKEN_SERIES = [
 function UsageCharts({ series, range, active, onActive }: { series: Series; range: (typeof RANGES)[number]; active: number | null; onActive: (i: number | null) => void }) {
   const { buckets, unit } = series;
   const isToday = (i: number) => unit === "day" && i === buckets.length - 1;
-  const labelOf = (i: number) => (isToday(i) ? "Today" : unit === "day" ? dayFmt.format(parseKey(buckets[i].key)) : monthFmt.format(parseKey(buckets[i].key)));
+  const labelOf = (i: number) => (isToday(i) ? t("Today") : unit === "day" ? dayFmt.format(parseKey(buckets[i].key)) : monthFmt.format(parseKey(buckets[i].key)));
   const axis: [string, string] =
     unit === "day"
-      ? [shortDate(parseKey(buckets[0].key).toISOString()), "Today"]
+      ? [shortDate(parseKey(buckets[0].key).toISOString()), t("Today")]
       : [monthFmt.format(parseKey(buckets[0].key)), monthFmt.format(parseKey(buckets[buckets.length - 1].key))];
   const picked = active == null ? null : buckets[active];
   const total = (pick: (b: Bucket) => number) => buckets.reduce((sum, b) => sum + pick(b), 0);
   const scope = picked ? labelOf(active!) : range.label;
   // The same span inside a sentence: "today", "on Sat 3 Oct", "in Sep 2026", "in the last 30 days".
-  const when = !picked ? range.during : isToday(active!) ? "today" : `${unit === "day" ? "on" : "in"} ${labelOf(active!)}`;
+  const when = !picked
+    ? range.during
+    : isToday(active!)
+      ? t("today")
+      : unit === "day"
+        ? t("on {labelOf}", { labelOf: labelOf(active!) })
+        : t("in {labelOf}", { labelOf: labelOf(active!) });
+  const unitText = unit === "day" ? t("day") : t("month");
   const tokensOf = (b: Bucket) => b.cached + b.sent + b.written;
 
   return (
     <div className="chart-grid">
       <div className="stat-card chart-card">
-        <p className="stat-label">Cost by {unit}</p>
+        <p className="stat-label">{t("Cost by {unit}", { unit: unitText })}</p>
         <p className="stat-value">{formatCost(picked ? picked.cost : total((b) => b.cost))}</p>
         <p className="stat-note">
-          {plural(picked ? picked.replies : total((b) => b.replies), "reply", "replies")} {when}
+          {t("{plural} {when}", { plural: plural(picked ? picked.replies : total((b) => b.replies), "reply", "replies"), when })}
         </p>
         <ColumnChart
           buckets={buckets.map((b) => ({ key: b.key, values: [b.cost] }))}
           seriesClasses={["series-cost"]}
           active={active}
           onActive={onActive}
-          describe={(i) => `${labelOf(i)}: ${formatCost(buckets[i].cost)}, ${plural(buckets[i].replies, "reply", "replies")}`}
+          describe={(i) =>
+            tn(buckets[i].replies, "{labelOf}: {cost}, {replies} reply", "{labelOf}: {cost}, {replies} replies", {
+              labelOf: labelOf(i),
+              cost: formatCost(buckets[i].cost),
+              replies: formatNumber(buckets[i].replies),
+            })
+          }
           axis={axis}
         />
       </div>
 
       <div className="stat-card chart-card">
-        <p className="stat-label">Tokens by {unit}</p>
+        <p className="stat-label">{t("Tokens by {unit}", { unit: unitText })}</p>
         <p className="stat-value">{compactNumber(picked ? tokensOf(picked) : total(tokensOf))}</p>
         <p className="stat-note">{scope}</p>
         {/* The legend doubles as the labels: each kind's count for the period, or the column pointed at. */}
@@ -248,7 +262,12 @@ function UsageCharts({ series, range, active, onActive }: { series: Series; rang
           active={active}
           onActive={onActive}
           describe={(i) =>
-            `${labelOf(i)}: ${TOKEN_SERIES.map((t) => `${formatNumber(buckets[i][t.id])} ${t.label.toLowerCase()}`).join(", ")}`
+            t("{labelOf}: {cached} from cache, {sent} sent, {written} written", {
+              labelOf: labelOf(i),
+              cached: formatNumber(buckets[i].cached),
+              sent: formatNumber(buckets[i].sent),
+              written: formatNumber(buckets[i].written),
+            })
           }
           axis={axis}
         />

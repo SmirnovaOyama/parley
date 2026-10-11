@@ -167,6 +167,21 @@ export type KnowledgeDoc = { id: string; name: string; mime: string; size: numbe
 /** The site's rules that touch a person's data. */
 export type Policy = { retainChatsDays: number | null; retainDeletedDays: number | null; memory: boolean };
 
+/** A device someone is signed in on (server/sessions.ts). */
+export type Device = {
+  id: string;
+  /** What it's used in: "Chrome on macOS", or the program when it isn't a browser ("curl"). */
+  device: string;
+  browser: boolean;
+  /** The network address it was last used from. */
+  address: string | null;
+  signedInAt: string;
+  /** Null for a sign-in from before these were noted that hasn't been used since. */
+  lastSeenAt: string | null;
+  /** The device asking. */
+  current: boolean;
+};
+
 /** Who can open shared chat links, as an admin set it. */
 export type SharingMode = "anyone" | "signed-in" | "off";
 /** A chat's read-only link: it shows the chat up to message leafId, as of sharedAt. */

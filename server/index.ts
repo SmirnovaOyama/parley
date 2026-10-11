@@ -21,6 +21,7 @@ import { personaRoutes } from "./routes/personas.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { PREVIEW_SHELL, previewHeaders } from "./preview.ts";
 import { enforceRetention } from "./retention.ts";
+import { clearExpiredSessions } from "./sessions.ts";
 
 // Node gives up opening a connection after 10 seconds. Behind a slow proxy (common when reaching
 // the AI providers from some regions) the TLS handshake alone can take longer, so wait a minute.
@@ -109,13 +110,16 @@ if (env.isProd) {
   app.get("*", sendPage);
 }
 
-// Files added to a message that was never sent are cleared after a day, and chats past the site's
-// retention rules are deleted; both checked every hour.
+// Files added to a message that was never sent are cleared after a day, chats past the site's
+// retention rules are deleted, and sign-ins that ran out are forgotten with where they were used;
+// all checked every hour.
 clearStaleUploads();
 enforceRetention();
+clearExpiredSessions();
 setInterval(() => {
   clearStaleUploads();
   enforceRetention();
+  clearExpiredSessions();
 }, 60 * 60 * 1000).unref();
 
 serve({ fetch: app.fetch, port: env.port }, (info) => {

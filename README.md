@@ -45,17 +45,18 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - Export everything as one file, and import chats from Parley, ChatGPT or Claude exports.
 - Share a read-only link to a chat.
 - Reset a forgotten password with a link by email, when the site can send email, or ask an admin to set a new one.
+- See where you're signed in, and sign out any device.
 
 **For admins**
 - API keys: stored encrypted, checked with the provider before they're saved, with a backup key for when one fails.
-- People: who can use which keys, monthly token and spending limits, accounts on or off, and a new password for someone who can't sign in.
+- People: who can use which keys, monthly token and spending limits, accounts on or off, a new password for someone who can't sign in, and where each person is signed in, with a way to sign them out.
 - Groups, like a class or a team, that open keys and MCP servers to their members and can give them a spending limit of their own.
 - MCP servers (Streamable HTTP or SSE): their tools work with every model, for everyone or for chosen groups. Each tool can be on or off, and can run straight away or ask the person first. When a server's tools change, the new ones wait for an admin to look over. A server acts with one shared account, or with each person's own: they sign in on its sign-in page (MCP's OAuth flow) or add a token of theirs. Admins see who has connected, never what with.
 - Knowledge bases shared with everyone, and the search service for models without their own web search (Tavily, Brave, Bocha, Jina or your own SearXNG).
 - Every chat, read-only and searchable. People are told admins can read chats, and every look is logged.
 - Replies the AI declined, gathered for review.
 - Usage and estimated cost by person, key and day.
-- Site settings: the system prompt, sign-ups, sharing, memory, how long chats are kept (including chats people deleted), and optional email rewards (extra allowance for verified addresses on domains you choose, like a school's).
+- Site settings: the system prompt, sign-ups, how many devices an account can be signed in on, sharing, memory, how long chats are kept (including chats people deleted), and optional email rewards (extra allowance for verified addresses on domains you choose, like a school's).
 
 ## AI providers
 
@@ -160,6 +161,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 | `PORT` | The API's port (default 8787). |
 | `SMTP_URL`, `MAIL_FROM` | Outgoing email, for password reset links and the optional email rewards. |
 | `PUBLIC_URL` | The address people reach Parley at, like `https://chat.example.com`. Password reset emails link to it, so resetting a password by email works only once it's set. MCP servers people sign in to send them back here afterwards; for those, Parley otherwise uses the address in the browser, which is right unless a proxy in front changes it. |
+| `TUNNEL_TOKEN` | Only for `docker-compose.yml`'s Cloudflare Tunnel (see [Running it for real](#running-it-for-real)): the tunnel's token. Parley itself doesn't read it. |
 | `ALLOW_FAKE_IP` | Set to `1` only if the server reaches the internet through a proxy that answers every name with a 198.18.x.x stand-in address (Clash, Surge, sing-box and the like in fake-IP mode). Off by default: the page reader for other models' web search refuses those addresses, because behind such a proxy it can't check where a name really leads, and a name that points inside the network would be read. |
 
 ## Running it for real
@@ -171,6 +173,13 @@ Set in `.env` (see [`.env.example`](.env.example)):
     reverse_proxy localhost:8787
   }
   ```
+- **Cloudflare.** A [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) puts Parley online with no port open and HTTPS from Cloudflare. With Docker Compose, make a tunnel in Cloudflare's dashboard (Zero Trust, Networks, Tunnels), give its public hostname the service `http://parley:8787`, put its token in `.env` as `TUNNEL_TOKEN`, and run `docker compose --profile tunnel up -d`. Then:
+  - Set `PUBLIC_URL` to the tunnel's address, like `https://chat.example.com`.
+  - Change `docker-compose.yml`'s ports line to `"127.0.0.1:8787:8787"` (or `docker run -p 127.0.0.1:8787:8787`), so nobody reaches the site around Cloudflare.
+  - Let cloudflared reach Parley directly, with no other proxy between them. Parley reads where each visitor connects from in the last entry of `X-Forwarded-For`, which Cloudflare adds, from a proxy on the same machine or network; another proxy in between would put its own address there.
+  - Leave Rocket Loader off (Speed, Optimization). It rewrites the page's scripts, which the site's Content-Security-Policy then refuses, and the page stays blank. Other features that add scripts to the page, like Web Analytics' automatic setup, are refused the same way.
+  - On the Free and Pro plans Cloudflare takes uploads up to 100 MB, so an export bigger than that can't be imported through it. Import the `conversations.json` inside it instead, or on the server's own address.
+  - Replies stream through it as they do anywhere. A reply's stream sends a keep-alive line every 20 seconds, so a model thinking quietly isn't cut off by Cloudflare's 100-second limit.
 - **Backups.** Back up the data folder or volume, and keep `KEY_ENCRYPTION_SECRET` with them: a backup without the secret has keys nobody can read. To copy the database while it runs, use `sqlite3 chat.db ".backup backup.db"`.
 - **Updating.** With Docker, see [Versions and updates](#versions-and-updates). From source, `git pull`, then `npm install && npm run build` and a restart. The database updates itself on start.
 
@@ -178,6 +187,9 @@ Set in `.env` (see [`.env.example`](.env.example)):
 
 - The first account becomes the admin. Sign up right after you deploy, then turn off sign-ups in Admin → Settings if you don't want strangers joining.
 - Admins can point an "Another service" key at any address, and the server will connect to it. Only make people admins you trust with that.
+- Every other key goes only to its provider's own address. Claude's and OpenAI's ignore `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and the other settings those libraries would read from the environment, so nothing set there can send keys somewhere else.
+- People can't easily turn their account into a relay for the site's keys (a reverse proxy that other apps or people use through their sign-in). Anything that changes something through the API has to come from the site's pages in a browser, by its `Origin` header and `Sec-Fetch-Site` where the browser sends it. Each person can have three replies written at once and send 20 messages a minute and 200 an hour. Each account can be signed in on 5 devices unless you change it under Admin → Settings, and signing in on another signs out the one used longest ago. A determined script can pretend to be a browser, so admins also see, on each person's page, every device they're signed in on: the browser or program, the address it was last used from, and when. Many devices, many networks, or "Not a browser" is worth a look, and a spending limit caps what any of it can cost.
+- Admins can see the address and browser each of a person's sign-ins was last used from, and people are told so where they see their own. They're deleted with the sign-in: when it's signed out, or runs out after 30 days unused.
 - Admins can read every chat. Parley tells everyone so on their account page.
 - Admins can set a new password for anyone but themselves, other admins included. It signs that person out everywhere and is written to the activity log, with who did it.
 - Password reset links are random, work once for 30 minutes, and only their hash is stored. Asking for one gets the same answer whether or not an account uses the address, and is limited by address and by network; behind a reverse proxy on the same machine or a private network, the network is read from the last address in `X-Forwarded-For`. Links always start with `PUBLIC_URL`, never with the address a request names. A turned-off account can't be reset.

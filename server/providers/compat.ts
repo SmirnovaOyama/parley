@@ -3,7 +3,6 @@
 // opens of the files people attach. The conversation goes back as plain text every time: without
 // tools, earlier reasoning doesn't need to go back.
 import { existsSync, readFileSync } from "node:fs";
-import OpenAI from "openai";
 import type {
   ChatCompletionChunk,
   ChatCompletionContentPart,
@@ -12,6 +11,7 @@ import type {
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import type { FileKind, Usage } from "./catalog.ts";
+import { openaiClient } from "./clients.ts";
 import { parseArguments } from "./responses.ts";
 import {
   imageCaption,
@@ -71,7 +71,7 @@ function clientFor(dialect: Dialect, apiKey: string, baseUrl: string | undefined
   const baseURL = dialect.baseURL ?? baseUrl;
   if (!baseURL) throw new Error("This key has no address to send to");
   // A local service may need no key, but the SDK wants one.
-  return new OpenAI({ apiKey: apiKey || "none", baseURL, maxRetries });
+  return openaiClient(apiKey || "none", baseURL, maxRetries);
 }
 
 /**

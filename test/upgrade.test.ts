@@ -83,6 +83,8 @@ class Visitor {
       headers: {
         ...(body !== undefined && !raw ? { "content-type": "application/json" } : {}),
         ...(this.cookie ? { cookie: this.cookie } : {}),
+        // What a browser says about a change asked for from one of the site's pages.
+        ...(method === "GET" || method === "HEAD" ? {} : { origin: site.url, "sec-fetch-site": "same-origin" }),
         ...headers,
       },
       body: body === undefined ? undefined : raw ? body : JSON.stringify(body),

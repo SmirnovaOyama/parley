@@ -2,14 +2,13 @@
 // provider's account only for a while, and only that key can read them, so each one is copied here
 // when the reply is saved: next to the database (never inside the repository), under a random name,
 // one folder per chat.
-import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import type { PublicFile } from "./chat-store.ts";
 import { db, nowIso } from "./db.ts";
 import { env } from "./env.ts";
+import { anthropicClient, OPENAI_API, openaiClient } from "./providers/clients.ts";
 
 export const FILES_DIR = join(dirname(env.databasePath), "files");
 
@@ -31,7 +30,7 @@ type Fetched = { name: string; mime: string; bytes: Buffer } | null;
 
 /** Claude's Files API: the name and type come with the file. */
 function fromClaude(apiKey: string): (fileId: string) => Promise<Fetched> {
-  const client = new Anthropic({ apiKey, maxRetries: 2 });
+  const client = anthropicClient(apiKey, 2);
   return async (fileId) => {
     const meta = await client.files.retrieveMetadata(fileId);
     if (meta.size_bytes > MAX_BYTES) return null;
@@ -62,7 +61,7 @@ const TYPES: Record<string, string> = {
 
 /** OpenAI's sandbox, a file at a time ("container_id/file_id"): named after its path there. */
 function fromOpenAI(apiKey: string): (ref: string) => Promise<Fetched> {
-  const client = new OpenAI({ apiKey, maxRetries: 2 });
+  const client = openaiClient(apiKey, OPENAI_API, 2);
   return async (ref) => {
     const [container_id, fileId] = ref.split("/");
     const meta = await client.containers.files.retrieve(fileId, { container_id });

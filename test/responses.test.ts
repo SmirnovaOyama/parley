@@ -1,7 +1,7 @@
 // The Responses API (server/providers/responses.ts) as OpenAI and Grok use it, against a mock API.
 import assert from "node:assert/strict";
 import { after, beforeEach, describe, test } from "node:test";
-import { openaiProvider } from "../server/providers/openai.ts";
+import { openaiOptions } from "../server/providers/openai.ts";
 import { responsesProvider } from "../server/providers/responses.ts";
 import type { ChatProvider, ChatRequest } from "../server/providers/types.ts";
 import { chatRequest, fileFolder, PNG, turn } from "./helpers/chat.ts";
@@ -16,8 +16,9 @@ beforeEach(() => {
   api.requests.length = 0;
 });
 
-// OpenAI's provider names no address, so the SDK reads OPENAI_BASE_URL each time it makes a client.
-process.env.OPENAI_BASE_URL = `${api.url}/v1`;
+// OpenAI as openai.ts sets it up, at the mock's address. (The real one ignores OPENAI_BASE_URL:
+// test/clients.test.ts.)
+const openaiProvider = responsesProvider({ ...openaiOptions, baseURL: `${api.url}/v1` });
 // Grok as xai.ts sets it up, at the mock's address.
 const grokProvider = responsesProvider({
   provider: "xai",

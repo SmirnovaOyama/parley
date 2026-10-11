@@ -525,6 +525,14 @@ if (addColumn("users", "persona_id", "TEXT REFERENCES personas(id) ON DELETE SET
   }
 }
 
+// Where each sign-in was last used, from and in what (server/sessions.ts): the network address
+// and the browser's User-Agent, noted again when either changes and every few minutes otherwise.
+// Sign-ins from before have none until they're next used.
+addColumn("sessions", "last_seen_at", "TEXT");
+addColumn("sessions", "address", "TEXT");
+addColumn("sessions", "user_agent", "TEXT");
+db.exec("CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)");
+
 export const nowIso = () => new Date().toISOString();
 
 export function startOfMonthIso(): string {
@@ -572,6 +580,8 @@ export type Settings = {
   retainChatsDays: number | null;
   /** Chats people deleted stay readable to admins this many days, then go; null keeps them, 0 removes them at once. */
   retainDeletedDays: number | null;
+  /** How many devices one account can be signed in on; signing in on one more signs out the one used longest ago. Null for no limit. */
+  maxSessions: number | null;
 };
 
 export type SearchProvider = "tavily" | "brave" | "bocha" | "searxng" | "jina";
@@ -600,6 +610,9 @@ function jsonList<T>(raw: string | undefined, keep: (v: unknown) => v is T): T[]
   }
 }
 
+/** Enough for a phone, a laptop, a computer at work and a tablet, and one more; not for a whole class on one account. */
+export const DEFAULT_MAX_SESSIONS = 5;
+
 const DEFAULT_SYSTEM_PROMPT =
   "You are a helpful, friendly assistant. Answer clearly and concisely, and use Markdown when it helps.";
 
@@ -621,6 +634,8 @@ export function getSettings(): Settings {
     searchUrl: map.get("searchUrl") ?? "",
     retainChatsDays: days(map.get("retainChatsDays")),
     retainDeletedDays: days(map.get("retainDeletedDays")),
+    // Unset is the default; saved empty is no limit.
+    maxSessions: !map.has("maxSessions") ? DEFAULT_MAX_SESSIONS : days(map.get("maxSessions")) || null,
   };
 }
 
@@ -652,4 +667,5 @@ export function saveSettings(next: Partial<Settings>) {
   if (next.searchUrl !== undefined) put.run("searchUrl", next.searchUrl);
   if (next.retainChatsDays !== undefined) put.run("retainChatsDays", next.retainChatsDays == null ? "" : String(next.retainChatsDays));
   if (next.retainDeletedDays !== undefined) put.run("retainDeletedDays", next.retainDeletedDays == null ? "" : String(next.retainDeletedDays));
+  if (next.maxSessions !== undefined) put.run("maxSessions", next.maxSessions == null ? "" : String(next.maxSessions));
 }

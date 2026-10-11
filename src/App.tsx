@@ -8,6 +8,7 @@ import { ChatPage } from "./pages/ChatPage.tsx";
 import { ChatSettingsPage } from "./pages/ChatSettingsPage.tsx";
 import { ChatsPage } from "./pages/ChatsPage.tsx";
 import { ConnectionsPage, ConnectionTokenPage } from "./pages/ConnectionsPage.tsx";
+import { DevicesPage } from "./pages/DevicesPage.tsx";
 import { SharePage } from "./pages/SharePage.tsx";
 import { AdminLayout } from "./pages/admin/AdminLayout.tsx";
 import { ChatsAdminPage } from "./pages/admin/ChatsAdminPage.tsx";
@@ -50,6 +51,7 @@ export function App() {
             <Route path="account/bonus" element={<BonusPage />} />
             <Route path="account/connections" element={<ConnectionsPage />} />
             <Route path="account/connections/:id" element={<ConnectionTokenPage />} />
+            <Route path="account/devices" element={<DevicesPage />} />
             <Route path="account/memory" element={<MemoryPage />} />
             <Route path="account/personas" element={<PersonasPage />} />
             <Route path="account/personas/:id" element={<PersonaFormPage />} />

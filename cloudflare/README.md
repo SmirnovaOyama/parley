@@ -108,7 +108,7 @@ Open `https://` and your domain. The first visit wakes the container, which take
 
 ## How it fits together
 
-- [`src/index.ts`](src/index.ts): the Worker, and the container's settings (sleeping after an hour, its environment). The Worker tells Parley the visitor's address in `X-Forwarded-For`, replacing anything the visitor sent, and Parley trusts it (`TRUST_PROXY`).
+- [`src/index.ts`](src/index.ts): the Worker, and the container's settings (sleeping after an hour, its environment). A deploy swaps the container's image but keeps the settings it started with, so after each deploy or change of secret, the first request stops the container (Litestream making its last copy) and starts it again with the new settings. The Worker tells Parley the visitor's address in `X-Forwarded-For`, replacing anything the visitor sent, and Parley trusts it (`TRUST_PROXY`).
 - [`wrangler.jsonc`](wrangler.jsonc): the container's size and region, and the bucket names.
 - [`Dockerfile`](Dockerfile) and [`start.sh`](start.sh): Parley's image with Litestream and tigrisfs. At start the files bucket is mounted, the database comes back, and Litestream runs Parley. Told to stop, Parley stops, Litestream makes its last copy, and the files bucket is unmounted.
 - [`litestream.yml`](litestream.yml): how the database is copied, every 10 seconds.

@@ -108,7 +108,7 @@ openssl rand -hex 32
 
 ## 各部分怎么配合
 
-- [`src/index.ts`](src/index.ts)：Worker，以及容器的设置（一小时后休眠、环境变量）。Worker 用 `X-Forwarded-For` 告诉 Parley 访问者的地址，并覆盖访问者自己发来的同名请求头；Parley 信任这个头（`TRUST_PROXY`）。
+- [`src/index.ts`](src/index.ts)：Worker，以及容器的设置（一小时后休眠、环境变量）。部署只会换掉容器的镜像，环境变量还是它上次启动时的，所以每次部署或改了 secret 之后，第一个请求会让容器正常停止（Litestream 先做最后一次复制），再用新的设置重新启动。Worker 用 `X-Forwarded-For` 告诉 Parley 访问者的地址，并覆盖访问者自己发来的同名请求头；Parley 信任这个头（`TRUST_PROXY`）。
 - [`wrangler.jsonc`](wrangler.jsonc)：容器的规格和地区，以及存储桶的名称。
 - [`Dockerfile`](Dockerfile) 和 [`start.sh`](start.sh)：在 Parley 镜像上加了 Litestream 和 tigrisfs。启动时先挂载文件桶、恢复数据库，再由 Litestream 运行 Parley。收到停止信号时，Parley 先停，Litestream 做最后一次复制，然后卸载文件桶。
 - [`litestream.yml`](litestream.yml)：数据库怎么复制，每 10 秒一次。

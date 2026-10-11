@@ -5,6 +5,8 @@ import { Container } from "@cloudflare/containers";
 
 type Env = {
   PARLEY: DurableObjectNamespace<Parley>;
+  /** Which version of this Worker is running: a new one with each deploy or change of secret. */
+  CF_VERSION_METADATA: WorkerVersionMetadata;
   /** Set by the deploy (.github/workflows/cloudflare.yml): https:// and the site's domain. */
   PUBLIC_URL: string;
   VITE_APP_NAME: string;
@@ -41,6 +43,36 @@ export class Parley extends Container<Env> {
       AWS_ACCESS_KEY_ID: env.R2_ACCESS_KEY_ID,
       AWS_SECRET_ACCESS_KEY: env.R2_SECRET_ACCESS_KEY,
     };
+  }
+
+  /**
+   * Settles, once per version of this Worker, that the container runs with this version's
+   * settings. A deploy swaps the container's image but starts it again with the settings it had
+   * before, so a secret added or changed (SMTP_URL, say) wouldn't reach it. A container started
+   * under another version is stopped, the usual way (Litestream makes its last copy), and the
+   * request that follows starts it again with these.
+   */
+  private current: Promise<void> | undefined;
+
+  override async fetch(request: Request): Promise<Response> {
+    // Should the check itself fail, the site still answers, on the settings it has.
+    await (this.current ??= this.restartIfStale().catch((err) => console.error("Couldn't check the container's settings:", err)));
+    return super.fetch(request);
+  }
+
+  override async onStart(): Promise<void> {
+    await this.ctx.storage.put("startedUnder", this.env.CF_VERSION_METADATA.id);
+  }
+
+  private async restartIfStale(): Promise<void> {
+    if (!this.ctx.container?.running) return;
+    if ((await this.ctx.storage.get("startedUnder")) === this.env.CF_VERSION_METADATA.id) return;
+    console.log("The container was started under another version of the Worker; restarting it with this one's settings");
+    const exited = this.ctx.container.monitor().catch(() => {});
+    await this.stop();
+    // Its last copy to R2 takes a moment; it's killed if it takes longer than this.
+    const timedOut = await Promise.race([exited.then(() => false), new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 60_000))]);
+    if (timedOut) await this.destroy();
   }
 }
 

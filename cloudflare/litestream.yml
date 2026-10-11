@@ -1,0 +1,18 @@
+# Litestream on Cloudflare Containers (start.sh): the database copied to an R2 bucket as it changes.
+# ${...} values come from the container's environment, which the Worker sets (src/index.ts).
+access-key-id: ${AWS_ACCESS_KEY_ID}
+secret-access-key: ${AWS_SECRET_ACCESS_KEY}
+# Told to stop, the container copies what's left before it goes.
+shutdown-sync-timeout: 30s
+
+dbs:
+  - path: /data/chat.db
+    replica:
+      type: s3
+      endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+      region: auto
+      bucket: ${DB_BUCKET}
+      path: chat.db
+      # The most that's lost if the container goes without warning. Each copy is an R2 write,
+      # billed past a million a month; every 10 seconds keeps even a busy site well under.
+      sync-interval: 10s

@@ -161,7 +161,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 | `PORT` | The API's port (default 8787). |
 | `SMTP_URL`, `MAIL_FROM` | Outgoing email, for password reset links and the optional email rewards. |
 | `PUBLIC_URL` | The address people reach Parley at, like `https://chat.example.com`. Password reset emails link to it, so resetting a password by email works only once it's set. MCP servers people sign in to send them back here afterwards; for those, Parley otherwise uses the address in the browser, which is right unless a proxy in front changes it. |
-| `TRUST_PROXY` | Set to `1` only when every request reaches Parley through a proxy that sets `X-Forwarded-For` itself, from whatever address it connects (as on Cloudflare Containers). Parley then reads where people connect from in the header's last address. Without it, the header counts only from a proxy on the same machine or a private network. |
+| `TRUST_PROXY` | Set to `1` only when every request reaches Parley through a proxy that sets `X-Forwarded-For` itself, from whatever address it connects (as on Cloudflare Containers, which sets it for you). Parley then reads where people connect from in the header's last address. Without it, the header counts only from a proxy on the same machine or a private network. |
 | `TUNNEL_TOKEN` | Only for `docker-compose.yml`'s Cloudflare Tunnel (see [Running it for real](#running-it-for-real)): the tunnel's token. Parley itself doesn't read it. |
 | `ALLOW_FAKE_IP` | Set to `1` only if the server reaches the internet through a proxy that answers every name with a 198.18.x.x stand-in address (Clash, Surge, sing-box and the like in fake-IP mode). Off by default: the page reader for other models' web search refuses those addresses, because behind such a proxy it can't check where a name really leads, and a name that points inside the network would be read. |
 
@@ -181,6 +181,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
   - Leave Rocket Loader off (Speed, Optimization). It rewrites the page's scripts, which the site's Content-Security-Policy then refuses, and the page stays blank. Other features that add scripts to the page, like Web Analytics' automatic setup, are refused the same way.
   - On the Free and Pro plans Cloudflare takes uploads up to 100 MB, so an export bigger than that can't be imported through it. Import the `conversations.json` inside it instead, or on the server's own address.
   - Replies stream through it as they do anywhere. A reply's stream sends a keep-alive line every 20 seconds, so a model thinking quietly isn't cut off by Cloudflare's 100-second limit.
+- **On Cloudflare, with no server.** Parley can also run in a Cloudflare Container on the Workers Paid plan, with its database and files kept in R2 and a GitHub Actions workflow to deploy it. See [cloudflare/README.md](cloudflare/README.md).
 - **Backups.** Back up the data folder or volume, and keep `KEY_ENCRYPTION_SECRET` with them: a backup without the secret has keys nobody can read. To copy the database while it runs, use `sqlite3 chat.db ".backup backup.db"`.
 - **Updating.** With Docker, see [Versions and updates](#versions-and-updates). From source, `git pull`, then `npm install && npm run build` and a restart. The database updates itself on start.
 
@@ -224,6 +225,7 @@ src/               React app
   icons/           hand-drawn icon set and doodles
   styles/          tokens.css (design tokens), oyama.css, app.css
 scripts/           setup and the dev API runner
+cloudflare/        running it on Cloudflare Containers: the Worker, the image's additions, and the guide
 test/              tests: providers against mock APIs, keys and prices, the API end to end, database upgrades
 ```
 

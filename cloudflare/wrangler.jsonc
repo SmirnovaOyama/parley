@@ -1,0 +1,36 @@
+// Parley on Cloudflare Containers (cloudflare/README.md). The domain, PUBLIC_URL, R2_ACCOUNT_ID and
+// the secrets come from the deploy (.github/workflows/cloudflare.yml), so none of them live here.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "parley",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-26",
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      "class_name": "Parley",
+      // Built on Parley's own image, which the deploy builds first as parley:local.
+      "image": "./Dockerfile",
+      "image_build_context": "..",
+      // 1 GiB of memory: enough for Parley reading a large PDF. "lite" (256 MiB) is too little.
+      "instance_type": "basic",
+      "max_instances": 1,
+      // Western North America, where Claude and OpenAI take requests. Left to choose, a container
+      // starts near whoever asked first, which for someone in China can be Hong Kong, and both
+      // turn requests from there away. DeepSeek and the other services answer from anywhere.
+      "constraints": { "regions": ["WNAM"] }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "PARLEY", "class_name": "Parley" }]
+  },
+  "exports": {
+    "Parley": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "vars": {
+    "VITE_APP_NAME": "Parley",
+    "MAIL_FROM": "",
+    "DB_BUCKET": "parley-db",
+    "FILES_BUCKET": "parley-files"
+  }
+}

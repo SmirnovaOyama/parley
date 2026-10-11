@@ -41,7 +41,15 @@ function applyTheme(theme: Theme) {
   }
   if (theme === "system") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", theme);
+  // The bars around the page take its background: each theme's own for System, else the chosen one.
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+    const scheme = theme === "system" ? (meta.media.includes("dark") ? "dark" : "light") : theme;
+    meta.content = THEME_COLORS[scheme];
+  }
 }
+
+/** The page's background in each theme (--bg in tokens.css), as index.html and public/theme.js have it. */
+const THEME_COLORS = { light: "#ffffff", dark: "#181714" };
 
 export function AccountPage() {
   const { user, signOut } = useSession();

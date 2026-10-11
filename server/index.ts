@@ -96,13 +96,38 @@ app.route("/api", personaRoutes);
 app.route("/api", chatRoutes);
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 
+// What a phone or browser needs to add the site to a home screen or install it as an app, under
+// the site's own name (set at run time, like the page's). The icons are in public/; their sources
+// are design/app-icon*.svg.
+app.get("/manifest.webmanifest", (c) => {
+  const icon = (src: string, size: number, purpose?: string) => ({ src, sizes: `${size}x${size}`, type: "image/png", ...(purpose ? { purpose } : {}) });
+  c.header("Cache-Control", "no-cache");
+  return c.body(
+    JSON.stringify({
+      id: "/",
+      name: env.appName,
+      short_name: env.appName,
+      description: "Chat with AI models",
+      start_url: "/",
+      scope: "/",
+      display: "standalone",
+      background_color: "#ffffff",
+      theme_color: "#ffffff",
+      icons: [icon("/icon-192.png", 192), icon("/icon-512.png", 512), icon("/icon-maskable-512.png", 512, "maskable")],
+      shortcuts: [{ name: "New chat", url: "/chat", icons: [icon("/icon-192.png", 192)] }],
+    }),
+    200,
+    { "Content-Type": "application/manifest+json; charset=utf-8" },
+  );
+});
+
 // In production the API also serves the built app; any other path falls back to index.html. The
 // page gets the site's name here, at run time, so one built image serves any name.
 if (env.isProd) {
   const name = env.appName.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
   const page = readFileSync("./dist/index.html", "utf8")
     .replace(/<title>[^<]*<\/title>/, () => `<title>${name}</title>`)
-    .replace("</head>", () => `  <meta name="application-name" content="${name}" />\n  </head>`);
+    .replace("</head>", () => `  <meta name="application-name" content="${name}" />\n    <meta name="apple-mobile-web-app-title" content="${name}" />\n  </head>`);
   const sendPage = (c: Context) => c.html(page);
   app.get("/", sendPage);
   app.get("/index.html", sendPage);

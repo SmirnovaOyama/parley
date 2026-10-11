@@ -247,6 +247,16 @@ describe("api", () => {
     assert.deepEqual(await new Visitor().json("GET", "/api/health"), { status: 200, body: { ok: true } });
   });
 
+  test("serves a manifest for adding the site to a home screen, under the site's name", async () => {
+    const res = await fetch(`${server.url}/manifest.webmanifest`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /^application\/manifest\+json/);
+    const manifest = (await res.json()) as { name: string; start_url: string; display: string; icons: { src: string; purpose?: string }[] };
+    assert.deepEqual([manifest.name, manifest.start_url, manifest.display], ["Parley", "/", "standalone"]);
+    assert.deepEqual(manifest.icons.map((i) => i.src), ["/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"]);
+    assert.equal(manifest.icons.at(-1)?.purpose, "maskable");
+  });
+
   test("the first account becomes the admin", async () => {
     assert.deepEqual((await admin.json("GET", "/api/auth/state")).body, { needsSetup: true, allowSignup: true, passwordReset: true });
     const signup = await admin.json("POST", "/api/auth/signup", { email: "Admin@Example.com", password: "correct horse" });

@@ -590,6 +590,8 @@ export type Settings = {
   spendLimit: number | null;
   /** Whether the AI may remember things about people between chats (each person can turn it off too). */
   memory: boolean;
+  /** Whether people are told, under Account, that admins can read their chats. */
+  privacyNotice: boolean;
   /**
    * The search service behind web search for models without their own (DeepSeek, Gemini, Grok and
    * other services): which one, and its address where it's self-hosted. Its key is kept apart, encrypted.
@@ -651,6 +653,7 @@ export function getSettings(): Settings {
     bonusSpend: dollars(map.get("bonusSpend")) || null,
     spendLimit: dollars(map.get("spendLimit")),
     memory: map.get("memory") !== "false",
+    privacyNotice: map.get("privacyNotice") !== "false",
     searchProvider: SEARCH_PROVIDERS.find((p) => p === map.get("searchProvider")) ?? null,
     searchUrl: map.get("searchUrl") ?? "",
     retainChatsDays: days(map.get("retainChatsDays")),
@@ -685,6 +688,7 @@ export function saveSettings(next: Partial<Settings>) {
   if (next.bonusSpend !== undefined) put.run("bonusSpend", next.bonusSpend == null ? "" : String(next.bonusSpend));
   if (next.spendLimit !== undefined) put.run("spendLimit", next.spendLimit == null ? "" : String(next.spendLimit));
   if (next.memory !== undefined) put.run("memory", String(next.memory));
+  if (next.privacyNotice !== undefined) put.run("privacyNotice", String(next.privacyNotice));
   if (next.searchProvider !== undefined) put.run("searchProvider", next.searchProvider ?? "");
   if (next.searchUrl !== undefined) put.run("searchUrl", next.searchUrl);
   if (next.retainChatsDays !== undefined) put.run("retainChatsDays", next.retainChatsDays == null ? "" : String(next.retainChatsDays));

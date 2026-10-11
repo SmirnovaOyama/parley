@@ -168,7 +168,7 @@ export type KnowledgeBase = {
 export type KnowledgeDoc = { id: string; name: string; mime: string; size: number; chars: number; parts: number; createdAt: string };
 
 /** The site's rules that touch a person's data. */
-export type Policy = { retainChatsDays: number | null; retainDeletedDays: number | null; memory: boolean };
+export type Policy = { retainChatsDays: number | null; retainDeletedDays: number | null; memory: boolean; privacyNotice: boolean };
 
 /** A device someone is signed in on (server/sessions.ts). */
 export type Device = {

@@ -208,27 +208,32 @@ export function AccountPage() {
 
         <DataGroup />
 
-        <div className="oy-group">
-          <p className="oy-overline">Privacy</p>
-          <div className="oy-section">
-            <div className="oy-row">
-              <Icon name="eye" size={20} />
-              <div className="text">
-                <p className="title">Admins can read your chats</p>
-                <div className="desc">The people who run this site can open any conversation, and each time they do it's logged</div>
-              </div>
-            </div>
-            {policy && (policy.retainChatsDays != null || policy.retainDeletedDays != null) && (
-              <div className="oy-row">
-                <Icon name="trash" size={20} />
-                <div className="text">
-                  <p className="title">How long chats are kept</p>
-                  <div className="desc">{retentionText(policy)}</div>
+        {/* What the site's rules say about people's chats; admins choose whether the first is shown. */}
+        {policy && (policy.privacyNotice || policy.retainChatsDays != null || policy.retainDeletedDays != null) && (
+          <div className="oy-group">
+            <p className="oy-overline">Privacy</p>
+            <div className="oy-section">
+              {policy.privacyNotice && (
+                <div className="oy-row">
+                  <Icon name="eye" size={20} />
+                  <div className="text">
+                    <p className="title">Admins can read your chats</p>
+                    <div className="desc">The people who run this site can open any conversation, and each time they do it's logged</div>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+              {(policy.retainChatsDays != null || policy.retainDeletedDays != null) && (
+                <div className="oy-row">
+                  <Icon name="trash" size={20} />
+                  <div className="text">
+                    <p className="title">How long chats are kept</p>
+                    <div className="desc">{retentionText(policy)}</div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
     </>

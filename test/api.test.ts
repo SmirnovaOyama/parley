@@ -1033,6 +1033,14 @@ describe("api", () => {
     assert.equal((await new Visitor().json("POST", "/api/auth/signup/code", { email: "later@example.com" })).status, 400);
   });
 
+  test("people are told admins can read chats unless an admin turns that off", async () => {
+    assert.equal((await member.json("GET", "/api/policy")).body.privacyNotice, true);
+    assert.equal((await member.json("PATCH", "/api/admin/settings", { privacyNotice: false })).status, 403);
+    assert.equal((await admin.json("PATCH", "/api/admin/settings", { privacyNotice: false })).body.settings.privacyNotice, false);
+    assert.equal((await member.json("GET", "/api/policy")).body.privacyNotice, false);
+    assert.equal((await admin.json("PATCH", "/api/admin/settings", { privacyNotice: true })).body.settings.privacyNotice, true);
+  });
+
   // Last: lowering the limit signs the admin out of their other sign-ins too.
   test("signing in on more devices than the site allows signs out the one used longest ago", async () => {
     // A sign-in newer than the admin's, so the admin's is the one used longest ago, as far as the

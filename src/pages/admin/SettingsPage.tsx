@@ -23,6 +23,7 @@ type Settings = {
   bonusSpend: number | null;
   spendLimit: number | null;
   memory: boolean;
+  privacyNotice: boolean;
   retainChatsDays: number | null;
   retainDeletedDays: number | null;
   maxSessions: number | null;
@@ -183,6 +184,25 @@ export function SettingsPage() {
       </div>
 
       <SpendingForm saved={settings.spendLimit} onSave={(spendLimit) => update({ spendLimit })} />
+
+      <div className="oy-group">
+        <p className="oy-overline">Privacy</p>
+        <div className="oy-section">
+          <div className="oy-row">
+            <Icon name="eye" size={20} />
+            <div className="text">
+              <label className="title" htmlFor="privacy-notice">
+                Tell people admins can read chats
+              </label>
+              <div className="desc">
+                Under Account, everyone sees that the people who run this site can open any chat, and that each time is logged. Off, it isn't
+                shown, but admins can still read chats and each time is still logged
+              </div>
+            </div>
+            <Switch id="privacy-notice" checked={settings.privacyNotice} onChange={(v) => void update({ privacyNotice: v })} />
+          </div>
+        </div>
+      </div>
 
       <RetentionForm settings={settings} onSave={(next) => update(next)} />
 

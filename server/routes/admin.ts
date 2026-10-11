@@ -1004,6 +1004,7 @@ adminRoutes.patch("/settings", async (c) => {
     next.systemPrompt = prompt;
   }
   if (body.memory !== undefined) next.memory = !!body.memory;
+  if (body.privacyNotice !== undefined) next.privacyNotice = !!body.privacyNotice;
   // Days to keep chats: a whole number, or empty to keep them for good.
   for (const field of ["retainChatsDays", "retainDeletedDays"] as const) {
     if (body[field] === undefined) continue;

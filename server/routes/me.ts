@@ -95,8 +95,11 @@ meRoutes.put(
   },
 );
 
-/** The site's rules that touch a person's data and what they can use: how long chats are kept, memory. */
+/**
+ * The site's rules that touch a person's data and what they can use: how long chats are kept,
+ * memory, and whether they're told admins can read chats.
+ */
 meRoutes.get("/policy", (c) => {
   const s = getSettings();
-  return c.json({ retainChatsDays: s.retainChatsDays, retainDeletedDays: s.retainDeletedDays, memory: s.memory });
+  return c.json({ retainChatsDays: s.retainChatsDays, retainDeletedDays: s.retainDeletedDays, memory: s.memory, privacyNotice: s.privacyNotice });
 });

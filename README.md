@@ -45,17 +45,18 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - Export everything as one file, and import chats from Parley, ChatGPT or Claude exports.
 - Share a read-only link to a chat.
 - Reset a forgotten password with a link by email, when the site can send email, or ask an admin to set a new one.
+- See where you're signed in, and sign out any device.
 
 **For admins**
 - API keys: stored encrypted, checked with the provider before they're saved, with a backup key for when one fails.
-- People: who can use which keys, monthly token and spending limits, accounts on or off, and a new password for someone who can't sign in.
+- People: who can use which keys, monthly token and spending limits, accounts on or off, a new password for someone who can't sign in, and where each person is signed in, with a way to sign them out.
 - Groups, like a class or a team, that open keys and MCP servers to their members and can give them a spending limit of their own.
 - MCP servers (Streamable HTTP or SSE): their tools work with every model, for everyone or for chosen groups. Each tool can be on or off, and can run straight away or ask the person first. When a server's tools change, the new ones wait for an admin to look over. A server acts with one shared account, or with each person's own: they sign in on its sign-in page (MCP's OAuth flow) or add a token of theirs. Admins see who has connected, never what with.
 - Knowledge bases shared with everyone, and the search service for models without their own web search (Tavily, Brave, Bocha, Jina or your own SearXNG).
 - Every chat, read-only and searchable. People are told admins can read chats, and every look is logged.
 - Replies the AI declined, gathered for review.
 - Usage and estimated cost by person, key and day.
-- Site settings: the system prompt, sign-ups, sharing, memory, how long chats are kept (including chats people deleted), and optional email rewards (extra allowance for verified addresses on domains you choose, like a school's).
+- Site settings: the system prompt, sign-ups, how many devices an account can be signed in on, sharing, memory, how long chats are kept (including chats people deleted), and optional email rewards (extra allowance for verified addresses on domains you choose, like a school's).
 
 ## AI providers
 
@@ -178,6 +179,9 @@ Set in `.env` (see [`.env.example`](.env.example)):
 
 - The first account becomes the admin. Sign up right after you deploy, then turn off sign-ups in Admin → Settings if you don't want strangers joining.
 - Admins can point an "Another service" key at any address, and the server will connect to it. Only make people admins you trust with that.
+- Every other key goes only to its provider's own address. Claude's and OpenAI's ignore `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and the other settings those libraries would read from the environment, so nothing set there can send keys somewhere else.
+- People can't easily turn their account into a relay for the site's keys (a reverse proxy that other apps or people use through their sign-in). Anything that changes something through the API has to come from the site's pages in a browser, by its `Origin` header and `Sec-Fetch-Site` where the browser sends it. Each person can have three replies written at once and send 20 messages a minute and 200 an hour. Each account can be signed in on 5 devices unless you change it under Admin → Settings, and signing in on another signs out the one used longest ago. A determined script can pretend to be a browser, so admins also see, on each person's page, every device they're signed in on: the browser or program, the address it was last used from, and when. Many devices, many networks, or "Not a browser" is worth a look, and a spending limit caps what any of it can cost.
+- Admins can see the address and browser each of a person's sign-ins was last used from, and people are told so where they see their own. They're deleted with the sign-in: when it's signed out, or runs out after 30 days unused.
 - Admins can read every chat. Parley tells everyone so on their account page.
 - Admins can set a new password for anyone but themselves, other admins included. It signs that person out everywhere and is written to the activity log, with who did it.
 - Password reset links are random, work once for 30 minutes, and only their hash is stored. Asking for one gets the same answer whether or not an account uses the address, and is limited by address and by network; behind a reverse proxy on the same machine or a private network, the network is read from the last address in `X-Forwarded-For`. Links always start with `PUBLIC_URL`, never with the address a request names. A turned-off account can't be reset.

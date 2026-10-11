@@ -4,6 +4,20 @@ What changed in each version of Parley. The format follows [Keep a Changelog](ht
 
 ## [Unreleased]
 
+Claude's and OpenAI's keys now go only to api.anthropic.com and api.openai.com: a server that reached them through a relay by setting `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` stops reaching them that way. Add the relay as an "Another service" key instead, if it speaks OpenAI's chat format. Anything that changes something through the API (sending a message, saving a setting) now has to come from the site's pages in a browser, so scripts that called it with a session cookie stop working (see Security).
+
+### Added
+
+- Where you're signed in, under Account: each browser or program signed in to your account, the address it was last used from and when, and a button to sign out any of them or every other one.
+- Admins see the same on each person's page under Admin → People, with how many networks this week's sign-ins came from, and can sign them out of one device or all of them. The People list marks someone signed in on three devices or more, or from a program rather than a browser. Signing someone out is written to the activity log.
+- A limit on how many devices one account can be signed in on, under Admin → Settings → Signing in: 5 unless you change it, or empty for none. Signing in on one more signs out the one used longest ago, and a lower number holds as soon as it's saved, except for the admin's own device that saved it.
+
+### Security
+
+- Keys go only to their provider. The Anthropic and OpenAI libraries read `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID` from the environment, so whatever set one there could have every admin's key sent to an address of its choosing, or other credentials sent along with it. Parley now gives every provider its address and credentials itself, and only an "Another service" key goes where an admin points it.
+- Harder to turn an account into a relay that passes the site's keys on to other apps or people (a reverse proxy on someone's sign-in). A change through the API must carry the site's own `Origin`, and `Sec-Fetch-Site: same-origin` where the browser sends it, which every browser does for the site's own pages and a plain script doesn't. A script can still pretend, so each person can now have three replies being written at once and send 200 messages an hour, on top of 20 a minute as before, and admins can see where each person is signed in.
+- Sign-ins that ran out are deleted every hour, and with them the addresses and browsers they were used from.
+
 ## [0.2.0] - 2026-10-10
 
 A database from 0.1.x is brought up to date when the server starts. MCP servers added before this release ask the person before running any of their tools, until an admin asks the server for its tools again and looks over what it says about them (see Security).

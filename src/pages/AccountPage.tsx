@@ -228,8 +228,9 @@ export function AccountPage() {
 
         <DataGroup />
 
-        {/* What the site's rules say about people's chats; admins choose whether the first is shown. */}
-        {policy && (policy.privacyNotice || policy.retainChatsDays != null || policy.retainDeletedDays != null) && (
+        {/* What the site's rules say about people's chats. Admins choose whether people are told they
+            can read chats, and with it how long deleted chats stay readable to them. */}
+        {policy && (policy.privacyNotice || policy.retainChatsDays != null) && (
           <div className="oy-group">
             <p className="oy-overline">{t("Privacy")}</p>
             <div className="oy-section">
@@ -242,7 +243,7 @@ export function AccountPage() {
                   </div>
                 </div>
               )}
-              {(policy.retainChatsDays != null || policy.retainDeletedDays != null) && (
+              {(policy.retainChatsDays != null || (policy.privacyNotice && policy.retainDeletedDays != null)) && (
                 <div className="oy-row">
                   <Icon name="trash" size={20} />
                   <div className="text">
@@ -305,6 +306,7 @@ function retentionText(p: Policy): string {
       }),
     );
   }
+  if (!p.privacyNotice) return sentences(parts);
   if (p.retainDeletedDays === 0) parts.push(t("A chat you delete is gone at once, for admins too"));
   else if (p.retainDeletedDays != null) {
     parts.push(

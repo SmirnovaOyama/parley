@@ -197,7 +197,7 @@ export function SettingsPage() {
               </label>
               <div className="desc">
                 {t(
-                  "Under Settings, everyone sees that the people who run this site can open any chat, and that each time is logged. Off, it isn't shown, but admins can still read chats and each time is still logged",
+                  "Under Settings, everyone sees that the people who run this site can open any chat, and that each time is logged, and deleting a chat says admins can still see it. Off, none of this is shown, but admins can still read chats and each time is still logged",
                 )}
               </div>
             </div>

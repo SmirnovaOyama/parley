@@ -53,7 +53,7 @@ async function startServer() {
   return { child, url: `http://127.0.0.1:${port}`, log: () => log };
 }
 
-/** Someone using the site: keeps their session cookie between requests. */
+/** Someone using the site in a browser: keeps their session cookie between requests. */
 class Visitor {
   cookie = "";
 
@@ -64,6 +64,8 @@ class Visitor {
       headers: {
         ...(body !== undefined && !raw ? { "content-type": "application/json" } : {}),
         ...(this.cookie ? { cookie: this.cookie } : {}),
+        // What a browser says about a change asked for from one of the site's pages.
+        ...(method === "GET" || method === "HEAD" ? {} : { origin: server.url, "sec-fetch-site": "same-origin" }),
         ...headers,
       },
       body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
@@ -854,6 +856,24 @@ describe("api", () => {
       assert.equal((await member.json("GET", "/api/mcp/connections")).body.connections.find((x: { id: number }) => x.id === id).status, "missing");
       assert.equal((await admin.json("DELETE", `/api/admin/mcp/${id}`)).status, 200);
     });
+  });
+
+  test("a change asked for by a script, not from the site in a browser, is turned away", async () => {
+    const send = (headers: Record<string, string>) =>
+      fetch(`${server.url}/api/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: member.cookie, ...headers },
+        body: JSON.stringify({ text: "Hello from a script" }),
+      }).then(async (res) => ({ status: res.status, body: await res.json() }));
+    const before = service.requests.length;
+    assert.deepEqual(await send({}), { status: 403, body: { error: "Open the site in a browser to do this" } });
+    const blocked = { status: 403, body: { error: "Cross-site request blocked" } };
+    assert.deepEqual(await send({ origin: "https://elsewhere.example" }), blocked);
+    assert.deepEqual(await send({ origin: "not an address" }), blocked);
+    assert.deepEqual(await send({ origin: server.url, "sec-fetch-site": "same-site" }), blocked);
+    assert.equal(service.requests.length, before, "nothing reached the service");
+    // Reading needs no more than the session: browsers don't name the page a GET comes from.
+    assert.equal((await fetch(`${server.url}/api/auth/me`, { headers: { cookie: member.cookie } })).status, 200);
   });
 
   test("one person has at most three replies written at once", async () => {

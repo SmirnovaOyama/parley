@@ -91,6 +91,13 @@ export function originOf(c: Context): string {
  * Cross-site request guard. Session cookies are SameSite=Lax, and every state-changing request
  * must be JSON (which a cross-site form can't send without a CORS preflight we never allow).
  * A mismatched Origin is rejected outright.
+ *
+ * A change must also come from one of the site's own pages in a browser. Every browser names the
+ * page a POST, PUT, PATCH or DELETE comes from in Origin, and today's say how it relates to the
+ * site in Sec-Fetch-Site. A request with no Origin was made by a script: one that sends messages
+ * with someone's session cookie is how an account becomes a relay (a reverse proxy) that hands
+ * the site's keys to other apps or other people. The headers can be faked, so this only stops the
+ * plainest scripts; the limits on sending in server/routes/chat.ts hold back the rest.
  */
 export const sameOriginGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
   const origin = c.req.header("origin");
@@ -98,8 +105,11 @@ export const sameOriginGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
   // never needs the API, whatever the method.
   if (origin === "null") return c.json({ error: "Cross-site request blocked" }, 403);
   if (c.req.method === "GET" || c.req.method === "HEAD") return next();
+  const site = c.req.header("sec-fetch-site");
+  if (site && site !== "same-origin") return c.json({ error: "Cross-site request blocked" }, 403);
+  if (!origin) return c.json({ error: "Open the site in a browser to do this" }, 403);
   const host = c.req.header("x-forwarded-host") ?? c.req.header("host");
-  if (origin && host && new URL(origin).host !== host) {
+  if (!URL.canParse(origin) || (host && new URL(origin).host !== host)) {
     return c.json({ error: "Cross-site request blocked" }, 403);
   }
   if (c.req.method === "POST" && !c.req.header("content-type")?.startsWith("application/json")) {

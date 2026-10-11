@@ -33,9 +33,13 @@ type Loaded = {
 
 type Saved = { name: string; aboutMe: string; answerStyle: string; projectId: string; knowledge: string[]; pinned: boolean };
 
-/** What the delete line says, by how long the site keeps deleted chats for its admins. */
+/**
+ * What the delete line says, by how long the site keeps deleted chats for its admins. When the
+ * admins have turned off telling people they can read chats, it doesn't bring them up here either.
+ */
 function deleteWarning(policy: Policy | null): string {
-  const days = policy?.retainDeletedDays;
+  if (!policy?.privacyNotice) return t("Delete this chat?");
+  const days = policy.retainDeletedDays;
   if (days === 0) return t("Delete this chat? It's gone for good, for admins too");
   if (days != null) return tn(days, "Delete this chat? Admins of this site can still see it for {days} day", "Delete this chat? Admins of this site can still see it for {days} days", { days: formatNumber(days) });
   return t("Delete this chat? Admins of this site can still see it");

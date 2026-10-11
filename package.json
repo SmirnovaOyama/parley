@@ -29,7 +29,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "hono": "^4.13.13",
     "katex": "^0.19.0",
-    "nodemailer": "10.0.15",
+    "nodemailer": "10.0.16",
     "openai": "^7.30.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

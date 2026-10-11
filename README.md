@@ -57,7 +57,7 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - Every chat, read-only and searchable. People are told admins can read chats, and every look is logged.
 - Replies the AI declined, gathered for review.
 - Usage and estimated cost by person, key and day.
-- Site settings: the system prompt, sign-ups, how many devices an account can be signed in on, sharing, memory, how long chats are kept (including chats people deleted), and optional email rewards (extra allowance for verified addresses on domains you choose, like a school's).
+- Site settings: the system prompt, sign-ups (with a code emailed to each new address, once the site can send email), how many devices an account can be signed in on, sharing, memory, how long chats are kept (including chats people deleted), and optional email rewards (extra allowance for verified addresses on domains you choose, like a school's).
 
 ## AI providers
 
@@ -192,6 +192,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 - Admins can point an "Another service" key at any address, and the server will connect to it. Only make people admins you trust with that.
 - Every other key goes only to its provider's own address. Claude's and OpenAI's ignore `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and the other settings those libraries would read from the environment, so nothing set there can send keys somewhere else.
 - People can't easily turn their account into a relay for the site's keys (a reverse proxy that other apps or people use through their sign-in). Anything that changes something through the API has to come from the site's pages in a browser, by its `Origin` header and `Sec-Fetch-Site` where the browser sends it. Each person can have three replies written at once and send 20 messages a minute and 200 an hour. Each account can be signed in on 5 devices unless you change it under Admin → Settings, and signing in on another signs out the one used longest ago. A determined script can pretend to be a browser, so admins also see, on each person's page, every device they're signed in on: the browser or program, the address it was last used from, and when. Many devices, many networks, or "Not a browser" is worth a look, and a spending limit caps what any of it can cost.
+- Once the site can send email, a new account needs a code sent to its address (Admin → Settings → Sign-ups). Codes are random, work once for 10 minutes and 5 tries, are stored only as a keyed hash, and asking is limited by address and by network. The first account, which sets up the site, needs none.
 - Admins can see the address and browser each of a person's sign-ins was last used from, and people are told so where they see their own. They're deleted with the sign-in: when it's signed out, or runs out after 30 days unused.
 - Admins can read every chat. Parley tells everyone so on their account page.
 - Admins can set a new password for anyone but themselves, other admins included. It signs that person out everywhere and is written to the activity log, with who did it.

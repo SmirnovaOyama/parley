@@ -23,6 +23,7 @@ import {
 import { clearFailures, MIN_PASSWORD } from "./auth.ts";
 import { enforceRetention, purgeConversations } from "../retention.ts";
 import { endSessionByRef, keepEveryoneWithinLimit, sessionsOf, spreadOf } from "../sessions.ts";
+import { turnOffTwoStep, twoStepOf } from "../two-step.ts";
 
 export const adminRoutes = new Hono<AppEnv>();
 adminRoutes.use("*", requireAdmin);
@@ -378,6 +379,8 @@ adminRoutes.get("/users", (c) => {
       bonusSpend: u.bonus_email && rewardDomain(u.bonus_email, bonusDomains) ? bonusSpend : null,
       /** How many devices they're signed in on, the networks this week's came from, and how many aren't browsers. */
       ...spreadOf(sessionsOf(u.id)),
+      /** Their two-step verification: whether it's on, with an app, and how many passkeys. */
+      twoStep: (({ on, totp, passkeys }) => ({ on, totp, passkeys: passkeys.length }))(twoStepOf(u.id)),
     })),
   });
 });
@@ -499,8 +502,8 @@ adminRoutes.post("/users/:id/password", async (c) => {
   const id = Number(c.req.param("id"));
   const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
   if (!target) return c.json({ error: "This person doesn't exist" }, 404);
-  // Your own is changed under Account, which asks for the current one and keeps you signed in.
-  if (id === c.var.user!.id) return c.json({ error: "Change your own password under Account" }, 400);
+  // Your own is changed under Settings, which asks for the current one and keeps you signed in.
+  if (id === c.var.user!.id) return c.json({ error: "Change your own password under Settings" }, 400);
   const body = await c.req.json().catch(() => ({}));
   const password = String(body.password ?? "");
   if (password.length < MIN_PASSWORD) return c.json({ error: `Use at least ${MIN_PASSWORD} characters for the password` }, 400);
@@ -519,7 +522,7 @@ adminRoutes.post("/users/:id/password", async (c) => {
 });
 
 // Where someone is signed in: their devices, the address each was last used from, and when. An
-// admin can sign them out of one or all. Your own are under Account, which keeps this one.
+// admin can sign them out of one or all. Your own are under Settings, which keeps this one.
 adminRoutes.get("/users/:id/sessions", (c) => {
   const id = Number(c.req.param("id"));
   if (!db.prepare("SELECT 1 FROM users WHERE id = ?").get(id)) return c.json({ error: "This person doesn't exist" }, 404);
@@ -531,7 +534,7 @@ adminRoutes.delete("/users/:id/sessions", (c) => {
   const id = Number(c.req.param("id"));
   const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
   if (!target) return c.json({ error: "This person doesn't exist" }, 404);
-  if (id === c.var.user!.id) return c.json({ error: "Sign out your own devices under Account" }, 400);
+  if (id === c.var.user!.id) return c.json({ error: "Sign out your own devices under Settings" }, 400);
   db.prepare("DELETE FROM sessions WHERE user_id = ?").run(id);
   audit(c.var.user!.id, "sign_out_user", target.email);
   return c.json({ ok: true });
@@ -541,9 +544,21 @@ adminRoutes.delete("/users/:id/sessions/:session", (c) => {
   const id = Number(c.req.param("id"));
   const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
   if (!target) return c.json({ error: "This person doesn't exist" }, 404);
-  if (id === c.var.user!.id) return c.json({ error: "Sign out your own devices under Account" }, 400);
+  if (id === c.var.user!.id) return c.json({ error: "Sign out your own devices under Settings" }, 400);
   if (!endSessionByRef(id, c.req.param("session"))) return c.json({ error: "That device is already signed out" }, 404);
   audit(c.var.user!.id, "sign_out_device", target.email);
+  return c.json({ ok: true });
+});
+
+// Someone who lost their phone and recovery codes: an admin turns their two-step verification off,
+// and they sign in with their password alone until they set it up again.
+adminRoutes.post("/users/:id/two-step/off", (c) => {
+  const id = Number(c.req.param("id"));
+  const target = db.prepare("SELECT email FROM users WHERE id = ?").get(id) as { email: string } | undefined;
+  if (!target) return c.json({ error: "This person doesn't exist" }, 404);
+  if (id === c.var.user!.id) return c.json({ error: "Change your own under Settings" }, 400);
+  turnOffTwoStep(id);
+  audit(c.var.user!.id, "turn_off_two_step", target.email);
   return c.json({ ok: true });
 });
 
@@ -1004,6 +1019,7 @@ adminRoutes.patch("/settings", async (c) => {
     next.systemPrompt = prompt;
   }
   if (body.memory !== undefined) next.memory = !!body.memory;
+  if (body.privacyNotice !== undefined) next.privacyNotice = !!body.privacyNotice;
   // Days to keep chats: a whole number, or empty to keep them for good.
   for (const field of ["retainChatsDays", "retainDeletedDays"] as const) {
     if (body[field] === undefined) continue;

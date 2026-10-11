@@ -10,7 +10,7 @@ import { useSession } from "../lib/session.tsx";
 
 type Sessions = { sessions: Device[]; limit: number | null };
 
-/** How many devices, as the Account page and this page's header say it. */
+/** How many devices, as the Settings page and this page's header say it. */
 export function devicesText(devices: Device[]): string {
   const programs = devices.filter((d) => !d.browser).length;
   const count = devices.length === 1 ? "Only on this device" : `On ${plural(devices.length, "device", "devices")}`;
@@ -19,7 +19,7 @@ export function devicesText(devices: Device[]): string {
 }
 
 /**
- * Account › Where you're signed in (/account/devices): every browser and program signed in to this
+ * Settings › Where you're signed in (/settings/devices): every browser and program signed in to this
  * account, where each was last used from, and signing any of them out.
  */
 export function DevicesPage() {
@@ -52,7 +52,7 @@ export function DevicesPage() {
   const others = data?.sessions.some((d) => !d.current);
   return (
     <>
-      <PageHeader title="Where you're signed in" subtitle={data ? devicesText(data.sessions) : undefined} back={{ label: "Account", to: "/account" }} />
+      <PageHeader title="Where you're signed in" subtitle={data ? devicesText(data.sessions) : undefined} back={{ label: "Settings", to: "/settings" }} />
       <div className="oy-page-column page-body">
         {error && <Advisory>{error}</Advisory>}
         {!data ? (

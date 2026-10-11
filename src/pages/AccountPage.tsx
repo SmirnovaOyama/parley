@@ -4,11 +4,12 @@ import { Segmented } from "../components/Controls.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
-import { api, uploadRaw, type Connection, type Device, type Persona, type Policy } from "../lib/api.ts";
+import { api, uploadRaw, type Connection, type Device, type Persona, type Policy, type TwoStep } from "../lib/api.ts";
 import { domainsText, rewardText, type BonusStatus } from "../lib/bonus.ts";
 import { compactNumber, formatCost, plural, shortDate } from "../lib/format.ts";
 import { useSession } from "../lib/session.tsx";
 import { devicesText } from "./DevicesPage.tsx";
+import { twoStepText } from "./TwoStepPage.tsx";
 import type { MemoryState } from "./MemoryPage.tsx";
 
 type Theme = "light" | "dark" | "system";
@@ -66,6 +67,7 @@ export function AccountPage() {
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [connections, setConnections] = useState<Connection[] | null>(null);
   const [devices, setDevices] = useState<Device[] | null>(null);
+  const [twoStep, setTwoStep] = useState<TwoStep | null>(null);
 
   useEffect(() => {
     // Once read, the note leaves the history entry, so a reload doesn't say it again.
@@ -77,6 +79,7 @@ export function AccountPage() {
     api.get<Policy>("/policy").then(setPolicy, () => {});
     api.get<{ connections: Connection[] }>("/mcp/connections").then((r) => setConnections(r.connections), () => {});
     api.get<{ sessions: Device[] }>("/auth/sessions").then((r) => setDevices(r.sessions), () => {});
+    api.get<TwoStep>("/auth/two-step").then(setTwoStep, () => {});
   }, []);
 
   const memoryDesc = !memory
@@ -100,8 +103,51 @@ export function AccountPage() {
 
   return (
     <>
-      <PageHeader title="Account" subtitle={user?.email} />
+      <PageHeader title="Settings" />
       <div className="oy-page-column page-body">
+        {/* Who's signed in, first. */}
+        <div className="settings-profile">
+          <span className="settings-avatar" aria-hidden="true">
+            {(user?.email ?? "?").charAt(0).toUpperCase()}
+          </span>
+          <div className="text">
+            <p className="title truncate">{user?.email}</p>
+            <div className="desc">{user?.role === "admin" ? "Admin of this site" : "Member"}</div>
+          </div>
+        </div>
+
+        <div className="oy-group">
+          <p className="oy-overline">Account</p>
+          <div className="oy-section">
+            <SlideLink className="oy-row" to="/settings/password" direction="forward">
+              <Icon name="lock" size={20} />
+              <div className="text">
+                <p className="title">Password</p>
+                <div className="desc">{passwordChanged ? "Changed. Other devices were signed out" : "Change the password you sign in with"}</div>
+              </div>
+              <Icon name="chevron-right" size={18} className="chevron" />
+            </SlideLink>
+            <SlideLink className="oy-row" to="/settings/two-step" direction="forward">
+              <Icon name="shield" size={20} />
+              <div className="text">
+                <p className="title">Two-step verification</p>
+                <div className="desc">{twoStep ? twoStepText(twoStep) : "A code from an app, or a passkey, after your password"}</div>
+              </div>
+              <Icon name="chevron-right" size={18} className="chevron" />
+            </SlideLink>
+            <SlideLink className="oy-row" to="/settings/devices" direction="forward">
+              <Icon name="devices" size={20} />
+              <div className="text">
+                <p className="title">Where you're signed in</p>
+                <div className={`desc${devices?.some((d) => !d.browser) ? " text-warning" : ""}`}>
+                  {devices ? devicesText(devices) : "The devices signed in to your account"}
+                </div>
+              </div>
+              <Icon name="chevron-right" size={18} className="chevron" />
+            </SlideLink>
+          </div>
+        </div>
+
         <div className="oy-group">
           <p className="oy-overline">Appearance</p>
           <div className="oy-section">
@@ -125,9 +171,9 @@ export function AccountPage() {
         </div>
 
         <div className="oy-group">
-          <p className="oy-overline">Persona</p>
+          <p className="oy-overline">Assistant</p>
           <div className="oy-section">
-            <SlideLink className="oy-row" to="/account/personas" direction="forward">
+            <SlideLink className="oy-row" to="/settings/personas" direction="forward">
               <Icon name="user" size={20} />
               <div className="text">
                 <p className="title">Personas</p>
@@ -135,13 +181,7 @@ export function AccountPage() {
               </div>
               <Icon name="chevron-right" size={18} className="chevron" />
             </SlideLink>
-          </div>
-        </div>
-
-        <div className="oy-group">
-          <p className="oy-overline">Memory</p>
-          <div className="oy-section">
-            <SlideLink className="oy-row" to="/account/memory" direction="forward">
+            <SlideLink className="oy-row" to="/settings/memory" direction="forward">
               <Icon name="note" size={20} />
               <div className="text">
                 <p className="title">What the AI remembers</p>
@@ -149,14 +189,8 @@ export function AccountPage() {
               </div>
               <Icon name="chevron-right" size={18} className="chevron" />
             </SlideLink>
-          </div>
-        </div>
-
-        {connections && connections.length > 0 && (
-          <div className="oy-group">
-            <p className="oy-overline">Tools</p>
-            <div className="oy-section">
-              <SlideLink className="oy-row" to="/account/connections" direction="forward">
+            {connections && connections.length > 0 && (
+              <SlideLink className="oy-row" to="/settings/connections" direction="forward">
                 <Icon name="plug" size={20} />
                 <div className="text">
                   <p className="title">Connected services</p>
@@ -164,40 +198,59 @@ export function AccountPage() {
                 </div>
                 <Icon name="chevron-right" size={18} className="chevron" />
               </SlideLink>
-            </div>
+            )}
           </div>
-        )}
+        </div>
 
         {allowance && (allowance.spendLimit != null || allowance.tokenLimit != null) && <AllowanceGroup allowance={allowance} />}
 
         {bonus && bonus.domains.length > 0 && <RewardsGroup bonus={bonus} />}
 
-        <div className="oy-group">
-          <p className="oy-overline">Security</p>
-          <div className="oy-section">
-            <SlideLink className="oy-row" to="/account/password" direction="forward">
-              <Icon name="lock" size={20} />
-              <div className="text">
-                <p className="title">Password</p>
-                <div className="desc">{passwordChanged ? "Changed. Other devices were signed out" : "Change the password you sign in with"}</div>
-              </div>
-              <Icon name="chevron-right" size={18} className="chevron" />
-            </SlideLink>
-            <SlideLink className="oy-row" to="/account/devices" direction="forward">
-              <Icon name="devices" size={20} />
-              <div className="text">
-                <p className="title">Where you're signed in</p>
-                <div className={`desc${devices?.some((d) => !d.browser) ? " text-warning" : ""}`}>
-                  {devices ? devicesText(devices) : "The devices signed in to your account"}
+        <DataGroup />
+
+        {/* What the site's rules say about people's chats; admins choose whether the first is shown. */}
+        {policy && (policy.privacyNotice || policy.retainChatsDays != null || policy.retainDeletedDays != null) && (
+          <div className="oy-group">
+            <p className="oy-overline">Privacy</p>
+            <div className="oy-section">
+              {policy.privacyNotice && (
+                <div className="oy-row">
+                  <Icon name="eye" size={20} />
+                  <div className="text">
+                    <p className="title">Admins can read your chats</p>
+                    <div className="desc">The people who run this site can open any conversation, and each time they do it's logged</div>
+                  </div>
                 </div>
+              )}
+              {(policy.retainChatsDays != null || policy.retainDeletedDays != null) && (
+                <div className="oy-row">
+                  <Icon name="trash" size={20} />
+                  <div className="text">
+                    <p className="title">How long chats are kept</p>
+                    <div className="desc">{retentionText(policy)}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="oy-group">
+          <p className="oy-overline">About</p>
+          <div className="oy-section">
+            <a className="oy-row" href={REPOSITORY} target="_blank" rel="noopener noreferrer">
+              <Icon name="code" size={20} />
+              <div className="text">
+                <p className="title">Parley {__APP_VERSION__}</p>
+                <div className="desc">Open source, under the AGPL. Its code, and where to report a problem, are on GitHub</div>
               </div>
-              <Icon name="chevron-right" size={18} className="chevron" />
-            </SlideLink>
-            <button
-              type="button"
-              className="oy-row"
-              onClick={() => void signOut().then(() => navigate("/login", { replace: true }))}
-            >
+            </a>
+          </div>
+        </div>
+
+        <div className="oy-group">
+          <div className="oy-section">
+            <button type="button" className="oy-row" onClick={() => void signOut().then(() => navigate("/login", { replace: true }))}>
               <Icon name="logout" size={20} />
               <div className="text">
                 <p className="title">Sign out</p>
@@ -205,35 +258,13 @@ export function AccountPage() {
             </button>
           </div>
         </div>
-
-        <DataGroup />
-
-        <div className="oy-group">
-          <p className="oy-overline">Privacy</p>
-          <div className="oy-section">
-            <div className="oy-row">
-              <Icon name="eye" size={20} />
-              <div className="text">
-                <p className="title">Admins can read your chats</p>
-                <div className="desc">The people who run this site can open any conversation, and each time they do it's logged</div>
-              </div>
-            </div>
-            {policy && (policy.retainChatsDays != null || policy.retainDeletedDays != null) && (
-              <div className="oy-row">
-                <Icon name="trash" size={20} />
-                <div className="text">
-                  <p className="title">How long chats are kept</p>
-                  <div className="desc">{retentionText(policy)}</div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
-
     </>
   );
 }
+
+/** Where Parley's code lives, for the About row. */
+const REPOSITORY = "https://github.com/SmirnovaOyama/parley";
 
 /** "Notes", "Notes and GitHub", "Notes, GitHub and Linear". */
 function namesText(names: string[]): string {
@@ -341,7 +372,7 @@ function RewardsGroup({ bonus }: { bonus: BonusStatus }) {
     <div className="oy-group">
       <p className="oy-overline">Rewards</p>
       <div className="oy-section">
-        <SlideLink className="oy-row" to="/account/bonus" direction="forward">
+        <SlideLink className="oy-row" to="/settings/bonus" direction="forward">
           <Icon name="gift" size={20} />
           <div className="text">
             <p className="title">{title}</p>

@@ -1,3 +1,4 @@
+import { startAuthentication } from "@simplewebauthn/browser";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
 import { BusyButton } from "../components/BusyButton.tsx";
@@ -8,6 +9,7 @@ import { Icon } from "../icons/Icon.tsx";
 import { api, ApiError } from "../lib/api.ts";
 import { APP_NAME } from "../lib/brand.ts";
 import { useSession } from "../lib/session.tsx";
+import { passkeyProblem } from "./TwoStepPage.tsx";
 
 /** passwordReset: the server can email a link to set a new password. signupCode: making an account takes a code emailed to it. */
 type AuthState = { needsSetup: boolean; allowSignup: boolean; passwordReset: boolean; signupCode: boolean };
@@ -33,8 +35,13 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const next = safeNext(params.get("next"));
   const keepNext = next ? `?next=${encodeURIComponent(next)}` : "";
   const state = useAuthState();
+  const location = useLocation();
+  // Back from setting a new password, with two-step verification on: sign in, second step and all.
+  const [passwordSet] = useState(() => !!(location.state as { passwordSet?: boolean } | null)?.passwordSet);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // The password was right and the account has two-step verification: its second step.
+  const [second, setSecond] = useState<SecondStepTicket | null>(null);
   // Making an account can take a code emailed to it: where it went, and what was typed.
   const [sent, setSent] = useState<{ to: string; inLog: boolean } | null>(null);
   const [code, setCode] = useState("");
@@ -52,6 +59,23 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
 
   if (!loading && user) return <Navigate to={next ?? "/chat"} replace />;
   if (!state) return <Booting />;
+  if (second) {
+    return (
+      <SecondStep
+        email={email.trim()}
+        ticket={second}
+        onBack={(problem) => {
+          setSecond(null);
+          setError(problem ? { text: problem, field: "password" } : null);
+        }}
+        onDone={async (recoveryLeft) => {
+          await refreshUser();
+          // Someone who used a recovery code may have lost their phone: their two-step page is next.
+          navigate(recoveryLeft != null ? "/settings/two-step" : (next ?? "/chat"), { replace: true });
+        }}
+      />
+    );
+  }
 
   const signup = mode === "signup" || state.needsSetup;
   if (signup && !state.needsSetup && !state.allowSignup) {
@@ -92,12 +116,20 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.post<{ bonusEligible?: boolean }>(signup ? "/auth/signup" : "/auth/login", { email, password, ...(needsCode ? { code } : {}) });
+      const r = await api.post<{ bonusEligible?: boolean; twoStep?: SecondStepTicket }>(signup ? "/auth/signup" : "/auth/login", {
+        email,
+        password,
+        ...(needsCode ? { code } : {}),
+      });
+      if (r.twoStep) {
+        setSecond(r.twoStep);
+        return;
+      }
       await refreshUser();
       // A brand-new site can't chat until it has a key, so its first admin goes there first. An
       // address on a rewarded domain is offered the (skippable) check that earns the reward.
       if (state.needsSetup) navigate("/admin/keys", { replace: true });
-      else if (r.bonusEligible) navigate(`/account/bonus?from=signup&email=${encodeURIComponent(email.trim())}`, { replace: true });
+      else if (r.bonusEligible) navigate(`/settings/bonus?from=signup&email=${encodeURIComponent(email.trim())}`, { replace: true });
       else navigate(next ?? "/chat", { replace: true });
     } catch (err) {
       setError({ text: (err as Error).message, field: err instanceof ApiError && err.field === "code" ? "code" : "password" });
@@ -114,6 +146,7 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
       {state.needsSetup && (
         <Callout>This first account becomes the admin. You'll add an AI key next</Callout>
       )}
+      {passwordSet && !signup && <Callout>Your new password is set. Sign in with it, then take the second step as usual</Callout>}
       <form className="auth-form" onSubmit={submit} noValidate>
         <LineField
           id="email"
@@ -209,6 +242,124 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
           ) : null}
         </div>
       )}
+    </AuthFrame>
+  );
+}
+
+/** What the password opened: a ticket for the second step, and which ways it can take. */
+type SecondStepTicket = { ticket: string; totp: boolean; passkey: boolean };
+
+/**
+ * Signing in's second step, for an account with two-step verification: a passkey, a six-digit code
+ * from the authenticator app, or a recovery code. onBack leaves for the password again, saying why
+ * when the ticket ran out.
+ */
+function SecondStep({ email, ticket, onBack, onDone }: {
+  email: string;
+  ticket: SecondStepTicket;
+  onBack: (problem?: string) => void;
+  onDone: (recoveryLeft: number | null) => Promise<void>;
+}) {
+  const [recovery, setRecovery] = useState(!ticket.totp && !ticket.passkey);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"code" | "passkey" | null>(null);
+
+  /** A ticket that ran out (410) goes back to the password; anything else is said here. */
+  const failed = (err: unknown) => {
+    if (err instanceof ApiError && err.status === 410) return onBack(err.message);
+    setError(err instanceof ApiError ? err.message : passkeyProblem(err));
+  };
+
+  const withCode = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy("code");
+    setError(null);
+    try {
+      const r = await api.post<{ recoveryLeft: number | null }>("/auth/login/code", { ticket: ticket.ticket, code });
+      await onDone(r.recoveryLeft);
+    } catch (err) {
+      failed(err);
+      setBusy(null);
+    }
+  };
+
+  const withPasskey = async () => {
+    setBusy("passkey");
+    setError(null);
+    try {
+      const { options } = await api.post<{ options: Parameters<typeof startAuthentication>[0]["optionsJSON"] }>("/auth/login/passkey/options", { ticket: ticket.ticket });
+      const response = await startAuthentication({ optionsJSON: options });
+      await api.post("/auth/login/passkey", { ticket: ticket.ticket, response });
+      await onDone(null);
+    } catch (err) {
+      failed(err);
+      setBusy(null);
+    }
+  };
+
+  return (
+    <AuthFrame title="Two-step verification">
+      <p className="text-muted">
+        Signing in as <strong>{email}</strong>
+      </p>
+      {ticket.passkey && !recovery && (
+        <BusyButton type="button" className={ticket.totp ? "btn-secondary btn-block" : "btn-primary btn-block"} busy={busy === "passkey"} disabled={busy === "code"} onClick={() => void withPasskey()}>
+          Use a passkey
+        </BusyButton>
+      )}
+      {(ticket.totp || recovery) && (
+        <form className="auth-form" onSubmit={withCode} noValidate>
+          {recovery ? (
+            <LineField
+              id="recovery-code"
+              label="Recovery code"
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              hint="One of the codes you saved when you turned this on"
+              error={error}
+            />
+          ) : (
+            <LineField
+              id="totp-code"
+              label="Code from your authenticator app"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus={!ticket.passkey}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/[^\d]/g, "").slice(0, 6))}
+              error={error}
+            />
+          )}
+          <BusyButton className="btn-primary btn-block" type="submit" busy={busy === "code"} disabled={busy === "passkey" || (recovery ? !code.trim() : code.length < 6)}>
+            Sign in
+          </BusyButton>
+        </form>
+      )}
+      {!ticket.totp && !recovery && error && <Advisory>{error}</Advisory>}
+      <div className="auth-links text-muted">
+        <p>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => {
+              setRecovery(!recovery);
+              setCode("");
+              setError(null);
+            }}
+          >
+            {recovery ? (ticket.totp ? "Use the code from your app" : "Use a passkey") : "Use a recovery code instead"}
+          </button>
+        </p>
+        <p>
+          <button type="button" className="link-button" onClick={() => onBack()}>
+            Sign in as someone else
+          </button>
+        </p>
+      </div>
     </AuthFrame>
   );
 }
@@ -392,7 +543,9 @@ export function ResetPasswordPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.post("/auth/reset", { token, password });
+      const r = await api.post<{ signIn?: boolean }>("/auth/reset", { token, password });
+      // With two-step verification on, the link doesn't sign anyone in: they sign in, second step and all.
+      if (r.signIn) return void navigate("/login", { replace: true, state: { passwordSet: true } });
       await refreshUser();
       navigate("/chat", { replace: true });
     } catch (err) {

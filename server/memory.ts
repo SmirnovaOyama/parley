@@ -1,6 +1,6 @@
 // Memory: short notes the AI keeps about a person between chats. The model saves and deletes them
 // with its memory tool when the person shares something lasting or asks it to; the person sees,
-// edits and deletes them under Account. New chats start with them in their system prompt.
+// edits and deletes them under Settings. New chats start with them in their system prompt.
 import { bonusOf } from "./bonus.ts";
 import { db, getSettings, nowIso } from "./db.ts";
 
@@ -36,7 +36,7 @@ export const keptMemory = (userId: number, text: string) =>
 export function memoryFull(userId: number): string | null {
   const { n } = db.prepare("SELECT COUNT(*) AS n FROM memories WHERE user_id = ?").get(userId) as { n: number };
   const max = memoryLimit(userId);
-  return n >= max ? `Memory is full (${max} notes). Ask the person to delete some under Account first` : null;
+  return n >= max ? `Memory is full (${max} notes). Ask the person to delete some under Settings first` : null;
 }
 
 /** Saves a note, or finds the same one already kept. A sentence comes back when there's no room. */

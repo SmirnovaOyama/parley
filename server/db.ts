@@ -217,6 +217,32 @@ CREATE TABLE IF NOT EXISTS signup_codes (
 `);
 addColumn("users", "email_verified_at", "TEXT");
 
+// Two-step verification (server/two-step.ts). An authenticator app's secret, encrypted like API
+// keys, with the last 30-second step whose code was used (so none counts twice); passkeys, each a
+// public key the person's device signs with; and one-time recovery codes, hashed.
+addColumn("users", "totp_secret", "TEXT");
+addColumn("users", "totp_last_step", "INTEGER");
+addColumn("users", "totp_added_at", "TEXT");
+db.exec(`
+CREATE TABLE IF NOT EXISTS passkeys (
+  id           TEXT PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  public_key   BLOB NOT NULL,
+  counter      INTEGER NOT NULL DEFAULT 0,
+  transports   TEXT,
+  name         TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS passkeys_user ON passkeys(user_id);
+CREATE TABLE IF NOT EXISTS recovery_codes (
+  user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  used_at   TEXT,
+  PRIMARY KEY (user_id, code_hash)
+);
+`);
+
 // Forgotten passwords: the link last emailed to each person (a newer one replaces it), kept as
 // the hash of its token. It's deleted when it's used or the password changes.
 db.exec(`
@@ -590,6 +616,8 @@ export type Settings = {
   spendLimit: number | null;
   /** Whether the AI may remember things about people between chats (each person can turn it off too). */
   memory: boolean;
+  /** Whether people are told, under Settings, that admins can read their chats. */
+  privacyNotice: boolean;
   /**
    * The search service behind web search for models without their own (DeepSeek, Gemini, Grok and
    * other services): which one, and its address where it's self-hosted. Its key is kept apart, encrypted.
@@ -651,6 +679,7 @@ export function getSettings(): Settings {
     bonusSpend: dollars(map.get("bonusSpend")) || null,
     spendLimit: dollars(map.get("spendLimit")),
     memory: map.get("memory") !== "false",
+    privacyNotice: map.get("privacyNotice") !== "false",
     searchProvider: SEARCH_PROVIDERS.find((p) => p === map.get("searchProvider")) ?? null,
     searchUrl: map.get("searchUrl") ?? "",
     retainChatsDays: days(map.get("retainChatsDays")),
@@ -685,6 +714,7 @@ export function saveSettings(next: Partial<Settings>) {
   if (next.bonusSpend !== undefined) put.run("bonusSpend", next.bonusSpend == null ? "" : String(next.bonusSpend));
   if (next.spendLimit !== undefined) put.run("spendLimit", next.spendLimit == null ? "" : String(next.spendLimit));
   if (next.memory !== undefined) put.run("memory", String(next.memory));
+  if (next.privacyNotice !== undefined) put.run("privacyNotice", String(next.privacyNotice));
   if (next.searchProvider !== undefined) put.run("searchProvider", next.searchProvider ?? "");
   if (next.searchUrl !== undefined) put.run("searchUrl", next.searchUrl);
   if (next.retainChatsDays !== undefined) put.run("retainChatsDays", next.retainChatsDays == null ? "" : String(next.retainChatsDays));

@@ -26,7 +26,7 @@ function statusText(c: Connection): string {
 }
 
 /**
- * Account › Connected services (/account/connections): the MCP servers whose tools act with your
+ * Settings › Connected services (/settings/connections): the MCP servers whose tools act with your
  * own account, and connecting each. One you sign in to has its button here, which goes to its
  * sign-in page and back; one that takes a token opens a page for it.
  */
@@ -68,7 +68,7 @@ export function ConnectionsPage() {
 
   return (
     <>
-      <PageHeader title="Connected services" subtitle="Tools that act with your own account" back={{ label: "Account", to: "/account" }} />
+      <PageHeader title="Connected services" subtitle="Tools that act with your own account" back={{ label: "Settings", to: "/settings" }} />
       <div className="oy-page-column page-body">
         {result.result === "expired" && <Advisory>That sign-in ran out, or was started somewhere else. Try again</Advisory>}
         {error && <Advisory>{error}</Advisory>}
@@ -88,7 +88,7 @@ export function ConnectionsPage() {
                 const desc = <div className={`desc${said && result.result !== "connected" ? " text-warning" : ""}`}>{said ?? statusText(c)}</div>;
                 if (c.mode === "token") {
                   return (
-                    <SlideLink key={c.id} className="oy-row" to={`/account/connections/${c.id}`} direction="forward">
+                    <SlideLink key={c.id} className="oy-row" to={`/settings/connections/${c.id}`} direction="forward">
                       <Icon name="plug" size={20} />
                       <div className="text">
                         <p className="title">{c.name}</p>
@@ -142,7 +142,7 @@ export function ConnectionsPage() {
   );
 }
 
-/** Your token for a server that takes one (/account/connections/:id): adding or replacing it, and disconnecting. */
+/** Your token for a server that takes one (/settings/connections/:id): adding or replacing it, and disconnecting. */
 export function ConnectionTokenPage() {
   const { id } = useParams();
   const slideTo = useSlideNavigate();
@@ -169,7 +169,7 @@ export function ConnectionTokenPage() {
     setError(null);
     try {
       await api.put(`/mcp/connections/${id}`, { token });
-      slideTo("/account/connections", "back");
+      slideTo("/settings/connections", "back");
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -182,7 +182,7 @@ export function ConnectionTokenPage() {
       <PageHeader
         title={connection?.name ?? "Connected service"}
         subtitle={connection ? statusText(connection) : undefined}
-        back={{ label: "Connected services", to: "/account/connections" }}
+        back={{ label: "Connected services", to: "/settings/connections" }}
       />
       <div className="oy-page-column page-body">
         {loadError ? (
@@ -208,7 +208,7 @@ export function ConnectionTokenPage() {
                 <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!token.trim()}>
                   {connected ? "Save" : "Connect"}
                 </BusyButton>
-                <SlideLink to="/account/connections" direction="back" className="btn-secondary">
+                <SlideLink to="/settings/connections" direction="back" className="btn-secondary">
                   Cancel
                 </SlideLink>
               </div>
@@ -221,7 +221,7 @@ export function ConnectionTokenPage() {
                   action="Disconnect"
                   onConfirm={async () => {
                     await api.del(`/mcp/connections/${id}`);
-                    slideTo("/account/connections", "back", { replace: true });
+                    slideTo("/settings/connections", "back", { replace: true });
                   }}
                 />
               </div>

@@ -80,7 +80,7 @@ export type ToolUse = {
 };
 
 /**
- * An MCP server that acts with each person's own account, as Account › Connected services shows
+ * An MCP server that acts with each person's own account, as Settings › Connected services shows
  * it: signed in on its own page (oauth) or with a pasted token, and where you stand with it.
  */
 export type Connection = {
@@ -168,7 +168,15 @@ export type KnowledgeBase = {
 export type KnowledgeDoc = { id: string; name: string; mime: string; size: number; chars: number; parts: number; createdAt: string };
 
 /** The site's rules that touch a person's data. */
-export type Policy = { retainChatsDays: number | null; retainDeletedDays: number | null; memory: boolean };
+export type Policy = { retainChatsDays: number | null; retainDeletedDays: number | null; memory: boolean; privacyNotice: boolean };
+
+/** Two-step verification as it stands for someone (server/two-step.ts). */
+export type TwoStep = {
+  on: boolean;
+  totp: boolean;
+  passkeys: { id: string; name: string; createdAt: string; lastUsedAt: string | null }[];
+  recoveryLeft: number;
+};
 
 /** A device someone is signed in on (server/sessions.ts). */
 export type Device = {
@@ -296,7 +304,7 @@ export async function streamChat(
     parentId?: number | null;
     /** Regenerate: a new reply to this user message. */
     regenerate?: number;
-    /** A new chat's own instructions (else it starts with the Account defaults). */
+    /** A new chat's own instructions (else it starts with the defaults in Settings). */
     instructions?: Instructions;
     /** A new chat's project, and the knowledge bases picked for it. */
     projectId?: string;

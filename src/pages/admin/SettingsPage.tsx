@@ -23,6 +23,7 @@ type Settings = {
   bonusSpend: number | null;
   spendLimit: number | null;
   memory: boolean;
+  privacyNotice: boolean;
   retainChatsDays: number | null;
   retainDeletedDays: number | null;
   maxSessions: number | null;
@@ -184,6 +185,25 @@ export function SettingsPage() {
 
       <SpendingForm saved={settings.spendLimit} onSave={(spendLimit) => update({ spendLimit })} />
 
+      <div className="oy-group">
+        <p className="oy-overline">Privacy</p>
+        <div className="oy-section">
+          <div className="oy-row">
+            <Icon name="eye" size={20} />
+            <div className="text">
+              <label className="title" htmlFor="privacy-notice">
+                Tell people admins can read chats
+              </label>
+              <div className="desc">
+                Under Account, everyone sees that the people who run this site can open any chat, and that each time is logged. Off, it isn't
+                shown, but admins can still read chats and each time is still logged
+              </div>
+            </div>
+            <Switch id="privacy-notice" checked={settings.privacyNotice} onChange={(v) => void update({ privacyNotice: v })} />
+          </div>
+        </div>
+      </div>
+
       <RetentionForm settings={settings} onSave={(next) => update(next)} />
 
       <RewardsForm settings={settings} mail={mail} onSave={saveRewards} />
@@ -266,7 +286,7 @@ function DevicesForm({ saved, onSave }: { saved: number | null; onSave: (limit: 
 
 /**
  * How long chats are kept: ones nobody touches, and ones people deleted (which admins can still read
- * until then). Both empty keeps everything, as before. People see the rules under Account.
+ * until then). Both empty keeps everything, as before. People see the rules under Settings.
  */
 function RetentionForm({ settings, onSave }: { settings: Settings; onSave: (next: Pick<Settings, "retainChatsDays" | "retainDeletedDays">) => Promise<boolean> }) {
   const [chats, setChats] = useState(daysText(settings.retainChatsDays));
@@ -312,7 +332,7 @@ function RetentionForm({ settings, onSave }: { settings: Settings; onSave: (next
           hint="Leave empty to keep them for good, or 0 to remove them as soon as they're deleted"
         />
         <div className="form-actions">
-          <p className="oy-field-hint">Checked every hour, and right away when saved. People see these rules under Account</p>
+          <p className="oy-field-hint">Checked every hour, and right away when saved. People see these rules under Settings</p>
           <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty}>
             {done && !dirty ? "Saved" : "Save"}
           </BusyButton>
@@ -387,7 +407,7 @@ const MAIL_NOTE: Record<MailMode, string> = {
 
 /**
  * Email rewards: the domains whose addresses earn a reward, and the reward itself. People verify an
- * address from their Account (or right after signing up with one); it's optional.
+ * address from Settings (or right after signing up with one); it's optional.
  */
 function RewardsForm({
   settings,

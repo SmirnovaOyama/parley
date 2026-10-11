@@ -84,9 +84,9 @@ connectionRoutes.get("/mcp/callback", async (c) => {
   const user = c.var.user;
   if (!user) return c.redirect("/login");
   const held = takeSignIn(c.req.query("state") ?? "", user.id);
-  if (!held) return c.redirect("/account/connections?result=expired");
+  if (!held) return c.redirect("/settings/connections?result=expired");
   const back = (result: "connected" | "denied" | "failed") =>
-    c.redirect(held.from === "admin" ? `/admin/mcp/${held.serverId}?result=${result}` : `/account/connections?server=${held.serverId}&result=${result}`);
+    c.redirect(held.from === "admin" ? `/admin/mcp/${held.serverId}?result=${result}` : `/settings/connections?server=${held.serverId}&result=${result}`);
   // Still a server this person may connect, signed in to at the address it started for.
   const s = serverToConnect(held.serverId, user);
   const code = c.req.query("code");

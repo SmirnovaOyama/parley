@@ -440,7 +440,7 @@ function ToolUses({ uses, own }: { uses: ToolUse[]; own: boolean }) {
         {u.connect && own && (
           <>
             {". "}
-            <SlideLink to="/account/connections" direction="forward">
+            <SlideLink to="/settings/connections" direction="forward">
               Connect it
             </SlideLink>
           </>

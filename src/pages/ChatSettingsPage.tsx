@@ -87,7 +87,7 @@ export function ChatSettingsPage() {
       setReady(true);
     };
     if (isNew) {
-      // The chat about to start: a draft from earlier, else the Account defaults.
+      // The chat about to start: a draft from earlier, else the defaults in Settings.
       const draft = { name: "", projectId: startProject, knowledge: newChatKnowledge, pinned: false };
       if (newChatInstructions) fill({ ...draft, ...newChatInstructions });
       else
@@ -221,7 +221,7 @@ export function ChatSettingsPage() {
               />
               <p className="panel-note">
                 {isNew
-                  ? "For this chat only. Which persona new chats start as is under Account"
+                  ? "For this chat only. Which persona new chats start as is under Settings"
                   : "For this chat only. A change applies from your next message"}
               </p>
 

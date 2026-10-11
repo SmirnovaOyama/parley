@@ -107,7 +107,7 @@ function Sidebar() {
         {user?.role === "admin" && (
           <NavItem to="/admin" icon="gear" label="Admin" current={pathname.startsWith("/admin")} />
         )}
-        <NavItem to="/account" icon="user" label="Account" current={pathname === "/account"} />
+        <NavItem to="/settings" icon="sliders" label="Settings" current={pathname === "/settings"} />
       </div>
     </nav>
   );
@@ -179,7 +179,7 @@ function BottomNav() {
     ...(user?.role === "admin"
       ? [{ to: "/admin", icon: "gear" as const, label: "Admin", current: pathname.startsWith("/admin") }]
       : []),
-    { to: "/account", icon: "user", label: "Account", current: pathname === "/account" },
+    { to: "/settings", icon: "sliders", label: "Settings", current: pathname === "/settings" },
   ];
 
   // One pill slides to the current tab; on pages no tab owns (a chat's settings) it fades out.

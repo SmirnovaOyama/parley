@@ -147,7 +147,7 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 }
 .sidebar-chat[aria-current="page"] { font-weight: 500; }
 .sidebar-empty { padding: 4px 12px; font-size: 13px; line-height: 18px; color: var(--text-muted); }
-/* Admin and Account sit apart by space alone; a rule here crowded the selected pill. */
+/* Admin and Settings sit apart by space alone; a rule here crowded the selected pill. */
 .oy-sidebar .sidebar-footer { padding-top: 16px; padding-bottom: 20px; }
 
 .app-bottom-nav {
@@ -230,6 +230,12 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 }
 .auth-switch { font-size: 13px; line-height: 18px; }
 .auth-links { display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 18px; }
+/* A button that does what a link would on this page, and looks like one. */
+.link-button {
+  padding: 0; border: 0; background: none; font: inherit; color: var(--accent-ink); cursor: pointer;
+  text-decoration: underline; text-decoration-color: color-mix(in oklch, currentColor 35%, transparent); text-underline-offset: 3px;
+}
+.link-button:hover { text-decoration-color: currentColor; }
 .auth-sent { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 22px; }
 .auth-sent .oy-icon { flex: none; margin-top: 2px; color: var(--text-muted); }
 :is(.auth-sent, .auth) strong { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
@@ -301,6 +307,22 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 
 .loading-line { display: flex; justify-content: center; padding: 32px 0; color: var(--text-muted); }
 
+/* Settings: who's signed in, at the top, by the first letter of their address. */
+.settings-profile { display: flex; align-items: center; gap: 14px; padding: 4px 0 8px; }
+.settings-profile .text { flex: 1; min-width: 0; }
+.settings-profile .title { margin: 0; font-size: 17px; line-height: 24px; font-weight: 600; color: var(--text); }
+.settings-profile .desc { font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.settings-avatar {
+  flex: none; width: 48px; height: 48px; border-radius: var(--radius-full); display: grid; place-items: center;
+  background: var(--accent-subtle); color: var(--on-accent-subtle); font-size: 20px; line-height: 1; font-weight: 600;
+}
+/* Settings › Two-step verification: the QR code always on white, as scanners need, the key to type
+   and the recovery codes in monospace, two to a line. */
+.two-step-setup { display: flex; flex-direction: column; gap: 12px; }
+.two-step-qr { display: block; padding: 8px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.two-step-secret { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; }
+.two-step-secret code, .recovery-codes code { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 15px; letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.recovery-codes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 4px 0 8px; padding: 14px 16px; list-style: none; background: var(--surface-muted); border-radius: var(--radius-md); }
 .tag {
   display: inline-flex; align-items: center; height: 20px; padding: 0 8px; margin-inline-start: 8px;
   border-radius: var(--radius-full); font-size: 11px; line-height: 14px; font-weight: 500;
@@ -773,7 +795,7 @@ button.oy-row:disabled:hover { background: none; }
 .shortcut-title { display: flex; align-items: center; gap: 10px; font-size: 16px; line-height: 22px; font-weight: 600; }
 .shortcut-count { align-self: flex-start; margin-top: auto; }
 
-/* Account › This month: a square-ended bar under each limit, amber once it's reached. */
+/* Settings › This month: a square-ended bar under each limit, amber once it's reached. */
 .allowance-meter { display: block; height: 4px; margin-top: 10px; background: var(--surface-muted); overflow: hidden; }
 .allowance-meter > span { display: block; height: 100%; background: var(--accent); transition: width var(--duration-base) var(--ease-standard); }
 .allowance-meter.is-full > span { background: var(--warning); }

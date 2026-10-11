@@ -7,7 +7,7 @@ import { SlideLink } from "../components/SlideLink.tsx";
 import { api } from "../lib/api.ts";
 import { useSlideNavigate } from "../lib/slide.ts";
 
-/** Changing the password you sign in with (/account/password). */
+/** Changing the password you sign in with (/settings/password). */
 export function PasswordPage() {
   const slideTo = useSlideNavigate();
   const [current, setCurrent] = useState("");
@@ -21,7 +21,7 @@ export function PasswordPage() {
     setError(null);
     try {
       await api.post("/auth/password", { current, next });
-      slideTo("/account", "back", { state: { passwordChanged: true } });
+      slideTo("/settings", "back", { state: { passwordChanged: true } });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -31,7 +31,7 @@ export function PasswordPage() {
 
   return (
     <>
-      <PageHeader title="Password" subtitle="Changing it signs you out on your other devices" back={{ label: "Account", to: "/account" }} />
+      <PageHeader title="Password" subtitle="Changing it signs you out on your other devices" back={{ label: "Settings", to: "/settings" }} />
       <div className="oy-page-column page-body">
         <form className="form-page" onSubmit={save}>
           <LineField id="pw-current" label="Current password" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
@@ -41,7 +41,7 @@ export function PasswordPage() {
             <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!current || !next}>
               Change password
             </BusyButton>
-            <SlideLink to="/account" direction="back" className="btn-secondary">
+            <SlideLink to="/settings" direction="back" className="btn-secondary">
               Cancel
             </SlideLink>
           </div>

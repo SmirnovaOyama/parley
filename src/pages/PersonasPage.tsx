@@ -14,7 +14,7 @@ import { useSlideNavigate } from "../lib/slide.ts";
 
 type PersonaList = { personas: Persona[]; max: number };
 
-/** Every persona (/account/personas): up to five, one of which new chats can start as. */
+/** Every persona (/settings/personas): up to five, one of which new chats can start as. */
 export function PersonasPage() {
   const slideTo = useSlideNavigate();
   const [list, setList] = useState<PersonaList | null>(null);
@@ -25,14 +25,14 @@ export function PersonasPage() {
   }, []);
 
   const full = !!list && list.personas.length >= list.max;
-  const add = () => slideTo("/account/personas/new", "forward");
+  const add = () => slideTo("/settings/personas/new", "forward");
 
   return (
     <>
       <PageHeader
         title="Personas"
         subtitle="Who you are to the AI, and how it should answer"
-        back={{ label: "Account", to: "/account" }}
+        back={{ label: "Settings", to: "/settings" }}
         trailing={
           // Always there, so the header never shifts; it rests once there are five.
           <button type="button" className="btn-primary" onClick={add} disabled={!list || full}>
@@ -62,7 +62,7 @@ export function PersonasPage() {
           <>
             <div className="oy-section">
               {list.personas.map((p) => (
-                <SlideLink key={p.id} className="oy-row" to={`/account/personas/${p.id}`} direction="forward">
+                <SlideLink key={p.id} className="oy-row" to={`/settings/personas/${p.id}`} direction="forward">
                   <Icon name="user" size={20} />
                   <div className="text">
                     <p className="title truncate">
@@ -87,7 +87,7 @@ export function PersonasPage() {
   );
 }
 
-/** A new persona (/account/personas/new), or one's name and words (/account/personas/:id). */
+/** A new persona (/settings/personas/new), or one's name and words (/settings/personas/:id). */
 export function PersonaFormPage() {
   const { id = "new" } = useParams();
   const adding = id === "new";
@@ -138,7 +138,7 @@ export function PersonaFormPage() {
       const body = { name, aboutMe, answerStyle, forNewChats };
       if (adding) await api.post("/personas", body);
       else await api.patch(`/personas/${id}`, body);
-      slideTo("/account/personas", "back");
+      slideTo("/settings/personas", "back");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -148,12 +148,12 @@ export function PersonaFormPage() {
 
   const remove = async () => {
     await api.del(`/personas/${id}`);
-    slideTo("/account/personas", "back", { replace: true });
+    slideTo("/settings/personas", "back", { replace: true });
   };
 
   return (
     <>
-      <PageHeader title={adding ? "New persona" : (persona?.name ?? "Persona")} back={{ label: "Personas", to: "/account/personas" }} />
+      <PageHeader title={adding ? "New persona" : (persona?.name ?? "Persona")} back={{ label: "Personas", to: "/settings/personas" }} />
       <div className="oy-page-column page-body">
         {loadError ? (
           <Advisory>{loadError}</Advisory>
@@ -198,7 +198,7 @@ export function PersonaFormPage() {
                 <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!name.trim()}>
                   {adding ? "Make persona" : "Save"}
                 </BusyButton>
-                <SlideLink to="/account/personas" direction="back" className="btn-secondary">
+                <SlideLink to="/settings/personas" direction="back" className="btn-secondary">
                   Cancel
                 </SlideLink>
               </div>

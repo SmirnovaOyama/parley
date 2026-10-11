@@ -488,7 +488,7 @@ function resultText(result: { content?: unknown; structuredContent?: unknown }):
 
 /** What the model is told when a call needs the person's own account first. */
 export function accountMessage(s: Pick<McpServerRow, "name" | "auth_mode">, state: AccountState): string {
-  const how = "They can connect it in Account, under Connected services, and then ask you again";
+  const how = "They can connect it in Settings, under Connected services, and then ask you again";
   if (state === "missing") return `${s.name} acts with each person's own account, and this person hasn't connected theirs, so this didn't run. ${how}`;
   return `This person's ${s.auth_mode === "token" ? "token" : "sign-in"} for ${s.name} has stopped working (it ran out or was withdrawn), so this didn't run. ${how}`;
 }

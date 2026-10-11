@@ -17,7 +17,7 @@ export type MemoryState = {
   memories: { id: number; text: string; createdAt: string; chat: { id: string; title: string } | null }[];
 };
 
-/** What the AI remembers about you (/account/memory): on or off, each note, and adding or forgetting them. */
+/** What the AI remembers about you (/settings/memory): on or off, each note, and adding or forgetting them. */
 export function MemoryPage() {
   const [state, setState] = useState<MemoryState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +51,7 @@ export function MemoryPage() {
 
   return (
     <>
-      <PageHeader title="Memory" subtitle="What the AI keeps about you between chats" back={{ label: "Account", to: "/account" }} />
+      <PageHeader title="Memory" subtitle="What the AI keeps about you between chats" back={{ label: "Settings", to: "/settings" }} />
       <div className="oy-page-column page-body">
         {!state ? (
           error ? <Advisory>{error}</Advisory> : <Spinner />

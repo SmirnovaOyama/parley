@@ -19,7 +19,7 @@ export type PersonalInstructions = {
 
 const EMPTY: PersonalInstructions = { aboutMe: "", answerStyle: "" };
 
-/** What new chats start with: the persona the person picked for them (Account › Personas), if any. */
+/** What new chats start with: the persona the person picked for them (Settings › Personas), if any. */
 export function getInstructions(userId: number): PersonalInstructions {
   const row = db
     .prepare("SELECT p.about_me, p.answer_style FROM users u JOIN personas p ON p.id = u.persona_id WHERE u.id = ?")

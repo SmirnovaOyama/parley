@@ -1,5 +1,5 @@
 // Where each person is signed in: a session for each sign-in, with the browser it's used in, the
-// address it was last used from, and when. People see and end their own under Account, and admins
+// address it was last used from, and when. People see and end their own under Settings, and admins
 // see each person's, so an account passed around, or turned into a relay that hands the site's
 // keys to other apps, shows up as many devices, many networks, or a program instead of a browser.
 // Signing in on more devices than the site allows signs out the one used longest ago.

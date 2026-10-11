@@ -575,8 +575,8 @@ export function McpFormPage() {
                 onChange={setAuthMode}
                 options={[
                   { id: "shared", label: "One shared account", detail: "Everyone who can use it acts with the headers below" },
-                  { id: "oauth", label: "Each person signs in", detail: "On the server's own sign-in page, from Account, under Connected services" },
-                  { id: "token", label: "Each person adds a token", detail: "A token of their own, from Account, under Connected services" },
+                  { id: "oauth", label: "Each person signs in", detail: "On the server's own sign-in page, from Settings, under Connected services" },
+                  { id: "token", label: "Each person adds a token", detail: "A token of their own, from Settings, under Connected services" },
                 ]}
               />
               {authMode === "shared" && (
@@ -726,7 +726,7 @@ export function McpFormPage() {
               <div className="oy-group settings-group">
                 <p className="oy-overline">{server.people.length ? `${plural(server.people.length, "person", "people")} connected` : "People connected"}</p>
                 {server.people.length === 0 ? (
-                  <p className="group-empty">Nobody yet. People connect their own account under Account, in Connected services</p>
+                  <p className="group-empty">Nobody yet. People connect their own account under Settings, in Connected services</p>
                 ) : (
                   <div className="oy-section is-plain">
                     {server.people.map((p) => (

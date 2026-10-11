@@ -9,6 +9,7 @@ Claude's and OpenAI's keys now go only to api.anthropic.com and api.openai.com: 
 ### Added
 
 - Account is now Settings, with who's signed in at the top, Personas, memory and connected services together under Assistant, and Sign out at the foot. About shows Parley's version and links to its code on GitHub. Old /account addresses still arrive.
+- Two-step verification, under Settings: after the password, a six-digit code from an authenticator app (scan a QR code or type the key) or a passkey, and ten one-time recovery codes for a lost phone, shown once. Setting either up or removing it takes the password again. A reset link by email no longer signs in past it. Admins can turn it off for someone locked out, from their page under Admin → People.
 - Where you're signed in, under Settings: each browser or program signed in to your account, the address it was last used from and when, and a button to sign out any of them or every other one.
 - Admins see the same on each person's page under Admin → People, with how many networks this week's sign-ins came from, and can sign them out of one device or all of them. The People list marks someone signed in on three devices or more, or from a program rather than a browser. Signing someone out is written to the activity log.
 - `docker compose --profile tunnel up -d` runs a Cloudflare Tunnel next to Parley, with the tunnel's token in `.env` as `TUNNEL_TOKEN`. The README's "Running it for real" says what else to set for Cloudflare.

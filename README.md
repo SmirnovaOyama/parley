@@ -46,6 +46,7 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - Share a read-only link to a chat.
 - Reset a forgotten password with a link by email, when the site can send email, or ask an admin to set a new one.
 - See where you're signed in, and sign out any device.
+- Two-step verification: after your password, a six-digit code from an authenticator app or a passkey, with recovery codes for a lost phone.
 - Add it to your phone's home screen, or install it from a desktop browser, and it opens as an app of its own.
 
 **For admins**
@@ -192,6 +193,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 - Admins can point an "Another service" key at any address, and the server will connect to it. Only make people admins you trust with that.
 - Every other key goes only to its provider's own address. Claude's and OpenAI's ignore `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and the other settings those libraries would read from the environment, so nothing set there can send keys somewhere else.
 - People can't easily turn their account into a relay for the site's keys (a reverse proxy that other apps or people use through their sign-in). Anything that changes something through the API has to come from the site's pages in a browser, by its `Origin` header and `Sec-Fetch-Site` where the browser sends it. Each person can have three replies written at once and send 20 messages a minute and 200 an hour. Each account can be signed in on 5 devices unless you change it under Admin → Settings, and signing in on another signs out the one used longest ago. A determined script can pretend to be a browser, so admins also see, on each person's page, every device they're signed in on: the browser or program, the address it was last used from, and when. Many devices, many networks, or "Not a browser" is worth a look, and a spending limit caps what any of it can cost.
+- Two-step verification (Settings → Two-step verification): a code from an authenticator app (its secret encrypted like API keys, each code good once) or a passkey (WebAuthn, tied to the site's address, so set `PUBLIC_URL` before people add them and keep it), with ten one-time recovery codes, stored hashed. Adding or removing either takes the password again, a reset link by email doesn't get past it, and wrong codes count with failed sign-ins. An admin can turn it off for someone who's lost both phone and codes, which goes in the activity log.
 - Once the site can send email, a new account needs a code sent to its address (Admin → Settings → Sign-ups). Codes are random, work once for 10 minutes and 5 tries, are stored only as a keyed hash, and asking is limited by address and by network. The first account, which sets up the site, needs none.
 - Admins can see the address and browser each of a person's sign-ins was last used from, and people are told so where they see their own. They're deleted with the sign-in: when it's signed out, or runs out after 30 days unused.
 - Admins can read every chat. Parley tells everyone so on their account page, unless an admin turns that off under Admin → Settings → Privacy; every look is logged either way.

@@ -32,6 +32,55 @@ export const cleanMemory = (text: unknown) => String(text ?? "").replace(/\s+/g,
 export const keptMemory = (userId: number, text: string) =>
   db.prepare("SELECT * FROM memories WHERE user_id = ? AND lower(text) = lower(?)").get(userId, text) as MemoryRow | undefined;
 
+/** A note's words as compared for repeats: lower case, without spaces, punctuation or symbols. */
+const bareWords = (text: string) => [...text.toLowerCase().replace(/[\p{P}\p{S}\s]+/gu, "")];
+
+/**
+ * How alike two notes read, from 0 to 1: the share of their two-character pieces they have in
+ * common, or 1 when one holds the other whole. Works the same for Chinese and for English.
+ */
+export function likeness(a: string, b: string): number {
+  const x = bareWords(a), y = bareWords(b);
+  if (!x.length || !y.length) return 0;
+  const xs = x.join(""), ys = y.join("");
+  if (xs.includes(ys) || ys.includes(xs)) return 1;
+  const pairs = (chars: string[]) => new Set(chars.slice(1).map((c, i) => chars[i] + c));
+  const p = pairs(x), q = pairs(y);
+  let both = 0;
+  for (const pair of p) if (q.has(pair)) both++;
+  return p.size + q.size ? (2 * both) / (p.size + q.size) : 0;
+}
+
+/** Notes this alike or more may say the same thing. */
+const ALIKE = 0.55;
+/** Notes listed for the model to check against, at most. */
+const MAX_TO_CHECK = 30;
+
+/**
+ * The notes a new one may repeat, for the model to look over before it's kept: those that read
+ * alike, and those this chat's model hasn't seen, since a note in other words or another language
+ * can say the same thing. Unseen means not in the chat's system prompt as it is now: kept or edited
+ * since the chat began, in this chat or another. (A note saved earlier in this chat may not be in
+ * front of the model any more: some providers only get the replies' words back.)
+ */
+export function notesToCheck(userId: number, text: string, systemPrompt: string): { note: MemoryRow; unseen: boolean }[] {
+  return memoriesOf(userId)
+    .map((note) => ({ note, alike: likeness(text, note.text), unseen: !systemPrompt.includes(`\n[${note.id}] ${note.text}\n`) }))
+    .filter((n) => n.alike >= ALIKE || n.unseen)
+    .sort((a, b) => b.alike - a.alike || b.note.id - a.note.id)
+    .slice(0, MAX_TO_CHECK)
+    .map(({ note, unseen }) => ({ note, unseen }));
+}
+
+/** What the model is told when a note it wants to save may repeat one it has. */
+export function checkFirst(notes: { note: MemoryRow; unseen: boolean }[]): string {
+  return [
+    "Not saved yet. Make sure it doesn't repeat a note the person already has, even in other words or another language. These may say the same thing:",
+    ...notes.map(({ note, unseen }) => `[${note.id}] ${note.text}${unseen ? " (kept or changed after this chat began)" : ""}`),
+    "If one of them already says it, don't save it. If it corrects or adds to one, delete that note, then save the new one. If it's something new, save the same text again.",
+  ].join("\n");
+}
+
 /** A sentence for the model when this person's memory has no room for another note. */
 export function memoryFull(userId: number): string | null {
   const { n } = db.prepare("SELECT COUNT(*) AS n FROM memories WHERE user_id = ?").get(userId) as { n: number };

@@ -161,6 +161,7 @@ API（端口 8787）会同时提供 `dist/` 里构建好的网页。
 | `PORT` | API 端口（默认 8787）。 |
 | `SMTP_URL`、`MAIL_FROM` | 发信设置，重设密码的链接和邮箱奖励功能要用。 |
 | `PUBLIC_URL` | 大家访问 Parley 用的地址，比如 `https://chat.example.com`。重设密码的邮件里的链接指向这个地址，所以设了它才能通过邮件重设密码。在 MCP 服务的登录页登录之后，也会跳回这个地址；这种情况下不设的话，Parley 用浏览器里的地址，只有前面的代理改了地址时才需要设。 |
+| `TRUST_PROXY` | 只有当每个请求都经过一个会自己设置 `X-Forwarded-For` 的代理到达 Parley、而且这个代理从什么地址连过来都可能时（比如 Cloudflare Containers），才设为 `1`。设了之后，Parley 从这个头的最后一个地址读取访问者的地址。不设的话，只有同一台机器或内网里的代理发来的这个头才算数。 |
 | `TUNNEL_TOKEN` | 只给 `docker-compose.yml` 里的 Cloudflare Tunnel 用（见[正式使用时](#正式使用时)）：tunnel 的 token。Parley 本身不读它。 |
 | `ALLOW_FAKE_IP` | 只有当服务器经由给每个域名都返回 198.18.x.x 替身地址的代理上网时（Clash、Surge、sing-box 等的 fake-IP 模式），才设为 `1`。默认关闭：给其他模型联网用的网页阅读会拒绝这些地址，因为在这种代理后面，它没法确认域名真正指向哪里，指向内网的域名也会被读取。 |
 

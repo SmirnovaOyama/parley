@@ -161,6 +161,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 | `PORT` | The API's port (default 8787). |
 | `SMTP_URL`, `MAIL_FROM` | Outgoing email, for password reset links and the optional email rewards. |
 | `PUBLIC_URL` | The address people reach Parley at, like `https://chat.example.com`. Password reset emails link to it, so resetting a password by email works only once it's set. MCP servers people sign in to send them back here afterwards; for those, Parley otherwise uses the address in the browser, which is right unless a proxy in front changes it. |
+| `TRUST_PROXY` | Set to `1` only when every request reaches Parley through a proxy that sets `X-Forwarded-For` itself, from whatever address it connects (as on Cloudflare Containers). Parley then reads where people connect from in the header's last address. Without it, the header counts only from a proxy on the same machine or a private network. |
 | `TUNNEL_TOKEN` | Only for `docker-compose.yml`'s Cloudflare Tunnel (see [Running it for real](#running-it-for-real)): the tunnel's token. Parley itself doesn't read it. |
 | `ALLOW_FAKE_IP` | Set to `1` only if the server reaches the internet through a proxy that answers every name with a 198.18.x.x stand-in address (Clash, Surge, sing-box and the like in fake-IP mode). Off by default: the page reader for other models' web search refuses those addresses, because behind such a proxy it can't check where a name really leads, and a name that points inside the network would be read. |
 

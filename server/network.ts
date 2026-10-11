@@ -3,6 +3,7 @@
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { Context } from "hono";
 import { BlockList, isIPv4, isIPv6 } from "node:net";
+import { env } from "./env.ts";
 
 // Addresses a reverse proxy in front of the server connects from: this machine, or a private
 // network (Docker's, say).
@@ -22,7 +23,8 @@ function nearby(ip: string): boolean {
 /**
  * Where a request comes from: the address that connected or, when that's a proxy on this machine
  * or network, the one the proxy last added to X-Forwarded-For. Someone reaching the server
- * straight from the internet can't pick it.
+ * straight from the internet can't pick it. With TRUST_PROXY, every request is taken to have come
+ * through a proxy, whatever address it connected from.
  */
 export function clientAddress(c: Context): string {
   let remote = "";
@@ -31,7 +33,7 @@ export function clientAddress(c: Context): string {
   } catch {
     // No Node request under it (a test calling the app directly): where it's from is unknown.
   }
-  if (nearby(remote)) {
+  if (env.trustProxy || nearby(remote)) {
     const forwarded = c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim();
     if (forwarded) return forwarded;
   }

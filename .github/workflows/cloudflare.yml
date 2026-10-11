@@ -1,0 +1,95 @@
+name: Deploy to Cloudflare
+
+# Puts Parley on Cloudflare Containers (cloudflare/README.md). Run it from the Actions tab, picking
+# the branch or release tag to deploy. The images are built here, so nobody needs Docker on their
+# own machine. It reads, from the repository's settings: the variables CLOUDFLARE_ACCOUNT_ID and
+# PARLEY_DOMAIN (and, if you like, VITE_APP_NAME and MAIL_FROM), and the secrets CLOUDFLARE_API_TOKEN,
+# KEY_ENCRYPTION_SECRET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and, for email, SMTP_URL.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# One deploy at a time: a second container starting while the first still writes would split the
+# database's copy in R2.
+concurrency:
+  group: cloudflare
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check the settings it needs
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          PARLEY_DOMAIN: ${{ vars.PARLEY_DOMAIN }}
+          HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          HAS_SECRET: ${{ secrets.KEY_ENCRYPTION_SECRET != '' }}
+          HAS_R2_ID: ${{ secrets.R2_ACCESS_KEY_ID != '' }}
+          HAS_R2_SECRET: ${{ secrets.R2_SECRET_ACCESS_KEY != '' }}
+        run: |
+          missing=""
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing variable CLOUDFLARE_ACCOUNT_ID,"
+          [ -n "$PARLEY_DOMAIN" ] || missing="$missing variable PARLEY_DOMAIN,"
+          [ "$HAS_TOKEN" = true ] || missing="$missing secret CLOUDFLARE_API_TOKEN,"
+          [ "$HAS_SECRET" = true ] || missing="$missing secret KEY_ENCRYPTION_SECRET,"
+          [ "$HAS_R2_ID" = true ] || missing="$missing secret R2_ACCESS_KEY_ID,"
+          [ "$HAS_R2_SECRET" = true ] || missing="$missing secret R2_SECRET_ACCESS_KEY,"
+          if [ -n "$missing" ]; then
+            echo "::error::Add these in Settings, Secrets and variables, Actions:${missing%,}. See cloudflare/README.md"
+            exit 1
+          fi
+
+      - name: Build Parley's image
+        run: docker build -t parley:local .
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+
+      - name: Install wrangler
+        working-directory: cloudflare
+        run: npm ci
+
+      - name: Deploy
+        working-directory: cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          PARLEY_DOMAIN: ${{ vars.PARLEY_DOMAIN }}
+          VITE_APP_NAME: ${{ vars.VITE_APP_NAME }}
+          MAIL_FROM: ${{ vars.MAIL_FROM }}
+          KEY_ENCRYPTION_SECRET: ${{ secrets.KEY_ENCRYPTION_SECRET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          SMTP_URL: ${{ secrets.SMTP_URL }}
+        run: |
+          # The secrets go up with this version, from a file that's gone when the job ends.
+          secrets="$RUNNER_TEMP/secrets.json"
+          node -e '
+            const names = ["KEY_ENCRYPTION_SECRET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "SMTP_URL"];
+            const set = Object.fromEntries(names.filter((n) => process.env[n]).map((n) => [n, process.env[n]]));
+            require("node:fs").writeFileSync(process.argv[1], JSON.stringify(set), { mode: 0o600 });
+          ' "$secrets"
+          # The site's name and the sender of its emails, where they're set; wrangler.jsonc has defaults.
+          extra=()
+          if [ -n "$VITE_APP_NAME" ]; then extra+=(--var "VITE_APP_NAME:$VITE_APP_NAME"); fi
+          if [ -n "$MAIL_FROM" ]; then extra+=(--var "MAIL_FROM:$MAIL_FROM"); fi
+          npx wrangler deploy \
+            --domain "$PARLEY_DOMAIN" \
+            --var "PUBLIC_URL:https://$PARLEY_DOMAIN" \
+            --var "R2_ACCOUNT_ID:$CLOUDFLARE_ACCOUNT_ID" \
+            "${extra[@]}" \
+            --secrets-file "$secrets" \
+            --containers-rollout immediate
+          rm -f "$secrets"

@@ -161,6 +161,7 @@ API（端口 8787）会同时提供 `dist/` 里构建好的网页。
 | `PORT` | API 端口（默认 8787）。 |
 | `SMTP_URL`、`MAIL_FROM` | 发信设置，重设密码的链接和邮箱奖励功能要用。 |
 | `PUBLIC_URL` | 大家访问 Parley 用的地址，比如 `https://chat.example.com`。重设密码的邮件里的链接指向这个地址，所以设了它才能通过邮件重设密码。在 MCP 服务的登录页登录之后，也会跳回这个地址；这种情况下不设的话，Parley 用浏览器里的地址，只有前面的代理改了地址时才需要设。 |
+| `TRUST_PROXY` | 只有当每个请求都经过一个会自己设置 `X-Forwarded-For` 的代理到达 Parley、而且这个代理从什么地址连过来都可能时（比如 Cloudflare Containers，那里已经替你设好），才设为 `1`。设了之后，Parley 从这个头的最后一个地址读取访问者的地址。不设的话，只有同一台机器或内网里的代理发来的这个头才算数。 |
 | `TUNNEL_TOKEN` | 只给 `docker-compose.yml` 里的 Cloudflare Tunnel 用（见[正式使用时](#正式使用时)）：tunnel 的 token。Parley 本身不读它。 |
 | `ALLOW_FAKE_IP` | 只有当服务器经由给每个域名都返回 198.18.x.x 替身地址的代理上网时（Clash、Surge、sing-box 等的 fake-IP 模式），才设为 `1`。默认关闭：给其他模型联网用的网页阅读会拒绝这些地址，因为在这种代理后面，它没法确认域名真正指向哪里，指向内网的域名也会被读取。 |
 
@@ -180,6 +181,7 @@ API（端口 8787）会同时提供 `dist/` 里构建好的网页。
   - 不要开 Rocket Loader（Speed → Optimization）。它会改写页面里的脚本，被网站的 Content-Security-Policy 拦下，页面会一片空白。其他往页面里加脚本的功能，比如 Web Analytics 的自动安装，也会同样被拦下。
   - Cloudflare 的 Free 和 Pro 套餐上传最多 100 MB，更大的导出文件没法经 Cloudflare 导入。可以改为导入压缩包里的 `conversations.json`，或者通过服务器自己的地址导入。
   - 回复照常流式显示。回复的数据流每 20 秒发一行保活，模型安静思考时也不会被 Cloudflare 的 100 秒限制断开。
+- **在 Cloudflare 上运行，不要服务器**：Parley 也可以跑在 Cloudflare Container 里（需要 Workers Paid 套餐），数据库和文件存在 R2，用 GitHub Actions 部署。见 [cloudflare/README.zh-CN.md](cloudflare/README.zh-CN.md)。
 - **备份**：备份数据文件夹或数据卷，并把 `KEY_ENCRYPTION_SECRET` 一起保存好。没有这个密钥，备份里的 key 谁也解不开。运行中要复制数据库，可以用 `sqlite3 chat.db ".backup backup.db"`。
 - **升级**：用 Docker 的话见[版本和升级](#版本和升级)；从源码运行的话，`git pull` 后运行 `npm install && npm run build` 再重启。数据库会在启动时自动升级。
 

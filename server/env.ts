@@ -44,4 +44,9 @@ export const env = {
   mailFrom: process.env.MAIL_FROM?.trim() || null,
   /** The server reaches the web through a proxy that hands out 198.18.x.x addresses (server/web-tools.ts). */
   allowFakeIp: /^(1|true|yes|on)$/i.test(process.env.ALLOW_FAKE_IP?.trim() ?? ""),
+  /**
+   * Every request comes through a proxy that sets X-Forwarded-For itself, from wherever it connects
+   * (the Worker in front of Parley on Cloudflare Containers): its last address is the visitor's.
+   */
+  trustProxy: /^(1|true|yes|on)$/i.test(process.env.TRUST_PROXY?.trim() ?? ""),
 };

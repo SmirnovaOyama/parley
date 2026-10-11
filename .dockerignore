@@ -1,4 +1,6 @@
 node_modules
+cloudflare/node_modules
+cloudflare/.wrangler
 dist
 data
 design

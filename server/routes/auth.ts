@@ -10,6 +10,7 @@ import { clientAddress } from "../network.ts";
 import { DEAD_LINK, findReset, linkOrigin, RESEND_AFTER_S, sendResetLink, takeReset, tooSoon } from "../password-reset.ts";
 import { modelLabel } from "../providers/catalog.ts";
 import { endSessionByRef, sessionRef, sessionsOf } from "../sessions.ts";
+import { RESEND_AFTER_S as CODE_RESEND_S, sendSignupCode, SignupCodeError, signupNeedsCode, takeSignupCode } from "../signup-codes.ts";
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -48,7 +49,33 @@ function userCount(): number {
 }
 
 authRoutes.get("/state", (c) => {
-  return c.json({ needsSetup: userCount() === 0, allowSignup: getSettings().allowSignup, passwordReset: !!linkOrigin(c) });
+  const needsSetup = userCount() === 0;
+  return c.json({
+    needsSetup,
+    allowSignup: getSettings().allowSignup,
+    passwordReset: !!linkOrigin(c),
+    // Making an account takes a code emailed to it (server/signup-codes.ts); the first never does.
+    signupCode: !needsSetup && signupNeedsCode(),
+  });
+});
+
+/** Emails a code to the address an account is being made for, when making one takes a code. */
+authRoutes.post("/signup/code", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const email = String(body.email ?? "").trim().toLowerCase();
+  if (email.length > MAX_EMAIL || !EMAIL_RE.test(email)) return c.json({ error: "Enter a valid email address" }, 400);
+  if (userCount() === 0 || !signupNeedsCode()) return c.json({ error: "Making an account here takes no code" }, 400);
+  if (!getSettings().allowSignup) return c.json({ error: "Sign-ups are closed. Ask an admin for an account" }, 403);
+  if (db.prepare("SELECT 1 FROM users WHERE email = ?").get(email)) {
+    return c.json({ error: "An account with this email already exists" }, 409);
+  }
+  try {
+    await sendSignupCode(email, clientAddress(c));
+  } catch (err) {
+    if (err instanceof SignupCodeError) return c.json({ error: err.message }, err.status);
+    throw err;
+  }
+  return c.json({ ok: true, resendIn: CODE_RESEND_S, mail: mailMode });
 });
 
 authRoutes.post("/signup", async (c) => {
@@ -64,13 +91,27 @@ authRoutes.post("/signup", async (c) => {
   if (db.prepare("SELECT 1 FROM users WHERE email = ?").get(email)) {
     return c.json({ error: "An account with this email already exists" }, 409);
   }
+  const checked = !first && signupNeedsCode();
+  if (checked) {
+    try {
+      takeSignupCode(email, body.code);
+    } catch (err) {
+      if (err instanceof SignupCodeError) return c.json({ error: err.message, field: "code" }, err.status);
+      throw err;
+    }
+  }
 
+  const now = nowIso();
   const result = db
-    .prepare("INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)")
-    .run(email, await hashPassword(password), first ? "admin" : "user", nowIso());
-  startSession(c, Number(result.lastInsertRowid));
-  // An address on a rewarded domain is offered the (optional) check that earns the reward.
-  return c.json({ ok: true, bonusEligible: !first && mailMode !== "off" && !!rewardDomain(email) });
+    .prepare("INSERT INTO users (email, password_hash, role, created_at, email_verified_at) VALUES (?, ?, ?, ?, ?)")
+    .run(email, await hashPassword(password), first ? "admin" : "user", now, checked ? now : null);
+  const userId = Number(result.lastInsertRowid);
+  // An address checked on the way in that's on a rewarded domain has earned the reward already.
+  const rewarded = checked && !!rewardDomain(email) && !db.prepare("SELECT 1 FROM users WHERE lower(bonus_email) = ?").get(email);
+  if (rewarded) db.prepare("UPDATE users SET bonus_email = ?, bonus_verified_at = ? WHERE id = ?").run(email, now, userId);
+  startSession(c, userId);
+  // Otherwise such an address is offered the (optional) check that earns the reward.
+  return c.json({ ok: true, bonusEligible: !first && !rewarded && mailMode !== "off" && !!rewardDomain(email) });
 });
 
 authRoutes.post("/login", async (c) => {

@@ -202,6 +202,21 @@ CREATE TABLE IF NOT EXISTS email_codes (
 );
 `);
 
+// Codes that check a new account's address before it's made (server/signup-codes.ts): one per
+// address, hashed. email_verified_at is when an account's own address was checked that way.
+db.exec(`
+CREATE TABLE IF NOT EXISTS signup_codes (
+  email       TEXT PRIMARY KEY,
+  code_hash   TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  sent_at     TEXT NOT NULL,
+  day         TEXT NOT NULL,
+  sends_today INTEGER NOT NULL DEFAULT 0
+);
+`);
+addColumn("users", "email_verified_at", "TEXT");
+
 // Forgotten passwords: the link last emailed to each person (a newer one replaces it), kept as
 // the hash of its token. It's deleted when it's used or the password changes.
 db.exec(`
@@ -555,6 +570,11 @@ export const SHARING_MODES: readonly SharingMode[] = ["anyone", "signed-in", "of
 
 export type Settings = {
   allowSignup: boolean;
+  /**
+   * Whether a new account's address is checked with an emailed code before it's made; null leaves
+   * it to the site: on once it can send email (server/signup-codes.ts).
+   */
+  signupCode: boolean | null;
   systemPrompt: string;
   showThinking: boolean;
   sharing: SharingMode;
@@ -621,6 +641,7 @@ export function getSettings(): Settings {
   const map = new Map(rows.map((r) => [r.key, r.value]));
   return {
     allowSignup: map.get("allowSignup") !== "false",
+    signupCode: map.get("signupCode") === "true" ? true : map.get("signupCode") === "false" ? false : null,
     systemPrompt: map.get("systemPrompt") ?? DEFAULT_SYSTEM_PROMPT,
     showThinking: map.get("showThinking") !== "false",
     sharing: SHARING_MODES.find((m) => m === map.get("sharing")) ?? "anyone",
@@ -654,6 +675,7 @@ export function saveSettings(next: Partial<Settings>) {
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   );
   if (next.allowSignup !== undefined) put.run("allowSignup", String(next.allowSignup));
+  if (next.signupCode !== undefined) put.run("signupCode", next.signupCode == null ? "" : String(next.signupCode));
   if (next.systemPrompt !== undefined) put.run("systemPrompt", next.systemPrompt);
   if (next.showThinking !== undefined) put.run("showThinking", String(next.showThinking));
   if (next.sharing !== undefined) put.run("sharing", next.sharing);

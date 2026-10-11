@@ -2,9 +2,12 @@
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** The form field the problem is with, where the server says (like "code"). */
+  field: string | null;
+  constructor(status: number, message: string, field: string | null = null) {
     super(message);
     this.status = status;
+    this.field = field;
   }
 }
 
@@ -16,7 +19,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     credentials: "same-origin",
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? "Something went wrong. Try again");
+  if (!res.ok) throw new ApiError(res.status, data.error ?? "Something went wrong. Try again", typeof data.field === "string" ? data.field : null);
   return data as T;
 }
 

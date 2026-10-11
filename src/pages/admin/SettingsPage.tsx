@@ -12,6 +12,8 @@ import type { ApiKey } from "./KeysPage.tsx";
 
 type Settings = {
   allowSignup: boolean;
+  /** Null leaves it to the site: on once it can send email. */
+  signupCode: boolean | null;
   systemPrompt: string;
   showThinking: boolean;
   sharing: SharingMode;
@@ -88,6 +90,21 @@ export function SettingsPage() {
               <div className="desc">When it's off, only admins can add people</div>
             </div>
             <Switch id="allow-signup" checked={settings.allowSignup} onChange={(v) => void update({ allowSignup: v })} />
+          </div>
+          <div className="oy-row">
+            <Icon name="mail" size={20} />
+            <div className="text">
+              <label className="title" htmlFor="signup-code">
+                Check new addresses with a code
+              </label>
+              <div className="desc">{SIGNUP_CODE_NOTE[mail]}</div>
+            </div>
+            <Switch
+              id="signup-code"
+              checked={mail !== "off" && (settings.signupCode ?? mail === "smtp")}
+              disabled={mail === "off"}
+              onChange={(v) => void update({ signupCode: v })}
+            />
           </div>
         </div>
       </div>
@@ -355,6 +372,12 @@ function SpendingForm({ saved, onSave }: { saved: number | null; onSave: (limit:
     </div>
   );
 }
+
+const SIGNUP_CODE_NOTE: Record<MailMode, string> = {
+  smtp: "Before an account is made, a code goes to its address and has to be typed in, so nobody signs up with an address that isn't theirs",
+  dev: "Before an account is made, a code goes to its address. No email server is set up, so codes are printed in the server log",
+  off: "Needs email, which isn't set up yet: set SMTP_URL in the server's environment",
+};
 
 const MAIL_NOTE: Record<MailMode, string> = {
   smtp: "Codes go out by email through the server set in SMTP_URL",

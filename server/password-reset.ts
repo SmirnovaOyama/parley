@@ -41,7 +41,7 @@ if (mailMode === "smtp" && !env.publicUrl) {
  * passed are cleared when the list gets long, and it never holds more than MAX_TRACKED (the ones
  * quiet longest go first).
  */
-function recent(windowMs: number) {
+export function recent(windowMs: number) {
   const times = new Map<string, number[]>();
   const of = (key: string, now: number) => (times.get(key) ?? []).filter((t) => t > now - windowMs);
   const note = (key: string, now: number) => {

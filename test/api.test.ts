@@ -128,6 +128,18 @@ async function resetToken(email: string, from: number): Promise<string> {
   throw new Error(`No reset link was sent to ${email}:\n${server.log().slice(from)}`);
 }
 
+/** The code in the last sign-up email to `email` since the server's log was `from` long. */
+async function mailedCode(email: string, from: number): Promise<string> {
+  const until = Date.now() + 5000;
+  while (Date.now() < until) {
+    const sent = server.log().slice(from).split("[mail] to ").filter((mail) => mail.startsWith(`${email}:`));
+    const code = sent.at(-1)?.match(/code: (\d{6})/)?.[1];
+    if (code) return code;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`No code was sent to ${email}:\n${server.log().slice(from)}`);
+}
+
 /** Changes the database under the server, as time passing would. */
 function writeDatabase(sql: string, ...params: (string | number)[]) {
   const db = new DatabaseSync(DATABASE_PATH, { timeout: 5000 });
@@ -258,7 +270,7 @@ describe("api", () => {
   });
 
   test("the first account becomes the admin", async () => {
-    assert.deepEqual((await admin.json("GET", "/api/auth/state")).body, { needsSetup: true, allowSignup: true, passwordReset: true });
+    assert.deepEqual((await admin.json("GET", "/api/auth/state")).body, { needsSetup: true, allowSignup: true, passwordReset: true, signupCode: false });
     const signup = await admin.json("POST", "/api/auth/signup", { email: "Admin@Example.com", password: "correct horse" });
     assert.equal(signup.status, 200);
     assert.ok(admin.cookie, "signing up starts a session");
@@ -981,6 +993,44 @@ describe("api", () => {
     const me = (await admin.json("GET", "/api/auth/me")).body.user;
     assert.deepEqual(await admin.json("DELETE", `/api/admin/users/${me.id}/sessions`), { status: 400, body: { error: "Sign out your own devices under Account" } });
     assert.equal((await member.json("GET", `/api/admin/users/${person.id}/sessions`)).status, 403);
+  });
+
+  test("with codes on, an account is made only with the code emailed to its address", async () => {
+    // Off unless an admin turns it on while email only goes to the server's log.
+    assert.equal((await new Visitor().json("GET", "/api/auth/state")).body.signupCode, false);
+    assert.equal((await admin.json("PATCH", "/api/admin/settings", { signupCode: true })).body.settings.signupCode, true);
+    const email = "coded@example.com";
+    const password = "coded password";
+    const v = new Visitor();
+    assert.equal((await v.json("GET", "/api/auth/state")).body.signupCode, true);
+    assert.deepEqual(await v.json("POST", "/api/auth/signup", { email, password }), { status: 400, body: { error: "Send yourself a code first", field: "code" } });
+
+    const from = server.log().length;
+    assert.deepEqual(await v.json("POST", "/api/auth/signup/code", { email }), { status: 200, body: { ok: true, resendIn: 60, mail: "dev" } });
+    const code = await mailedCode(email, from);
+    assert.match((await v.json("POST", "/api/auth/signup/code", { email })).body.error, /^Wait \d+ seconds before asking for another code$/);
+    const wrong = code === "000000" ? "111111" : "000000";
+    assert.deepEqual(await v.json("POST", "/api/auth/signup", { email, password, code: wrong }), {
+      status: 400,
+      body: { error: "That code isn't right. 4 tries left", field: "code" },
+    });
+    assert.equal((await v.json("POST", "/api/auth/signup", { email, password, code })).status, 200);
+    assert.equal((await v.json("GET", "/api/auth/me")).body.user.email, email);
+    const db = new DatabaseSync(DATABASE_PATH, { readOnly: true });
+    try {
+      assert.ok((db.prepare("SELECT email_verified_at FROM users WHERE email = ?").get(email) as { email_verified_at: string | null }).email_verified_at);
+      assert.equal(db.prepare("SELECT 1 FROM signup_codes WHERE email = ?").get(email), undefined, "the code is used up");
+    } finally {
+      db.close();
+    }
+
+    // An address that already has an account gets no code.
+    assert.deepEqual(await new Visitor().json("POST", "/api/auth/signup/code", { email: "member@example.com" }), {
+      status: 409,
+      body: { error: "An account with this email already exists" },
+    });
+    assert.equal((await admin.json("PATCH", "/api/admin/settings", { signupCode: null })).body.settings.signupCode, null);
+    assert.equal((await new Visitor().json("POST", "/api/auth/signup/code", { email: "later@example.com" })).status, 400);
   });
 
   // Last: lowering the limit signs the admin out of their other sign-ins too.

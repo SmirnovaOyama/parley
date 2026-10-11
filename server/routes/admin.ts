@@ -959,6 +959,7 @@ adminRoutes.patch("/settings", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const next: Partial<Settings> = {};
   if (body.allowSignup !== undefined) next.allowSignup = !!body.allowSignup;
+  if (body.signupCode !== undefined) next.signupCode = body.signupCode === null ? null : !!body.signupCode;
   if (body.sharing !== undefined) {
     const mode = SHARING_MODES.find((m) => m === body.sharing);
     if (!mode) return c.json({ error: "Choose who can open shared links" }, 400);

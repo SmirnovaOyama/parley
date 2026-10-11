@@ -9,9 +9,9 @@ import { api, ApiError } from "../lib/api.ts";
 import { APP_NAME } from "../lib/brand.ts";
 import { useSession } from "../lib/session.tsx";
 
-/** passwordReset: the server can email a link to set a new password. */
-type AuthState = { needsSetup: boolean; allowSignup: boolean; passwordReset: boolean };
-const CLOSED: AuthState = { needsSetup: false, allowSignup: false, passwordReset: false };
+/** passwordReset: the server can email a link to set a new password. signupCode: making an account takes a code emailed to it. */
+type AuthState = { needsSetup: boolean; allowSignup: boolean; passwordReset: boolean; signupCode: boolean };
+const CLOSED: AuthState = { needsSetup: false, allowSignup: false, passwordReset: false, signupCode: false };
 
 function useAuthState(): AuthState | null {
   const [state, setState] = useState<AuthState | null>(null);
@@ -35,8 +35,20 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const state = useAuthState();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // Making an account can take a code emailed to it: where it went, and what was typed.
+  const [sent, setSent] = useState<{ to: string; inLog: boolean } | null>(null);
+  const [code, setCode] = useState("");
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [error, setError] = useState<{ text: string; field: "password" | "code" } | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // The "Send again" countdown.
+  useEffect(() => {
+    if (!sent || resendAt <= Date.now()) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [sent, resendAt]);
 
   if (!loading && user) return <Navigate to={next ?? "/chat"} replace />;
   if (!state) return <Booting />;
@@ -52,13 +64,35 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
       </AuthFrame>
     );
   }
+  const needsCode = signup && state.signupCode;
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const sendCode = async () => {
+    // Checked here too, so a code isn't spent on a password the next step turns away.
+    if (password.length < 8) {
+      setError({ text: "Use at least 8 characters for the password", field: "password" });
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const r = await api.post<{ bonusEligible?: boolean }>(signup ? "/auth/signup" : "/auth/login", { email, password });
+      const r = await api.post<{ resendIn: number; mail: "smtp" | "dev" }>("/auth/signup/code", { email });
+      setSent({ to: email.trim(), inLog: r.mail === "dev" });
+      setResendAt(Date.now() + r.resendIn * 1000);
+      setNow(Date.now());
+    } catch (err) {
+      setError({ text: (err as Error).message, field: sent ? "code" : "password" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (needsCode && !sent) return void sendCode();
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ bonusEligible?: boolean }>(signup ? "/auth/signup" : "/auth/login", { email, password, ...(needsCode ? { code } : {}) });
       await refreshUser();
       // A brand-new site can't chat until it has a key, so its first admin goes there first. An
       // address on a rewarded domain is offered the (skippable) check that earns the reward.
@@ -66,13 +100,14 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
       else if (r.bonusEligible) navigate(`/account/bonus?from=signup&email=${encodeURIComponent(email.trim())}`, { replace: true });
       else navigate(next ?? "/chat", { replace: true });
     } catch (err) {
-      setError((err as Error).message);
+      setError({ text: (err as Error).message, field: err instanceof ApiError && err.field === "code" ? "code" : "password" });
     } finally {
       setBusy(false);
     }
   };
 
   const title = state.needsSetup ? "Set up your chat site" : signup ? "Create an account" : "Sign in";
+  const wait = Math.max(0, Math.ceil((resendAt - now) / 1000));
 
   return (
     <AuthFrame title={title}>
@@ -86,7 +121,14 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
           type="email"
           autoComplete="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            // A code is for the address it went to: another one needs its own.
+            if (sent) {
+              setSent(null);
+              setCode("");
+            }
+          }}
           required
         />
         <LineField
@@ -97,12 +139,50 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           hint={signup ? "At least 8 characters" : undefined}
-          error={error}
+          error={error?.field === "password" ? error.text : null}
           required
         />
-        <BusyButton className="btn-primary btn-block" type="submit" busy={busy} disabled={!email || !password}>
-          {signup ? "Create account" : "Sign in"}
+        {needsCode && sent && (
+          <>
+            <p className="auth-sent">
+              <Icon name="mail" size={18} />
+              <span>
+                We've emailed a code to <strong>{sent.to}</strong>. It works for 10 minutes
+                {sent.inLog && " (no email server is set up, so it's in the server log)"}
+              </span>
+            </p>
+            <LineField
+              id="code"
+              label="Code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/[^\d]/g, "").slice(0, 6))}
+              error={error?.field === "code" ? error.text : null}
+              required
+            />
+          </>
+        )}
+        <BusyButton
+          className="btn-primary btn-block"
+          type="submit"
+          busy={busy}
+          disabled={!email || !password || (needsCode && !!sent && code.length < 6)}
+        >
+          {needsCode && !sent ? "Send code" : signup ? "Create account" : "Sign in"}
         </BusyButton>
+        {needsCode && sent && (
+          <button type="button" className="btn-ghost btn-block" disabled={busy || wait > 0} onClick={() => void sendCode()}>
+            {/* As wide as its longest wording all along, so the countdown never moves it. */}
+            <span className="swap tabular">
+              <span className="reserve" aria-hidden="true">
+                Send again in 00s
+              </span>
+              <span>{wait > 0 ? `Send again in ${wait}s` : "Send again"}</span>
+            </span>
+          </button>
+        )}
       </form>
       {!state.needsSetup && (
         <div className="auth-links text-muted">

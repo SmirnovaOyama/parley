@@ -6,7 +6,7 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { Agent, setGlobalDispatcher } from "undici";
 import { sameOriginGuard, sessionMiddleware, type AppEnv } from "./auth.ts";
-import { langMiddleware, t } from "./i18n.ts";
+import { inLang, langMiddleware, t } from "./i18n.ts";
 import { clearStaleUploads } from "./attachments.ts";
 import { db } from "./db.ts";
 import { env } from "./env.ts";
@@ -108,23 +108,26 @@ app.all("/api/*", (c) => c.json({ error: t("Not found") }, 404));
 app.get("/manifest.webmanifest", (c) => {
   const icon = (src: string, size: number, purpose?: string) => ({ src, sizes: `${size}x${size}`, type: "image/png", ...(purpose ? { purpose } : {}) });
   c.header("Cache-Control", "no-cache");
-  return c.body(
+  c.header("Vary", "Accept-Language");
+  // Fetched by the browser itself, without the page's X-Parley-Lang: its own language decides.
+  const language = /^zh\b/i.test(c.req.header("accept-language") ?? "") ? "zh" : "en";
+  return inLang(language, () => c.body(
     JSON.stringify({
       id: "/",
       name: env.appName,
       short_name: env.appName,
-      description: "Chat with AI models",
+      description: t("Chat with AI models"),
       start_url: "/",
       scope: "/",
       display: "standalone",
       background_color: "#ffffff",
       theme_color: "#ffffff",
       icons: [icon("/icon-192.png", 192), icon("/icon-512.png", 512), icon("/icon-maskable-512.png", 512, "maskable")],
-      shortcuts: [{ name: "New chat", url: "/chat", icons: [icon("/icon-192.png", 192)] }],
+      shortcuts: [{ name: t("New chat"), url: "/chat", icons: [icon("/icon-192.png", 192)] }],
     }),
     200,
     { "Content-Type": "application/manifest+json; charset=utf-8" },
-  );
+  ));
 });
 
 // In production the API also serves the built app; any other path falls back to index.html. The

@@ -8,7 +8,7 @@ import { Icon, type IconName } from "../../icons/Icon.tsx";
 import { api, type SharingMode } from "../../lib/api.ts";
 import { AUDIT_ACTIONS } from "../../lib/audit.ts";
 import { compactNumber, formatCost, formatNumber, plural, shortDate } from "../../lib/format.ts";
-import { LOCALE, t } from "../../lib/i18n.ts";
+import { LANG, LOCALE, t } from "../../lib/i18n.ts";
 
 type Overview = {
   spend: { cost: number; replies: number; monthStart: string };
@@ -130,7 +130,7 @@ export function OverviewPage() {
                   <span className="chip-quiet">{plural(m.modelCount, "model", "models")}</span>
                   <span className="chip-quiet">
                     {t("Starts on {replace}", { replace: m.modelLabel.replace(/^Claude /, "") })}
-                    {m.effortLabel !== "Default" && `, ${m.effortLabel.toLowerCase()}`}
+                    {m.effortLabel !== t("Default") && `${LANG === "zh" ? "，" : ", "}${m.effortLabel.toLowerCase()}`}
                   </span>
                   {m.webSearch && <span className="chip-quiet">{t("Web search")}</span>}
                   <span className="chip-quiet">{m.everyone ? t("Everyone") : plural(m.granted, "person", "people")}</span>

@@ -344,6 +344,25 @@ describe("api", () => {
     assert.equal((await new Visitor().json("POST", "/api/auth/login", { email, password: "second password" })).status, 200);
   });
 
+  test("a page in Chinese gets the server's messages and emails in Chinese, and one without the header English", async () => {
+    const email = "bilingual@example.com";
+    assert.equal((await new Visitor().json("POST", "/api/auth/signup", { email, password: "first password" })).status, 200);
+    const chinese = new Visitor({ "x-parley-lang": "zh" });
+    assert.deepEqual(await chinese.json("POST", "/api/auth/login", { email, password: "wrong password" }), {
+      status: 401,
+      body: { error: "邮箱和密码不匹配" },
+    });
+    assert.deepEqual(await new Visitor().json("POST", "/api/auth/login", { email, password: "wrong password" }), {
+      status: 401,
+      body: { error: "That email and password don't match" },
+    });
+
+    const from = server.log().length;
+    assert.equal((await chinese.request("POST", "/api/auth/forgot", { email }, { "x-forwarded-for": "203.0.113.9" })).status, 200);
+    await resetToken(email, from);
+    assert.match(server.log().slice(from), new RegExp(`\\[mail\\] to ${email}: 重置你的 Parley 密码`));
+  });
+
   test("a reset link stops working when it expires, a newer one is sent, or the password changes", async () => {
     const email = "twice@example.com";
     const owner = new Visitor();

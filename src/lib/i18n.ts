@@ -91,3 +91,6 @@ const orList = new Intl.ListFormat(LIST_LOCALE, { type: "disjunction" });
 export const andText = (items: string[]) => andList.format(items);
 /** "a, b or c" or "a、b或c". */
 export const orText = (items: string[]) => orList.format(items);
+
+/** Sentences one after another: "One. Two" or "一。二". */
+export const sentences = (parts: string[]) => parts.join(LANG === "zh" ? "。" : ". ");

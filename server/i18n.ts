@@ -37,5 +37,7 @@ export function tn(count: number, one: string, many: string, vars?: Vars): strin
 export const andText = (items: string[]) => new Intl.ListFormat(lang() === "zh" ? "zh-CN" : "en-GB", { type: "conjunction" }).format(items);
 /** "a, b or c" or "a、b或c". */
 export const orText = (items: string[]) => new Intl.ListFormat(lang() === "zh" ? "zh-CN" : "en-GB", { type: "disjunction" }).format(items);
+/** Sentences one after another: "One. Two" or "一。二". */
+export const sentences = (parts: string[]) => parts.join(lang() === "zh" ? "。" : ". ");
 /** For Intl's dates and numbers. */
 export const locale = () => (lang() === "zh" ? "zh-CN" : "en-GB");

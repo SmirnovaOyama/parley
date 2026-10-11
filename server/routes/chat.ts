@@ -23,7 +23,7 @@ import { allowanceOf, overLimitMessage } from "../allowance.ts";
 import { searchChats } from "../chat-search.ts";
 import { decryptSecret } from "../crypto.ts";
 import { db, getSettings, nowIso } from "../db.ts";
-import { t, tn } from "../i18n.ts";
+import { sentences, t, tn } from "../i18n.ts";
 import { availableKeys, endpointOf, keyById, keyModel, keyModelLabel, opensOf, pickerChoices, startingKey, withChoice, type KeyRow } from "../keys.ts";
 import { estimateCost, hasTools, PROVIDERS } from "../providers/catalog.ts";
 import { describeProviderError, getProvider, shouldUseBackup } from "../providers/index.ts";
@@ -709,7 +709,7 @@ chatRoutes.post("/chat", async (c) => {
       partial,
       result,
       failure,
-      note: notes.join(". ") || null,
+      note: sentences(notes) || null,
       thinking: thought.trim() || null,
       thinkingMs: thought.trim() ? thinkingMs : null,
       tools: kit.uses,
@@ -722,9 +722,11 @@ chatRoutes.post("/chat", async (c) => {
       const kept = await keepFiles(used.provider, decryptSecret(used.encrypted_key), result.fileIds, saved.id, convId);
       saved.files = kept.files;
       if (kept.failed) {
-        const note = [saved.note, tn(kept.failed, "A file it made couldn't be saved", "{failed} files it made couldn't be saved", { failed: kept.failed })]
-          .filter(Boolean)
-          .join(". ");
+        const note = sentences(
+          [saved.note, tn(kept.failed, "A file it made couldn't be saved", "{failed} files it made couldn't be saved", { failed: kept.failed })].filter(
+            (s): s is string => !!s,
+          ),
+        );
         db.prepare("UPDATE messages SET note = ? WHERE id = ?").run(note, saved.id);
         saved.note = note;
       }

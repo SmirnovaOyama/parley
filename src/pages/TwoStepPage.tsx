@@ -125,7 +125,7 @@ function AuthenticatorGroup({ state, onChange }: GroupProps) {
         <div className="oy-row">
           <Icon name="shield" size={20} />
           <div className="text">
-            <p className="title">{state.totp ? t("Set up") : t("Not set up")}</p>
+            <p className="title">{state.totp ? t("In use") : t("Not set up")}</p>
             <div className="desc">
               {state.totp
                 ? t("Signing in asks for the six-digit code it shows")

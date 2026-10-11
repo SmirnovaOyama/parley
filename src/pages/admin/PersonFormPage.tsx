@@ -10,7 +10,7 @@ import { PageHeader } from "../../components/PageHeader.tsx";
 import { SlideLink } from "../../components/SlideLink.tsx";
 import { api, type Device } from "../../lib/api.ts";
 import { amountInput, amountText, formatCost, plural } from "../../lib/format.ts";
-import { andText, t, tn } from "../../lib/i18n.ts";
+import { andText, sentences, t, tn } from "../../lib/i18n.ts";
 import { useSession } from "../../lib/session.tsx";
 import { useSlideNavigate } from "../../lib/slide.ts";
 import type { ApiKey } from "./KeysPage.tsx";
@@ -442,7 +442,7 @@ function spreadText(d: Spread): string {
       ),
     );
   }
-  return parts.join(". ");
+  return sentences(parts);
 }
 
 /**

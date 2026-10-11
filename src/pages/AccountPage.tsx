@@ -7,7 +7,7 @@ import { Icon } from "../icons/Icon.tsx";
 import { api, uploadRaw, type Connection, type Device, type Persona, type Policy, type TwoStep } from "../lib/api.ts";
 import { domainsText, rewardText, type BonusStatus } from "../lib/bonus.ts";
 import { compactNumber, formatCost, formatNumber, shortDate } from "../lib/format.ts";
-import { andText, LANG_CHOICE, setLang, t, tn } from "../lib/i18n.ts";
+import { andText, LANG_CHOICE, sentences, setLang, t, tn } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
 import { devicesText } from "./DevicesPage.tsx";
 import { twoStepText } from "./TwoStepPage.tsx";
@@ -313,7 +313,7 @@ function retentionText(p: Policy): string {
       }),
     );
   }
-  return parts.join(". ");
+  return sentences(parts);
 }
 
 /** Taking everything away as a file, and bringing chats in from Parley, ChatGPT or Claude. */

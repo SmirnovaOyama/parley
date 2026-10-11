@@ -15,6 +15,9 @@ import { chatSetting, MAX_PROJECT_INSTRUCTIONS, MAX_PROJECTS, ownProject, type P
 import { codeOnSite, searchOnSite, toolsForNewChat } from "./tools.ts";
 import { isZip, readZip } from "./zip.ts";
 
+/** What's wrong with a file brought in, said to the person who brought it (routes/me.ts shows it). */
+export class ImportError extends Error {}
+
 export const EXPORT_FORMAT = "parley-export";
 const MAX_CHATS = 5000;
 const MAX_TEXT = 500_000;
@@ -264,18 +267,18 @@ function readUpload(bytes: Buffer): unknown {
   if (isZip(bytes)) {
     const entries = readZip(bytes);
     const entry = entries?.find((e) => /(^|\/)conversations\.json$/i.test(e.name)) ?? entries?.find((e) => /\.json$/i.test(e.name));
-    if (!entry) throw new Error(t("There's no conversations.json in that archive"));
-    if (entry.size > MAX_IMPORT_BYTES) throw new Error(t("That export is over {MAX_IMPORT_BYTES} MB unpacked", { MAX_IMPORT_BYTES: MAX_IMPORT_BYTES / (1024 * 1024) }));
+    if (!entry) throw new ImportError(t("There's no conversations.json in that archive"));
+    if (entry.size > MAX_IMPORT_BYTES) throw new ImportError(t("That export is over {MAX_IMPORT_BYTES} MB unpacked", { MAX_IMPORT_BYTES: MAX_IMPORT_BYTES / (1024 * 1024) }));
     try {
       json = entry.read(MAX_IMPORT_BYTES);
     } catch {
-      throw new Error(t("That archive is damaged. Download the export again"));
+      throw new ImportError(t("That archive is damaged. Download the export again"));
     }
   }
   try {
     return JSON.parse(json.toString("utf8").replace(/^﻿/, ""));
   } catch {
-    throw new Error(t("That file isn't an export this can read. Use a Parley export, or conversations.json from ChatGPT or Claude"));
+    throw new ImportError(t("That file isn't an export this can read. Use a Parley export, or conversations.json from ChatGPT or Claude"));
   }
 }
 
@@ -300,9 +303,9 @@ export function importFor(userId: number, bytes: Buffer): ImportResult {
     source = "claude";
     chats = data.map((c) => fromClaude(c as Record<string, unknown>, now)).filter((c): c is IncomingChat => !!c);
   } else {
-    throw new Error(t("That file isn't an export this can read. Use a Parley export, or conversations.json from ChatGPT or Claude"));
+    throw new ImportError(t("That file isn't an export this can read. Use a Parley export, or conversations.json from ChatGPT or Claude"));
   }
-  if (chats.length > MAX_CHATS) throw new Error(t("An import can bring in up to {MAX_CHATS} chats at a time", { MAX_CHATS }));
+  if (chats.length > MAX_CHATS) throw new ImportError(t("An import can bring in up to {MAX_CHATS} chats at a time", { MAX_CHATS }));
 
   // Every imported chat starts the way a new one would, with the person's defaults today.
   const personal = getInstructions(userId);

@@ -107,10 +107,11 @@ const parseFallback = (v: unknown) => (v === null || v === undefined || v === ""
 
 adminRoutes.get("/catalog", (c) =>
   c.json({
+    // The catalog's words are in the page's language here, per request; names stay as they are.
     providers: PROVIDERS.map((p) => ({
       id: p.id,
-      label: p.label,
-      detail: p.detail,
+      label: t(p.label),
+      detail: p.detail && t(p.detail),
       features: featuresOf(p),
       custom: !!p.custom,
       reads: p.reads,
@@ -119,14 +120,14 @@ adminRoutes.get("/catalog", (c) =>
         id: m.id,
         label: m.label,
         defaultEffort: m.defaultEffort,
-        efforts: m.efforts.map((e) => ({ id: e, label: EFFORT_LABELS[e] ?? e })),
+        efforts: m.efforts.map((e) => ({ id: e, label: t(EFFORT_LABELS[e] ?? e) })),
         // Left unticked on a new key; the price per million tokens, in and out, tells why.
         offByDefault: OFF_BY_DEFAULT.has(m.id),
         price: { input: m.input, output: m.output },
       })),
     })),
     // Starting points for another service's address.
-    services: SERVICES,
+    services: SERVICES.map((s) => ({ ...s, label: t(s.label) })),
   }),
 );
 
@@ -158,7 +159,7 @@ adminRoutes.get("/keys", (c) => {
       model: k.model,
       modelLabel: keyModelLabel(k, k.model),
       effort: k.effort,
-      effortLabel: EFFORT_LABELS[k.effort] ?? k.effort,
+      effortLabel: t(EFFORT_LABELS[k.effort] ?? k.effort),
       last4: k.last4,
       endpoint: endpointOf(k),
       isDefault: !!k.is_default,
@@ -861,7 +862,7 @@ adminRoutes.get("/overview", (c) => {
       modelLabel: keyModelLabel(k, k.model),
       providerLabel: providerLabelOf(k),
       modelCount: allowedModels(k).length,
-      effortLabel: EFFORT_LABELS[k.effort] ?? k.effort,
+      effortLabel: t(EFFORT_LABELS[k.effort] ?? k.effort),
       isDefault: !!k.is_default,
       everyone: !!k.shared || !!k.is_default,
       granted: k.granted,

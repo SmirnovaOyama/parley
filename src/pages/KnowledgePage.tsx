@@ -10,14 +10,14 @@ import { SlideLink } from "../components/SlideLink.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import { api, uploadRaw, type KnowledgeBase, type KnowledgeDoc } from "../lib/api.ts";
 import { atOrOn, fileSize, formatNumber, plural, shortDate } from "../lib/format.ts";
-import { t, tn } from "../lib/i18n.ts";
+import { sentences, t, tn } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
 import { useSlideNavigate } from "../lib/slide.ts";
 
 /** What a knowledge base holds, as a sentence for its row. */
 function baseDesc(k: KnowledgeBase): string {
   const docs = k.docs ? tn(k.docs, "{docs} document, {bytes} in all", "{docs} documents, {bytes} in all", { docs: formatNumber(k.docs), bytes: fileSize(k.bytes) }) : t("No documents yet");
-  return k.description ? `${k.description}. ${docs}` : docs;
+  return k.description ? sentences([k.description, docs]) : docs;
 }
 
 /** Every knowledge base you can use (/knowledge): your own, and the ones admins share with everyone. */

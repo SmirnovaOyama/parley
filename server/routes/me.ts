@@ -5,8 +5,8 @@ import { bodyLimit } from "hono/body-limit";
 import { requireUser, type AppEnv } from "../auth.ts";
 import { db, getSettings, nowIso } from "../db.ts";
 import { t } from "../i18n.ts";
-import { cleanMemory, deleteMemory, memoriesOf, memoryOn, saveMemory } from "../memory.ts";
-import { exportFor, importFor, MAX_IMPORT_BYTES } from "../transfer.ts";
+import { cleanMemory, deleteMemory, memoriesOf, memoryLimit, memoryOn, saveMemory } from "../memory.ts";
+import { exportFor, importFor, ImportError, MAX_IMPORT_BYTES } from "../transfer.ts";
 
 export const meRoutes = new Hono<AppEnv>();
 meRoutes.use("*", requireUser);
@@ -42,7 +42,8 @@ meRoutes.post("/memory", async (c) => {
   const text = cleanMemory((await c.req.json().catch(() => ({}))).text);
   if (!text) return c.json({ error: t("Write something to remember") }, 400);
   const saved = saveMemory(userId, text, null);
-  if ("error" in saved) return c.json(saved, 400);
+  // The model's sentence for this asks it to ask the person; the person is told what to do.
+  if ("error" in saved) return c.json({ error: t("Memory is full ({max} notes). Delete some to make room", { max: memoryLimit(userId) }) }, 400);
   return c.json(memoryState(userId));
 });
 
@@ -89,9 +90,8 @@ meRoutes.put(
     try {
       return c.json(importFor(c.var.user!.id, bytes));
     } catch (err) {
-      const message = err instanceof Error ? err.message : "";
       console.error("[import] failed:", err);
-      return c.json({ error: /^(That|There|An import)/.test(message) ? message : t("That file couldn't be imported") }, 400);
+      return c.json({ error: err instanceof ImportError ? err.message : t("That file couldn't be imported") }, 400);
     }
   },
 );

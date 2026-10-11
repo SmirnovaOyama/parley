@@ -11,7 +11,7 @@ import { SlideLink } from "../components/SlideLink.tsx";
 import { api, type Instructions, type KnowledgeBase, type Message, type Persona, type Policy, type Share, type SharingMode } from "../lib/api.ts";
 import { Icon } from "../icons/Icon.tsx";
 import { formatNumber, plural } from "../lib/format.ts";
-import { t, tn } from "../lib/i18n.ts";
+import { sentences, t, tn } from "../lib/i18n.ts";
 import { ABOUT_HINT, charsLeft, MAX_INSTRUCTION_CHARS, STYLE_HINT } from "../lib/instructions.ts";
 import { useSession } from "../lib/session.tsx";
 import { useSlideNavigate } from "../lib/slide.ts";
@@ -245,7 +245,7 @@ export function ChatSettingsPage() {
                 options={bases.map((k) => {
                   const shared = k.shared && !k.mine ? t("Shared by your admins") : "";
                   const docs = plural(k.docs, "document", "documents");
-                  const plain = [shared, docs].filter(Boolean).join(". ");
+                  const plain = sentences([shared, docs].filter(Boolean));
                   if (!projects.length) return { id: k.id, label: k.name, detail: plain };
                   // With projects to pick from, each row keeps room for the longer line, so picking a
                   // project above never grows the rows here.
@@ -256,7 +256,7 @@ export function ChatSettingsPage() {
                     detail: (
                       <span className="swap">
                         <span className={inProject ? undefined : "reserve"} aria-hidden={inProject ? undefined : true}>
-                          {[shared, t("The project has it already"), docs].filter(Boolean).join(". ")}
+                          {sentences([shared, t("The project has it already"), docs].filter(Boolean))}
                         </span>
                         {!inProject && <span>{plain}</span>}
                       </span>

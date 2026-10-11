@@ -446,7 +446,7 @@ adminToolRoutes.delete("/mcp/:id", (c) => {
 
 function searchOut() {
   const s = getSettings();
-  return { provider: s.searchProvider, url: s.searchUrl, hasKey: !!searchKeySealed(), services: SEARCH_SERVICES };
+  return { provider: s.searchProvider, url: s.searchUrl, hasKey: !!searchKeySealed(), services: SEARCH_SERVICES.map((x) => ({ ...x, detail: t(x.detail) })) };
 }
 
 adminToolRoutes.get("/search", (c) => c.json(searchOut()));

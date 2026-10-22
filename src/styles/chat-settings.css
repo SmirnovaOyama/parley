@@ -27,13 +27,14 @@
   color: var(--text-muted);
 }
 .chat-settings-editable .panel-note { margin-top: -8px; }
-.chat-settings-pin { border-top: 1px solid var(--border); }
-.chat-settings-pin > .oy-row { padding: 20px 0 0; }
-.chat-settings-pin label { cursor: pointer; }
-.chat-settings-pin .oy-switch[aria-checked="false"] {
+.chat-settings-pin, .chat-settings-plan { border-top: 1px solid var(--border); }
+.chat-settings-pin > .oy-row, .chat-settings-plan > .oy-row { padding: 20px 0 0; }
+.chat-settings-pin label, .chat-settings-plan label { cursor: pointer; }
+.chat-settings-pin .oy-switch[aria-checked="false"], .chat-settings-plan .oy-switch[aria-checked="false"] {
   background: color-mix(in oklab, var(--border) 80%, var(--text-muted));
 }
-.chat-settings-pin .switch-knob { box-shadow: none; }
+.chat-settings-pin .switch-knob, .chat-settings-plan .switch-knob { box-shadow: none; }
+.chat-settings-plan .desc { text-wrap: pretty; }
 .chat-settings-editable > .form-page-actions {
   padding-top: 4px;
   flex-wrap: wrap;

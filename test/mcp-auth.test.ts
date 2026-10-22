@@ -37,7 +37,7 @@ function kit(userId: number, declared: DeclaredTool[]) {
     conversationId: "chat",
     declared,
     context: { linked: [], outside: false },
-    ask: async (question) => (asked.push(question), "allow"),
+    ask: async (question) => (asked.push(question), { answer: "allow" as const }),
     signal,
     onStatus: () => {},
   });

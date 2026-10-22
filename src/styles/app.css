@@ -1136,6 +1136,52 @@ pre.tool-ask-detail {
 .tool-ask-reason { font-size: 13px; line-height: 18px; color: var(--text-muted); }
 .tool-ask .inline-confirm-actions { align-self: center; }
 
+/* A question of the AI's own: its choices as rows with a tick, a line for your own answer, then
+   the answers under them. A plan waiting for your OK: its steps, editable in place. */
+.tool-ask.is-question .inline-confirm-actions, .tool-ask.is-plan .inline-confirm-actions { align-self: flex-end; margin-top: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.ask-options { margin-top: 2px; }
+.ask-options > .oy-row { min-height: 40px; padding-top: 8px; padding-bottom: 8px; }
+.tool-ask .line-field { margin-top: 2px; }
+.tool-ask .line-field input { font-size: 15px; line-height: 22px; padding: 6px 0 7px; }
+.tool-ask .line-field label { top: 22px; font-size: 15px; line-height: 22px; }
+/* A plan's steps, edited in place: each a bare line, its number beside it rather than a label over it. */
+.plan-edit .line-field-box { padding-top: 0; }
+.plan-edit .line-field label { width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.plan-edit-start { margin-inline-end: auto; }
+.plan-edit { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.plan-edit li { display: flex; align-items: flex-end; gap: 8px; }
+.plan-edit li .line-field { flex: 1; min-width: 0; }
+.plan-edit .plan-n { width: 18px; padding-bottom: 7px; text-align: center; }
+.plan-edit .icon-button { margin-bottom: 2px; }
+.plan-edit .plan-add { padding-top: 6px; }
+.plan-edit .plan-add .btn-ghost { margin-inline-start: -10px; }
+
+/* What a reply asked you, kept where it came in the text: the question and your answer, or the
+   plan as a checklist ticked off while the reply carries it out. */
+.moment {
+  display: flex; align-items: flex-start; gap: 10px; margin: 10px 0; padding: 10px 0;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  animation: fade-in var(--duration-base) var(--ease-standard);
+}
+.moment + .moment { margin-top: -11px; }
+.moment > .oy-icon { flex: none; margin-top: 3px; color: var(--text-muted); }
+.moment-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.moment-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 15px; line-height: 22px; font-weight: 500; overflow-wrap: anywhere; }
+.moment-answer { display: flex; align-items: flex-start; gap: 6px; font-size: 15px; line-height: 22px; overflow-wrap: anywhere; }
+.moment-answer .tick-draw { margin-top: 3px; }
+.moment-note { font-size: 13px; line-height: 18px; color: var(--text-muted); overflow-wrap: anywhere; }
+.plan-count { flex: none; font-size: 13px; font-weight: 400; color: var(--text-muted); }
+.plan-steps { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.plan-steps li { display: flex; align-items: flex-start; gap: 8px; font-size: 15px; line-height: 22px; }
+.plan-mark { flex: none; width: 18px; height: 22px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); }
+.plan-mark .plan-todo, .plan-mark .plan-skip { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; }
+
+.plan-n { font-size: 13px; color: var(--text-muted); }
+.plan-text { min-width: 0; display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.plan-steps li[data-status="skipped"] .plan-step { color: var(--text-muted); text-decoration: line-through; text-decoration-color: color-mix(in oklch, var(--text-muted) 60%, transparent); }
+.plan-reason { font-size: 13px; line-height: 18px; color: var(--text-muted); }
+.moment.is-idle .plan-step { color: var(--text-muted); }
+
 /* ── context meter ─────────────────────────────────────────────── */
 /* Model on the left; the context meter and thinking together on the right. */
 .composer-head { justify-content: flex-start; }

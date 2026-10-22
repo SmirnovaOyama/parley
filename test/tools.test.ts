@@ -41,7 +41,7 @@ function kit(opts: { userId?: number; declared?: DeclaredTool[]; context?: Parti
     conversationId: "chat",
     declared: opts.declared ?? [],
     context: { linked: [], outside: false, ...opts.context },
-    ask: async (question) => (asked.push(question), opts.answer ?? "deny"),
+    ask: async (question) => (asked.push(question), { answer: opts.answer ?? "deny" }),
     signal: new AbortController().signal,
     onStatus: () => {},
   });
@@ -483,23 +483,23 @@ describe("asking the person", () => {
     );
     const [waiting] = asksOf("asks");
     assert.equal(waiting.question, "Read a page on a.com?");
-    assert.equal(answerAsk("asks", "not-this-one", true), false);
-    assert.equal(answerAsk("other-chat", waiting.id, true), false);
-    assert.equal(answerAsk("asks", waiting.id, true), true);
-    assert.equal(await answer, "allow");
+    assert.equal(answerAsk("asks", "not-this-one", { allow: true }), "not waiting");
+    assert.equal(answerAsk("other-chat", waiting.id, { allow: true }), "not waiting");
+    assert.equal(answerAsk("asks", waiting.id, { allow: true }), "ok");
+    assert.deepEqual(await answer, { answer: "allow" });
     assert.deepEqual(asksOf("asks"), []);
     assert.deepEqual(seen, [1, 0]);
-    assert.equal(answerAsk("asks", waiting.id, false), false, "answered already");
+    assert.equal(answerAsk("asks", waiting.id, { allow: false }), "not waiting", "answered already");
   });
 
   test("gives up when nobody answers, or the reply is stopped", async () => {
     const question = { kind: "memory" as const, question: "Remember this?", detail: "x", reason: "" };
-    assert.equal(await askPerson("asks", question, new AbortController().signal, () => {}, 20), "timeout");
+    assert.deepEqual(await askPerson("asks", question, new AbortController().signal, () => {}, 20), { answer: "timeout" });
     const stop = new AbortController();
     const stopped = askPerson("asks", question, stop.signal, () => {});
     stop.abort();
-    assert.equal(await stopped, "stopped");
-    assert.equal(await askPerson("asks", question, stop.signal, () => {}), "stopped");
+    assert.deepEqual(await stopped, { answer: "stopped" });
+    assert.deepEqual(await askPerson("asks", question, stop.signal, () => {}), { answer: "stopped" });
     assert.deepEqual(asksOf("asks"), []);
   });
 });

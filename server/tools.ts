@@ -9,7 +9,12 @@
 // page whose address the model didn't get from the person or a search, since the address itself
 // could carry the chat's contents away; keeping a note once anything from outside has come into
 // the chat, since a note steers every later chat; and MCP tools that may change things.
-import type { Answer, Ask } from "./asks.ts";
+//
+// The model can also stop to ask the person something (ask_person) and, in a chat that plans first,
+// propose a plan for their OK before doing the work (propose_plan), then tick its steps off as it
+// goes (update_plan). Both wait on the same lines in the reply; what was asked and answered stays
+// with the reply as its moments, at the place in its text where it happened.
+import { cleanSteps, MAX_STEPS, type Ask, type Reply } from "./asks.ts";
 import type { MessageRow } from "./chat-store.ts";
 import { chatBases, searchKnowledge, usableBases } from "./knowledge.ts";
 import { accountMessage, callTool, canUseServer, declareTools, getServer, offToolsOf, runsUnasked, serversFor, type McpServerRow } from "./mcp.ts";
@@ -61,6 +66,21 @@ export type ToolUse = {
   connect?: boolean;
 };
 
+/**
+ * How a question or a plan ended: answered (or approved), left to the model, sent back, nobody
+ * answered in time, the reply was stopped, or nobody was there to ask (a scheduled task).
+ */
+export type MomentOutcome = "answered" | "left" | "returned" | "unanswered" | "stopped" | "away";
+/** A plan's step, ticked off as the reply carries it out. */
+export type PlanStep = { text: string; status: "todo" | "done" | "skipped"; reason?: string };
+/**
+ * Something the reply asked the person, kept with it: a question with its choices and the answer,
+ * or a plan with its steps. `at` is where in the reply's text it was asked.
+ */
+export type Moment =
+  | { kind: "question"; at: number; question: string; options: string[]; answer?: string; own?: boolean; outcome: MomentOutcome }
+  | { kind: "plan"; at: number; steps: PlanStep[]; edited?: boolean; comment?: string; outcome: MomentOutcome };
+
 export const MEMORY_TOOL: ToolSpec = {
   name: "memory",
   description:
@@ -108,6 +128,54 @@ export const FILE_TOOL: ToolSpec = {
   },
 };
 
+/** A question for the person, with a few choices; they can write their own answer too. */
+export const ASK_TOOL: ToolSpec = {
+  name: "ask_person",
+  description:
+    "Ask the person a question and wait for their answer, when you can't go on well without it: which of a few ways to take, a detail only they know, a choice that's theirs to make. Give 2 to 4 short options in the person's language; they can also write their own answer, or leave it to you. Ask one thing at a time and only when it matters: don't ask what you can sensibly decide or what they've said already. Their answer comes back as the result, and you carry on from it in the same reply.",
+  parameters: {
+    type: "object",
+    properties: {
+      question: { type: "string", description: "The question, short and plain" },
+      options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4, description: "2 to 4 short answers to choose from" },
+    },
+    required: ["question", "options"],
+  },
+};
+
+/** A plan for the person's OK before the work starts. */
+export const PLAN_TOOL: ToolSpec = {
+  name: "propose_plan",
+  description:
+    "Propose a short plan before doing a larger piece of work, when the chat plans first or the person asks for a plan. List the steps in order, each a short sentence in the person's language. The person sees them as a checklist and can edit them, approve them, or send them back with a comment; the result says which. Don't start the work until a plan is approved. Then carry out its steps in order in this reply, marking each with update_plan as you finish or skip it.",
+  parameters: {
+    type: "object",
+    properties: {
+      steps: { type: "array", items: { type: "string" }, minItems: 1, maxItems: MAX_STEPS, description: "The steps, in order" },
+    },
+    required: ["steps"],
+  },
+};
+
+/** Ticking a step of the approved plan off. */
+export const PLAN_UPDATE_TOOL: ToolSpec = {
+  name: "update_plan",
+  description:
+    "Mark a step of the approved plan as done once you've finished it, or as skipped with the reason, so the person can follow along. Steps are numbered from 1, as in the approved plan.",
+  parameters: {
+    type: "object",
+    properties: {
+      step: { type: "integer", description: "The step's number, from 1" },
+      status: { type: "string", enum: ["done", "skipped"] },
+      reason: { type: "string", description: "Why the step was skipped" },
+    },
+    required: ["step", "status"],
+  },
+};
+
+/** The tools a chat needs to plan first: a chat started without them can't. */
+export const canPlan = (declared: DeclaredTool[]) => declared.some((t) => t.name === PLAN_TOOL.name);
+
 /** Formats that aren't text, which save_file can't write, and the text form to use instead. */
 const NOT_TEXT: Record<string, string> = {
   ".xlsx": ".csv", ".xls": ".csv", ".ods": ".csv", ".docx": ".md or .html", ".doc": ".md or .html", ".odt": ".md or .html",
@@ -118,9 +186,12 @@ const NOT_TEXT: Record<string, string> = {
 /** The most save_file keeps of one file. */
 const MAX_WRITTEN_BYTES = 5 * 1024 * 1024;
 
-/** The tools a new chat declares: memory while it's on, knowledge search when the person has any, and the MCP servers open to them. */
+/**
+ * The tools a new chat declares: asking the person and planning, memory while it's on, knowledge
+ * search when the person has any, and the MCP servers open to them.
+ */
 export function toolsForNewChat(userId: number): DeclaredTool[] {
-  const tools: DeclaredTool[] = [];
+  const tools: DeclaredTool[] = [ASK_TOOL, PLAN_TOOL, PLAN_UPDATE_TOOL];
   if (memoryOn(userId)) tools.push(MEMORY_TOOL);
   if (usableBases(userId).length) tools.push(KNOWLEDGE_TOOL);
   tools.push(...declareTools(serversFor(userId)));
@@ -223,6 +294,19 @@ const MAX_PAGE_URLS = 200;
 const DENIED = "The person didn't allow this, so it didn't happen. Carry on without it, and don't try it again unless they ask you to";
 const UNANSWERED = "The person didn't answer in time, so it didn't happen. Carry on without it";
 
+/** What the model is told when its own question or plan gets no answer. */
+const LEFT_TO_YOU = "The person left this to you. Decide yourself, and say in your reply what you went with";
+const NOBODY_ANSWERED = "Nobody answered within 15 minutes. Decide yourself, and say in your reply what you assumed";
+const NOBODY_THERE =
+  "Nobody is here to answer: this reply runs on its own, as a scheduled task. Decide yourself, and say in your reply what you assumed";
+const PLAN_NOBODY_THERE =
+  "Nobody is here to approve the plan: this reply runs on its own, as a scheduled task. Carry it out as you think best, mark each step with update_plan, and say in your reply what you assumed";
+const PLAN_UNANSWERED =
+  "Nobody answered within 15 minutes, so the plan isn't approved. Don't carry it out. End your reply by listing its steps and saying it's waiting for their go-ahead, which they can give in their next message";
+const numbered = (steps: string[]) => steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
+/** A question or one of its options, as the model wrote it. */
+const shortLine = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
+
 const hostOf = (url: string) => {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
@@ -239,7 +323,13 @@ type ToolkitOptions = {
   /** What the branch so far tells them (chatContext). */
   context: ChatContext;
   /** Puts a question to the person and waits for the answer (asks.ts). */
-  ask: (question: Omit<Ask, "id">) => Promise<Answer>;
+  ask: (question: Omit<Ask, "id">) => Promise<Reply>;
+  /** Nobody is there to answer (a scheduled task): the model's own questions and plans are answered so straight away. */
+  unattended?: boolean;
+  /** How much of the reply's text has been written, so a question is kept where it was asked. */
+  at?: () => number;
+  /** The reply's questions and plans, each time one is added or changes. */
+  onMoments?: (moments: Moment[]) => void;
   signal: AbortSignal;
   /** "searching" with the query, or "tool" with a few words on what it's doing. */
   onStatus: (status: "searching" | "tool", detail: string) => void;
@@ -263,6 +353,15 @@ export function chatToolkit(opts: ToolkitOptions) {
   const checkedNotes = new Set<string>();
   /** Files save_file wrote in this reply, by name: kept with the reply once it's saved. */
   const written = new Map<string, Made>();
+  /** What this reply asked the person, and its plans, in order. */
+  const moments: Moment[] = [];
+  const addMoment = (moment: Moment) => {
+    moments.push(moment);
+    opts.onMoments?.(moments.map((m) => structuredClone(m)));
+  };
+  /** The plan being carried out: the last one approved, or taken up because nobody was there to approve it. */
+  const activePlan = () =>
+    moments.findLast((m): m is Extract<Moment, { kind: "plan" }> => m.kind === "plan" && (m.outcome === "answered" || m.outcome === "away"));
 
   /** Something from outside the person came in: from here on, notes wait for their OK. */
   const tookIn = () => void (outside = true);
@@ -284,7 +383,7 @@ export function chatToolkit(opts: ToolkitOptions) {
     const before = refused.get(key);
     if (before) return before;
     opts.onStatus("tool", t("Waiting for your OK"));
-    const answer = await opts.ask(question);
+    const { answer } = await opts.ask(question);
     if (answer === "allow") return null;
     if (answer === "stopped") return { content: "Stopped", isError: true };
     uses.push(notDone);
@@ -362,6 +461,72 @@ export function chatToolkit(opts: ToolkitOptions) {
     }
 
     switch (call.name) {
+      case "ask_person": {
+        if (!byName.has("ask_person")) break;
+        const question = shortLine(input.question, 500);
+        const options = [...new Set((Array.isArray(input.options) ? input.options : []).map((o) => shortLine(o, 200)).filter(Boolean))];
+        if (!question) return { content: "Write the question in question", isError: true };
+        if (options.length < 2 || options.length > 4) return { content: "Give 2 to 4 options in options", isError: true };
+        const at = opts.at?.() ?? 0;
+        if (opts.unattended) {
+          addMoment({ kind: "question", at, question, options, outcome: "away" });
+          return { content: NOBODY_THERE };
+        }
+        opts.onStatus("tool", t("Waiting for your answer"));
+        const reply = await opts.ask({ kind: "question", question, detail: "", reason: "", options });
+        if (reply.answer === "allow" && reply.text) {
+          const own = !options.includes(reply.text);
+          addMoment({ kind: "question", at, question, options, answer: reply.text, ...(own ? { own } : {}), outcome: "answered" });
+          return { content: own ? `The person wrote their own answer: ${reply.text}` : `The person chose: ${reply.text}` };
+        }
+        const outcome = reply.answer === "stopped" ? "stopped" : reply.answer === "timeout" ? "unanswered" : "left";
+        addMoment({ kind: "question", at, question, options, outcome });
+        if (outcome === "stopped") return { content: "Stopped", isError: true };
+        return { content: outcome === "left" ? LEFT_TO_YOU : NOBODY_ANSWERED };
+      }
+      case "propose_plan": {
+        if (!byName.has("propose_plan")) break;
+        const steps = cleanSteps(Array.isArray(input.steps) ? input.steps.map((s) => (typeof s === "string" ? s : String(s ?? ""))) : null) ?? [];
+        if (!steps.length) return { content: "List the plan's steps in steps", isError: true };
+        if (Array.isArray(input.steps) && input.steps.length > MAX_STEPS) return { content: `Keep the plan to ${MAX_STEPS} steps or fewer`, isError: true };
+        const at = opts.at?.() ?? 0;
+        const todo = (list: string[]): PlanStep[] => list.map((text) => ({ text, status: "todo" }));
+        if (opts.unattended) {
+          addMoment({ kind: "plan", at, steps: todo(steps), outcome: "away" });
+          return { content: PLAN_NOBODY_THERE };
+        }
+        opts.onStatus("tool", t("Waiting for your OK on the plan"));
+        const reply = await opts.ask({ kind: "plan", question: t("Go ahead with this plan?"), detail: "", reason: "", steps });
+        if (reply.answer === "allow") {
+          const approved = reply.steps?.length ? reply.steps : steps;
+          const edited = approved.join("\n") !== steps.join("\n");
+          addMoment({ kind: "plan", at, steps: todo(approved), ...(edited ? { edited } : {}), outcome: "answered" });
+          return {
+            content: `The person approved the plan${edited ? " after editing it" : ""}. Its steps are now:\n${numbered(approved)}\nCarry them out in order, and mark each with update_plan as you finish or skip it.`,
+          };
+        }
+        const outcome = reply.answer === "stopped" ? "stopped" : reply.answer === "timeout" ? "unanswered" : "returned";
+        addMoment({ kind: "plan", at, steps: todo(steps), ...(outcome === "returned" && reply.text ? { comment: reply.text } : {}), outcome });
+        if (outcome === "stopped") return { content: "Stopped", isError: true };
+        if (outcome === "unanswered") return { content: PLAN_UNANSWERED };
+        return {
+          content: `The person sent the plan back${reply.text ? ` with this comment: ${reply.text}` : " without a comment"}. Don't start the work: propose a better plan with propose_plan, or ask what they'd like if it isn't clear.`,
+        };
+      }
+      case "update_plan": {
+        if (!byName.has("update_plan")) break;
+        const plan = activePlan();
+        if (!plan) return { content: "There's no approved plan to update. Propose one with propose_plan and wait for the person's answer first", isError: true };
+        const n = Number(input.step);
+        if (!Number.isInteger(n) || n < 1 || n > plan.steps.length) return { content: `The plan's steps are numbered 1 to ${plan.steps.length}`, isError: true };
+        if (input.status !== "done" && input.status !== "skipped") return { content: "Set status to done or skipped", isError: true };
+        const reason = shortLine(input.reason, 300);
+        if (input.status === "skipped" && !reason) return { content: "Say in reason why the step was skipped", isError: true };
+        plan.steps[n - 1] = { text: plan.steps[n - 1].text, status: input.status, ...(input.status === "skipped" ? { reason } : {}) };
+        opts.onMoments?.(moments.map((m) => structuredClone(m)));
+        const left = plan.steps.filter((s) => s.status === "todo").length;
+        return { content: `Marked step ${n} ${input.status}. ${left ? `${left} of ${plan.steps.length} still to do` : "Every step is marked now"}` };
+      }
       case "save_file": {
         const name = safeName(String(input.name ?? ""));
         const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")).toLowerCase() : "";
@@ -511,5 +676,5 @@ export function chatToolkit(opts: ToolkitOptions) {
     }
   }
 
-  return { offer, uses, searches, found, pageUrls, tookIn, written: () => [...written.values()] };
+  return { offer, uses, searches, found, pageUrls, tookIn, written: () => [...written.values()], moments: () => moments.map((m) => structuredClone(m)) };
 }

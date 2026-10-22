@@ -59,6 +59,7 @@ function Sidebar() {
         <NavItem to="/chat" icon="compose" label={t("New chat")} current={pathname === "/chat" && !search} accent />
         <NavItem to="/compare" icon="compare" label={t("Compare models")} current={pathname.startsWith("/compare")} />
         <NavItem to="/tasks" icon="clock" label={t("Scheduled tasks")} current={pathname.startsWith("/tasks")} />
+        <NavItem to="/cowork" icon="briefcase" label={t("Cowork")} current={pathname.startsWith("/cowork")} />
         <NavItem to="/projects" icon="folder" label={t("Projects")} current={pathname.startsWith("/projects")} />
         <NavItem to="/knowledge" icon="book" label={t("Knowledge")} current={pathname.startsWith("/knowledge")} />
       </div>
@@ -178,7 +179,7 @@ function BottomNav() {
   const navigate = useNavigate();
 
   const items: { to: string; icon: IconName; label: string; current: boolean }[] = [
-    { to: "/chats", icon: "chats", label: t("Chats"), current: pathname === "/chats" || pathname.startsWith("/projects") || pathname.startsWith("/knowledge") || pathname.startsWith("/compare") || pathname.startsWith("/tasks") },
+    { to: "/chats", icon: "chats", label: t("Chats"), current: pathname === "/chats" || pathname.startsWith("/projects") || pathname.startsWith("/knowledge") || pathname.startsWith("/compare") || pathname.startsWith("/tasks") || pathname.startsWith("/cowork") },
     ...(user?.role === "admin"
       ? [{ to: "/admin", icon: "gear" as const, label: t("Admin"), current: pathname.startsWith("/admin") }]
       : []),

@@ -650,6 +650,61 @@ CREATE UNIQUE INDEX IF NOT EXISTS scheduled_runs_active ON scheduled_runs(task_i
 // 1: each scheduled run emails its owner the answer, or why it didn't finish.
 addColumn("scheduled_tasks", "email", "INTEGER NOT NULL DEFAULT 0");
 
+// Cowork (cowork.ts): a job the model works through on its own, turn after turn, in one chat.
+// turn_open is set before a turn calls a provider and cleared once its reply is saved, so a
+// restart can tell a turn that may have been billed from a job that was only between turns.
+// steps, worked_ms and spent add up over the job; the limits apply from the base_ marks, which
+// move up each time the person has it carry on. cowork_steps is what it did, in sentences;
+// progress is the checklist the model keeps, and inbox the person's messages waiting for its next turn.
+db.exec(`
+CREATE TABLE IF NOT EXISTS cowork_jobs (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  goal TEXT NOT NULL,
+  key_id INTEGER REFERENCES api_keys(id) ON DELETE SET NULL,
+  model TEXT NOT NULL,
+  effort TEXT NOT NULL,
+  model_label TEXT NOT NULL,
+  language TEXT NOT NULL,
+  knowledge TEXT NOT NULL DEFAULT '[]',
+  attachments TEXT NOT NULL DEFAULT '[]',
+  max_steps INTEGER NOT NULL,
+  max_minutes INTEGER NOT NULL,
+  max_spend REAL,
+  email INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'waiting', 'done', 'stopped', 'limit', 'failed', 'interrupted')),
+  limit_hit TEXT CHECK (limit_hit IN ('steps', 'time', 'spend', 'allowance')),
+  error TEXT,
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+  turn_open INTEGER NOT NULL DEFAULT 0,
+  turns INTEGER NOT NULL DEFAULT 0,
+  steps INTEGER NOT NULL DEFAULT 0,
+  worked_ms INTEGER NOT NULL DEFAULT 0,
+  spent REAL NOT NULL DEFAULT 0,
+  base_steps INTEGER NOT NULL DEFAULT 0,
+  base_ms INTEGER NOT NULL DEFAULT 0,
+  base_spent REAL NOT NULL DEFAULT 0,
+  asks TEXT,
+  progress TEXT,
+  inbox TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS cowork_jobs_user ON cowork_jobs(user_id, created_at);
+CREATE INDEX IF NOT EXISTS cowork_jobs_status ON cowork_jobs(status);
+CREATE TABLE IF NOT EXISTS cowork_steps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL REFERENCES cowork_jobs(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  text TEXT NOT NULL,
+  failed INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cowork_steps_job ON cowork_steps(job_id, id);
+`);
+
 export const nowIso = () => new Date().toISOString();
 
 export function startOfMonthIso(): string {

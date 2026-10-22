@@ -9,8 +9,11 @@ import { useNavigate, type NavigateOptions } from "react-router";
 export type Direction = "forward" | "back";
 type ViewTransitionDocument = Document & { startViewTransition?: (update: () => void) => { finished: Promise<void> } };
 
-/** Inside a conversation the composer owns the bottom of the screen, so the tab bar steps aside. */
-export const isUnderChat = (pathname: string) => pathname === "/chat" || pathname.startsWith("/chat/");
+/**
+ * Inside a conversation the composer owns the bottom of the screen, so the tab bar steps aside. A
+ * Cowork job's page has a message box at its foot too.
+ */
+export const isUnderChat = (pathname: string) => pathname === "/chat" || pathname.startsWith("/chat/") || /^\/cowork\/[^/]+$/.test(pathname);
 
 export function useSlideNavigate() {
   const navigate = useNavigate();

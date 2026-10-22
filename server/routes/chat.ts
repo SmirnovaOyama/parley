@@ -490,6 +490,18 @@ export class ChatStartError extends Error {
 }
 
 type ChatSender = (event: string, data: unknown) => Promise<void>;
+type Offered = { functions: import("../providers/types.ts").ToolSpec[]; runTool: (call: import("../providers/types.ts").ToolCall) => Promise<import("../providers/types.ts").ToolOutcome> };
+/**
+ * A turn of a Cowork job (cowork.ts), which runs unattended in the job's own chat: a note for the
+ * model on how to work, the job's own tools and step record around the chat's, the person's OK
+ * held for when they're back, and what the turn cost.
+ */
+export type JobTurn = {
+  system: string;
+  tools: (offered: Offered) => Offered;
+  ask: (conversationId: string, question: Omit<import("../asks.ts").Ask, "id">, signal: AbortSignal) => Promise<import("../asks.ts").Answer>;
+  spent: (cost: number) => void;
+};
 export type PreparedChat = {
   conversationId: string;
   cancel: () => void;
@@ -508,10 +520,11 @@ export type PreparedChat = {
 export async function prepareChat(
   user: SessionUser,
   body: Record<string, unknown>,
-  options: { unattended?: boolean; title?: string } = {},
+  options: { unattended?: boolean; title?: string; job?: JobTurn } = {},
 ): Promise<PreparedChat> {
-  // This option belongs to trusted server callers, never to the HTTP body.
-  const unattended = options.unattended === true;
+  // These options belong to trusted server callers, never to the HTTP body.
+  const job = options.job;
+  const unattended = options.unattended === true || !!job;
   if (unattended) {
     const account = db.prepare("SELECT id, email, role, disabled FROM users WHERE id = ?").get(user.id) as (SessionUser & { disabled: number }) | undefined;
     if (!account || account.disabled) throw new ChatStartError(403, t("This account is turned off. Ask an admin"));
@@ -522,7 +535,8 @@ export async function prepareChat(
   const text = String(body.text ?? "").trim();
   if (text.length > MAX_MESSAGE_CHARS) throw new ChatStartError(400, t("That message is too long"));
 
-  if (unattended && (body.conversationId != null || body.regenerate != null || body.parentId !== undefined || body.comparisonId !== undefined)) {
+  // A job carries on in its own chat; scheduled tasks start a new one each time.
+  if (unattended && ((!job && (body.conversationId != null || body.regenerate != null)) || body.parentId !== undefined || body.comparisonId !== undefined)) {
     throw new ChatStartError(400, t("Scheduled tasks start a new chat each time"));
   }
 
@@ -637,7 +651,9 @@ export async function prepareChat(
   // The app's own tools a new chat declares: settled now, for good (see db.ts).
   const offeredTools = existing ? declaredOf(existing.tool_defs) : toolsForNewChat(user.id);
   // Scheduled replies can search the person's documents, but cannot change memory or use MCP.
-  const toolDefs = unattended ? offeredTools.filter((tool) => tool.name === "search_knowledge" && !tool.mcp) : offeredTools;
+  // A job uses all but memory: what needs the person's OK waits for them.
+  const toolDefs = job ? offeredTools.filter((tool) => tool.name !== "memory")
+    : unattended ? offeredTools.filter((tool) => tool.name === "search_knowledge" && !tool.mcp) : offeredTools;
   const userMessageId = tx(() => {
     if (!conversationId) {
       conversationId = randomUUID();
@@ -725,7 +741,8 @@ export async function prepareChat(
       conversationId: convId,
       declared: toolDefs,
       context: chatContext(pathTo(userMessageId)),
-      ask: (question) => unattended ? Promise.resolve("deny") : askPerson(convId, question, controller.signal, (asks) => void send("asks", { asks })),
+      ask: (question) => job ? job.ask(convId, question, controller.signal)
+        : unattended ? Promise.resolve("deny") : askPerson(convId, question, controller.signal, (asks) => void send("asks", { asks })),
       signal: controller.signal,
       onStatus: (status, detail) => void send("status", { status, detail }),
     });
@@ -766,7 +783,7 @@ export async function prepareChat(
         fileIds,
         model: k.model,
         effort: k.effort,
-        system,
+        system: job ? [system, job.system].filter(Boolean).join("\n\n") : system,
         history,
         signal: controller.signal,
         showThinking,
@@ -775,7 +792,7 @@ export async function prepareChat(
         codeTool,
         codeAllowed,
         container: containerFor(k),
-        ...kit.offer(webToolsFor(k), fileToolFor(k)),
+        ...(job ? job.tools(kit.offer(webToolsFor(k), fileToolFor(k))) : kit.offer(webToolsFor(k), fileToolFor(k))),
         onText: (delta) => {
           if (thinkingStarted && thinkingMs == null) thinkingMs = Date.now() - thinkingStarted;
           partial += delta;
@@ -857,6 +874,7 @@ export async function prepareChat(
       tools: kit.uses,
       pageUrls: kit.pageUrls,
     });
+    if (job && result) job.spent(estimateCost(keyModel(used, used.model), result.usage, used.provider));
     if (comparisonId) {
       db.prepare("UPDATE comparison_runs SET answer_message_id = ? WHERE comparison_id = ? AND conversation_id = ?").run(saved.id, comparisonId, convId);
       db.prepare("UPDATE comparisons SET updated_at = ? WHERE id = ?").run(nowIso(), comparisonId);

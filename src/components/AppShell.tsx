@@ -43,14 +43,31 @@ export function AppShell() {
 }
 
 /**
- * The admins' notice, on one line above every page until it's dismissed. A long one is cut short;
+ * The admins' notice, on one line held at the top of every page until it's dismissed. A long one is cut short;
  * pressing its words shows the rest in place. The words are the admins' own and aren't translated.
  */
 function SiteWord() {
   const { notice, dismissNotice } = useSession();
+  const lineRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
   const [cut, setCut] = useState(false);
+
+  // The line stays at the top as the page scrolls; sticky page headers stop under it, so main is
+  // told its height (--site-word-h), which changes when it wraps or is opened.
+  useEffect(() => {
+    const line = lineRef.current;
+    const main = line?.parentElement;
+    if (!line || !main) return;
+    const measure = () => main.style.setProperty("--site-word-h", `${line.offsetHeight}px`);
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(line);
+    return () => {
+      resize.disconnect();
+      main.style.removeProperty("--site-word-h");
+    };
+  }, [notice]);
 
   useEffect(() => {
     setOpen(false);
@@ -65,7 +82,7 @@ function SiteWord() {
 
   if (!notice) return null;
   return (
-    <div className={`site-word${open ? " is-open" : ""}`} role="status" aria-label={t("Note from the admins")}>
+    <div ref={lineRef} className={`site-word${open ? " is-open" : ""}`} role="status" aria-label={t("Note from the admins")}>
       <Icon name="note" size={16} className="site-word-icon" />
       <span
         ref={textRef}

@@ -1,10 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, ApiError, type ConversationSummary, type Instructions, type Project, type User } from "./api.ts";
+import { api, ApiError, type ConversationSummary, type Instructions, type Project, type SiteNotice, type User } from "./api.ts";
 
 type SessionValue = {
   user: User | null;
   loading: boolean;
   refreshUser: () => Promise<void>;
+  /** The site notice, unless this person dismissed this version of it. Comes with the account. */
+  notice: SiteNotice | null;
+  dismissNotice: () => void;
   signOut: () => Promise<void>;
   conversations: ConversationSummary[];
   refreshConversations: () => Promise<void>;
@@ -25,6 +28,7 @@ const SessionContext = createContext<SessionValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [notice, setNotice] = useState<SiteNotice | null>(null);
   const [loading, setLoading] = useState(true);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [newChatInstructions, setNewChatInstructions] = useState<Instructions | null>(null);
@@ -33,11 +37,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      const { user } = await api.get<{ user: User }>("/auth/me");
+      const { user, notice } = await api.get<{ user: User; notice: SiteNotice | null }>("/auth/me");
       setUser(user);
+      setNotice(notice);
     } catch (err) {
       if (!(err instanceof ApiError && err.status === 401)) console.error(err);
       setUser(null);
+      setNotice(null);
     } finally {
       setLoading(false);
     }
@@ -65,9 +71,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setConversations((list) => [{ ...list.find((x) => x.id === c.id), ...c }, ...list.filter((x) => x.id !== c.id)]);
   }, []);
 
+  const dismissNotice = useCallback(() => {
+    if (!notice) return;
+    setNotice(null);
+    // Gone from this page either way; if saving fails it shows again on the next load.
+    void api.post("/auth/notice/dismiss", { version: notice.version }).catch(() => {});
+  }, [notice]);
+
   const signOut = useCallback(async () => {
     await api.post("/auth/logout").catch(() => {});
     setUser(null);
+    setNotice(null);
     setConversations([]);
     setProjects([]);
     setNewChatInstructions(null);
@@ -99,6 +113,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         user,
         loading,
         refreshUser,
+        notice,
+        dismissNotice,
         signOut,
         conversations,
         refreshConversations,

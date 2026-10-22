@@ -99,6 +99,22 @@ a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-d
 .app { display: flex; min-height: 100dvh; }
 .app-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .page-body { padding-top: 0; padding-bottom: 64px; }
+/* The admins' notice (SiteWord in AppShell): one quiet line above every page. A long one is cut
+   short until its words are pressed. Named plainly: content blockers hide "notice"/"banner" names. */
+.site-word {
+  display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 8px 4px 16px;
+  background: var(--accent-subtle); color: var(--on-accent-subtle); font-size: 14px; line-height: 20px;
+}
+.site-word-icon { flex-shrink: 0; color: var(--accent-ink); }
+.site-word-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: anywhere; }
+.site-word-text[role="button"] { cursor: pointer; }
+.site-word.is-open { align-items: flex-start; }
+.site-word.is-open .site-word-icon { margin-top: 8px; }
+.site-word.is-open .site-word-text { white-space: normal; padding-block: 6px; }
+.site-word-close { flex-shrink: 0; color: inherit; }
+/* Pages that fill the screen fill what's left under it instead, so the line doesn't push them a
+   line past the bottom (main is already the screen's height). */
+.site-word ~ :is(.chat, .chat-settings-page) { flex: 1; min-height: 0; }
 
 .app-sidebar { position: sticky; top: 0; height: 100dvh; }
 .app-sidebar .wordmark { padding-bottom: 16px; }

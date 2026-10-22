@@ -39,6 +39,9 @@ export const api = {
 
 export type User = { id: number; email: string; role: "admin" | "user" };
 
+/** The admins' line at the top of the app; their own words, never translated. */
+export type SiteNotice = { text: string; version: number; postedAt: string };
+
 export type MessageStatus = "ok" | "truncated" | "stopped" | "declined" | "failed" | "not-sent";
 
 export type Message = {

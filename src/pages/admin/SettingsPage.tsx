@@ -1,13 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { BusyButton } from "../../components/BusyButton.tsx";
 import { OptionList, Switch, Tick } from "../../components/Controls.tsx";
+import { InlineConfirm } from "../../components/DangerRow.tsx";
 import { Advisory, Spinner } from "../../components/Feedback.tsx";
 import { LineArea, LineField } from "../../components/LineField.tsx";
 import { Icon } from "../../icons/Icon.tsx";
-import { api, type SharingMode } from "../../lib/api.ts";
+import { api, type SharingMode, type SiteNotice } from "../../lib/api.ts";
 import { AUDIT_ACTIONS as ACTIONS } from "../../lib/audit.ts";
 import { amountInput, amountText, dateTime } from "../../lib/format.ts";
 import { t } from "../../lib/i18n.ts";
+import { useSession } from "../../lib/session.tsx";
 
 import type { ApiKey } from "./KeysPage.tsx";
 
@@ -34,6 +36,7 @@ type AuditEntry = { id: number; action: string; target: string | null; createdAt
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [notice, setNotice] = useState<SiteNotice | null>(null);
   const [mail, setMail] = useState<MailMode>("dev");
   const [prompt, setPrompt] = useState("");
   const [audit, setAudit] = useState<AuditEntry[]>([]);
@@ -44,9 +47,10 @@ export function SettingsPage() {
   const loadAudit = () => api.get<{ entries: AuditEntry[] }>("/admin/audit").then((r) => setAudit(r.entries), () => {});
 
   useEffect(() => {
-    api.get<{ settings: Settings; mail: MailMode }>("/admin/settings").then(
+    api.get<{ settings: Settings; mail: MailMode; notice: SiteNotice | null }>("/admin/settings").then(
       (r) => {
         setSettings(r.settings);
+        setNotice(r.notice);
         setMail(r.mail);
         setPrompt(r.settings.systemPrompt);
       },
@@ -80,6 +84,14 @@ export function SettingsPage() {
   return (
     <>
       {error && <Advisory>{error}</Advisory>}
+      <NoticeForm
+        notice={notice}
+        onChange={(next) => {
+          setNotice(next);
+          void loadAudit();
+        }}
+      />
+
       <div className="oy-group">
         <p className="oy-overline">{t("Sign-ups")}</p>
         <div className="oy-section">
@@ -233,6 +245,90 @@ export function SettingsPage() {
         )}
       </div>
     </>
+  );
+}
+
+const NOTICE_MAX = 500;
+
+/**
+ * The site notice: a line of plain text everyone sees at the top of the app until they dismiss it.
+ * Changing the words shows it again to people who dismissed it; taking it down hides it from all.
+ */
+function NoticeForm({ notice, onChange }: { notice: SiteNotice | null; onChange: (next: SiteNotice | null) => void }) {
+  const { refreshUser } = useSession();
+  const [text, setText] = useState(notice?.text ?? "");
+  const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  const dirty = trimmed !== (notice?.text ?? "");
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.put<{ notice: SiteNotice }>("/admin/notice", { text });
+      onChange(r.notice);
+      setText(r.notice.text);
+      // The admin sees it at the top straight away, as everyone will on their next page load.
+      void refreshUser();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const takeDown = async () => {
+    setError(null);
+    try {
+      await api.del("/admin/notice");
+      onChange(null);
+      setText("");
+      setAsking(false);
+      void refreshUser();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  return (
+    <div className="oy-group">
+      <p className="oy-overline">{t("Notice for everyone")}</p>
+      <p className="group-intro">
+        {notice
+          ? t("Showing at the top of the app since {postedAt}. People can dismiss it, and it shows again when you change it", { postedAt: dateTime(notice.postedAt) })
+          : t("A line at the top of the app for everyone signed in, such as planned maintenance or a new model. People can dismiss it")}
+      </p>
+      <form className="form-page" onSubmit={save}>
+        <LineArea
+          id="site-notice"
+          label={t("What it says")}
+          value={text}
+          maxLength={NOTICE_MAX}
+          onChange={(e) => setText(e.target.value)}
+          hint={t("Plain text on one line. {count} of {max} characters", { count: trimmed.length, max: NOTICE_MAX })}
+        />
+        {error && <Advisory>{error}</Advisory>}
+        {asking && notice ? (
+          <InlineConfirm message={t("Take it down?")} action={t("Take down")} onCancel={() => setAsking(false)} onConfirm={takeDown} />
+        ) : (
+          <div className="form-actions">
+            {notice ? (
+              <button type="button" className="btn-secondary" onClick={() => setAsking(true)}>
+                {t("Take down")}
+              </button>
+            ) : (
+              <span />
+            )}
+            <BusyButton type="submit" className="btn-primary" busy={busy} disabled={!dirty || !trimmed}>
+              {notice ? (dirty ? t("Publish changes") : t("Published")) : t("Publish")}
+            </BusyButton>
+          </div>
+        )}
+      </form>
+    </div>
   );
 }
 

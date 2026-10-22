@@ -34,9 +34,59 @@ export function AppShell() {
     <div className="app">
       <Sidebar />
       <main className={`app-main${inChat ? " is-chat" : ""}${underChat ? " no-tab-bar" : ""}`}>
+        <SiteWord />
         <Outlet />
       </main>
       {!underChat && <BottomNav />}
+    </div>
+  );
+}
+
+/**
+ * The admins' notice, on one line above every page until it's dismissed. A long one is cut short;
+ * pressing its words shows the rest in place. The words are the admins' own and aren't translated.
+ */
+function SiteWord() {
+  const { notice, dismissNotice } = useSession();
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const [cut, setCut] = useState(false);
+
+  useEffect(() => {
+    setOpen(false);
+    const el = textRef.current;
+    if (!el) return;
+    const measure = () => setCut(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(el);
+    return () => resize.disconnect();
+  }, [notice]);
+
+  if (!notice) return null;
+  return (
+    <div className={`site-word${open ? " is-open" : ""}`} role="status" aria-label={t("Note from the admins")}>
+      <Icon name="note" size={16} className="site-word-icon" />
+      <span
+        ref={textRef}
+        className="site-word-text"
+        role={cut || open ? "button" : undefined}
+        tabIndex={cut || open ? 0 : undefined}
+        aria-expanded={cut || open ? open : undefined}
+        title={cut && !open ? t("Show all of it") : undefined}
+        onClick={() => (cut || open) && setOpen(!open)}
+        onKeyDown={(e) => {
+          if ((cut || open) && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            setOpen(!open);
+          }
+        }}
+      >
+        {notice.text}
+      </span>
+      <button type="button" className="btn-ghost icon-button site-word-close" aria-label={t("Dismiss")} title={t("Dismiss")} onClick={dismissNotice}>
+        <Icon name="close" size={16} />
+      </button>
     </div>
   );
 }

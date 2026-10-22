@@ -414,6 +414,8 @@ CREATE TABLE IF NOT EXISTS memories (
 CREATE INDEX IF NOT EXISTS memories_user ON memories(user_id, id);
 `);
 addColumn("users", "memory_off", "INTEGER NOT NULL DEFAULT 0");
+// The version of the site notice (getNotice below) a person last dismissed; 0 for none.
+addColumn("users", "notice_dismissed", "INTEGER NOT NULL DEFAULT 0");
 
 // Knowledge bases: documents a chat can search. A person's own, or an admin's shared with everyone.
 // Each document's text is cut into overlapping parts in a full-text index (trigrams, so Chinese and
@@ -773,6 +775,51 @@ export function searchKeySealed(): string | null {
 
 export function saveSearchKey(sealed: string | null) {
   db.prepare("INSERT INTO settings (key, value) VALUES ('searchKey', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(sealed ?? "");
+}
+
+/** A short line from the admins that everyone sees at the top of the app until they dismiss it. */
+export type SiteNotice = { text: string; version: number; postedAt: string };
+
+export const NOTICE_MAX = 500;
+
+/**
+ * The site notice, or null when there's none. Each new or changed text gets the next version, so a
+ * person who dismissed one sees the next.
+ */
+export function getNotice(): SiteNotice | null {
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key IN ('notice', 'noticeVersion', 'noticeAt')").all() as { key: string; value: string }[];
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+  const text = map.get("notice");
+  if (!text) return null;
+  return { text, version: Number(map.get("noticeVersion")) || 1, postedAt: map.get("noticeAt") ?? "" };
+}
+
+/** Publishes or changes the notice (a new version), or takes it down with null. */
+export function saveNotice(text: string | null) {
+  const put = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+  put.run("notice", text ?? "");
+  if (text === null) return;
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'noticeVersion'").get() as { value: string } | undefined;
+  put.run("noticeVersion", String((Number(row?.value) || 0) + 1));
+  put.run("noticeAt", nowIso());
+}
+
+/** The notice for this person: null when there's none, or they dismissed this version. */
+export function noticeFor(userId: number): SiteNotice | null {
+  const notice = getNotice();
+  if (!notice) return null;
+  const row = db.prepare("SELECT notice_dismissed FROM users WHERE id = ?").get(userId) as { notice_dismissed: number } | undefined;
+  return row && row.notice_dismissed >= notice.version ? null : notice;
+}
+
+/**
+ * Dismissals are kept on the server rather than in the browser, so a notice someone closed on their
+ * laptop doesn't come back on their phone. Only the version is kept: a changed notice shows again.
+ */
+export function dismissNotice(userId: number, version: number) {
+  // Never past the current version, so a made-up number can't hide notices not yet written.
+  version = Math.min(version, getNotice()?.version ?? 0);
+  db.prepare("UPDATE users SET notice_dismissed = MAX(notice_dismissed, ?) WHERE id = ?").run(version, userId);
 }
 
 export function saveSettings(next: Partial<Settings>) {

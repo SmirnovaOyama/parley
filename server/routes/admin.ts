@@ -4,7 +4,7 @@ import { baseSpendLimit, MAX_DOLLARS, SPEND_LIMIT_MODES } from "../allowance.ts"
 import { DOMAIN_RE, rewardDomain } from "../bonus.ts";
 import { DECLINED_SQL, getConversation, tx, viewPath } from "../chat-store.ts";
 import { encryptSecret, decryptSecret, hashPassword } from "../crypto.ts";
-import { audit, db, getSettings, nowIso, saveSettings, SHARING_MODES, startOfMonthIso, type Settings } from "../db.ts";
+import { audit, db, getNotice, getSettings, NOTICE_MAX, nowIso, saveNotice, saveSettings, SHARING_MODES, startOfMonthIso, type Settings } from "../db.ts";
 import { t } from "../i18n.ts";
 import { EFFORT_LABELS, OFF_BY_DEFAULT, PROVIDERS, SERVICES, featuresOf, findModel, findProvider, modelLabel, serviceName } from "../providers/catalog.ts";
 import { mailMode } from "../mail.ts";
@@ -970,7 +970,7 @@ function parseDollars(value: unknown): number | null | undefined {
   return Math.round(n * 100) / 100;
 }
 
-adminRoutes.get("/settings", (c) => c.json({ settings: getSettings(), mail: mailMode }));
+adminRoutes.get("/settings", (c) => c.json({ settings: getSettings(), mail: mailMode, notice: getNotice() }));
 
 adminRoutes.patch("/settings", async (c) => {
   const body = await c.req.json().catch(() => ({}));
@@ -1047,6 +1047,33 @@ adminRoutes.patch("/settings", async (c) => {
   if (next.retainChatsDays !== undefined || next.retainDeletedDays !== undefined) enforceRetention();
   audit(c.var.user!.id, "edit_settings");
   return c.json({ settings: getSettings(), mail: mailMode });
+});
+
+/** A notice as the activity log names it: its words, cut short. */
+const noticeTarget = (text: string) => (text.length > 80 ? `${text.slice(0, 79)}…` : text);
+
+// The site notice: one line of plain text everyone sees at the top of the app until they dismiss it.
+adminRoutes.put("/notice", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  // Shown on one line, so line breaks and runs of spaces become single spaces.
+  const text = typeof body.text === "string" ? body.text.replace(/\s+/g, " ").trim() : "";
+  if (!text) return c.json({ error: t("Write the notice first") }, 400);
+  if (text.length > NOTICE_MAX) return c.json({ error: t("Keep the notice to {max} characters", { max: NOTICE_MAX }) }, 400);
+  const before = getNotice();
+  if (before?.text !== text) {
+    saveNotice(text);
+    audit(c.var.user!.id, before ? "edit_notice" : "post_notice", noticeTarget(text));
+  }
+  return c.json({ notice: getNotice() });
+});
+
+adminRoutes.delete("/notice", (c) => {
+  const before = getNotice();
+  if (before) {
+    saveNotice(null);
+    audit(c.var.user!.id, "take_down_notice", noticeTarget(before.text));
+  }
+  return c.json({ notice: null });
 });
 
 adminRoutes.get("/audit", (c) => {

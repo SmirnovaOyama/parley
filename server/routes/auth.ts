@@ -3,7 +3,7 @@ import { endSession, requireUser, startSession, type AppEnv } from "../auth.ts";
 import { hashPassword, verifyPassword } from "../crypto.ts";
 import { allowanceOf } from "../allowance.ts";
 import { bonusOf, BonusError, pendingCode, rewardDomain, sendCode, verifyCode } from "../bonus.ts";
-import { db, getSettings, nowIso } from "../db.ts";
+import { db, dismissNotice, getSettings, noticeFor, nowIso } from "../db.ts";
 import { t } from "../i18n.ts";
 import { getInstructions } from "../instructions.ts";
 import { mailMode } from "../mail.ts";
@@ -215,7 +215,16 @@ authRoutes.post("/logout", (c) => {
   return c.json({ ok: true });
 });
 
-authRoutes.get("/me", requireUser, (c) => c.json({ user: c.var.user }));
+// The site notice comes with the account, so it's picked up on each page load without polling.
+authRoutes.get("/me", requireUser, (c) => c.json({ user: c.var.user, notice: noticeFor(c.var.user!.id) }));
+
+authRoutes.post("/notice/dismiss", requireUser, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const version = Number(body.version);
+  if (!Number.isInteger(version) || version < 1) return c.json({ error: t("That notice isn't there anymore") }, 400);
+  dismissNotice(c.var.user!.id, version);
+  return c.json({ ok: true });
+});
 
 // ── Where you're signed in (server/sessions.ts) ──
 

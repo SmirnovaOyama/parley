@@ -61,6 +61,7 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - Every chat, read-only and searchable. People are told admins can read chats (unless an admin turns that notice off), and every look is logged.
 - Replies the AI declined, gathered for review.
 - Usage and estimated cost by person, key and day.
+- A notice for everyone, such as planned maintenance or a new model: one line at the top of the app until each person dismisses it, and back again when its words change.
 - Site settings: the system prompt, sign-ups (with a code emailed to each new address, once the site can send email), how many devices an account can be signed in on, sharing, memory, how long chats are kept (including chats people deleted), and optional email rewards (extra allowance for verified addresses on domains you choose, like a school's).
 
 ## Scheduled tasks

@@ -87,7 +87,7 @@ function echoable(blocks: BetaContentBlockParam[]): BetaContentBlockParam[] {
 
 async function chat(req: ChatRequest): Promise<ChatResult> {
   const client = anthropicClient(req.apiKey, 2);
-  const supportsFallback = findModel("anthropic", req.model)?.fallbacks ?? false;
+  const supportsFallback = !req.exactModel && (findModel("anthropic", req.model)?.fallbacks ?? false);
 
   // "off" exists only for models that can stop thinking: Sonnet 5.5 says so with `between_tools`
   // (which takes no other thinking field), Haiku 5.5 with `disabled`. Both leave effort at the

@@ -47,6 +47,8 @@ export type HistoryAttachment = {
 
 export type ChatRequest = {
   apiKey: string;
+  /** Comparisons need this exact model, even when a provider offers automatic refusal fallback. */
+  exactModel?: boolean;
   /** A key on an OpenAI-compatible service of the admin's choosing: where that service is. */
   baseUrl?: string;
   model: string;

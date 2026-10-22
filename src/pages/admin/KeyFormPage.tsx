@@ -174,7 +174,7 @@ export function KeyFormPage() {
           shared: isDefault || shared === "everyone",
           fallbackKeyId: fallback === "none" ? null : Number(fallback),
           webSearch,
-          codeExecution: !!tools && codeExecution,
+          codeExecution,
         });
       } else if (existing) {
         await api.patch(`/admin/keys/${existing.id}`, {
@@ -185,7 +185,7 @@ export function KeyFormPage() {
           shared: isDefault || shared === "everyone",
           fallbackKeyId: fallback === "none" ? null : Number(fallback),
           webSearch,
-          codeExecution: !!tools && codeExecution,
+          codeExecution,
         });
       }
       slideTo("/admin/keys", "back");
@@ -373,19 +373,19 @@ export function KeyFormPage() {
                 </div>
                 <Switch id="key-web-search" checked={webSearch} onChange={setWebSearch} />
               </div>
-              {tools && (
-                <div className="oy-row">
-                  <div className="text">
-                    <label className="title" htmlFor="key-code">
-                      {t("Make files")}
-                    </label>
-                    <div className="desc">
-                      {t("{code} Works in chats started while some Claude or OpenAI key has it on", { code: tools.code })}
-                    </div>
+              <div className="oy-row">
+                <div className="text">
+                  <label className="title" htmlFor="key-code">
+                    {t("Make files")}
+                  </label>
+                  <div className="desc">
+                    {tools
+                      ? t("{code} Works in chats started while some Claude or OpenAI key has it on", { code: tools.code })
+                      : t("Writes text files people download, like a table as CSV, a page, notes or code. It can't run code, so it doesn't make spreadsheets, Word documents, PDFs or images")}
                   </div>
-                  <Switch id="key-code" checked={codeExecution} onChange={setCodeExecution} />
                 </div>
-              )}
+                <Switch id="key-code" checked={codeExecution} onChange={setCodeExecution} />
+              </div>
             </div>
 
             {/* The default key is everyone's: the choice stays in view, set to Everyone and resting. */}

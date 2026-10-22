@@ -5,8 +5,10 @@ import { AccountPage } from "./pages/AccountPage.tsx";
 import { AuthPage, ForgotPasswordPage, ResetPasswordPage } from "./pages/AuthPage.tsx";
 import { BonusPage } from "./pages/BonusPage.tsx";
 import { ChatPage } from "./pages/ChatPage.tsx";
+import { ComparePage } from "./pages/ComparePage.tsx";
 import { ChatSettingsPage } from "./pages/ChatSettingsPage.tsx";
 import { ChatsPage } from "./pages/ChatsPage.tsx";
+import { TaskFormPage, TasksPage } from "./pages/TasksPage.tsx";
 import { ConnectionsPage, ConnectionTokenPage } from "./pages/ConnectionsPage.tsx";
 import { DevicesPage } from "./pages/DevicesPage.tsx";
 import { TwoStepPage } from "./pages/TwoStepPage.tsx";
@@ -45,9 +47,13 @@ export function App() {
             <Route index element={<Navigate to="/chat" replace />} />
             {/* One route for a new chat and an open one, so the page survives the first reply's redirect. */}
             <Route path="chat/:id?" element={<ChatPage />} />
+            <Route path="compare/:id?" element={<ComparePage />} />
             {/* A chat's own settings; "new" is the chat about to start. */}
             <Route path="chat/:id/settings" element={<ChatSettingsPage />} />
             <Route path="chats" element={<ChatsPage />} />
+            <Route path="tasks" element={<TasksPage />} />
+            <Route path="tasks/new" element={<TaskFormPage />} />
+            <Route path="tasks/:id" element={<TaskFormPage />} />
             <Route path="settings" element={<AccountPage />} />
             <Route path="settings/bonus" element={<BonusPage />} />
             <Route path="settings/connections" element={<ConnectionsPage />} />

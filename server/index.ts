@@ -25,6 +25,7 @@ import { PREVIEW_SHELL, previewHeaders } from "./preview.ts";
 import { enforceRetention } from "./retention.ts";
 import { clearExpiredSessions } from "./sessions.ts";
 import { clearStaleSignupCodes } from "./signup-codes.ts";
+import { startTaskScheduler, taskRoutes } from "./tasks.ts";
 
 // Node gives up opening a connection after 10 seconds. Behind a slow proxy (common when reaching
 // the AI providers from some regions) the TLS handshake alone can take longer, so wait a minute.
@@ -100,6 +101,7 @@ app.route("/api", knowledgeRoutes);
 app.route("/api", meRoutes);
 app.route("/api", personaRoutes);
 app.route("/api", chatRoutes);
+app.route("/api", taskRoutes);
 app.all("/api/*", (c) => c.json({ error: t("Not found") }, 404));
 
 // What a phone or browser needs to add the site to a home screen or install it as an app, under
@@ -157,6 +159,8 @@ setInterval(() => {
   clearExpiredSessions();
   clearStaleSignupCodes();
 }, 60 * 60 * 1000).unref();
+
+startTaskScheduler();
 
 serve({ fetch: app.fetch, port: env.port }, (info) => {
   console.log(`API listening on http://localhost:${info.port}`);

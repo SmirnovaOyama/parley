@@ -1,5 +1,6 @@
 // The app's own tools in a chat, offered to every model as functions: memory, knowledge search, the
-// tools of MCP servers, and (for models without their own) web search and page reading. A chat's
+// tools of MCP servers, and (for models without their own) web search, page reading and saving
+// files. A chat's
 // list is settled when it starts (conversations.tool_defs), because Claude ties its reasoning to the
 // exact tools a chat declares; whether each one still works is decided when it's called.
 //
@@ -16,6 +17,7 @@ import { accountState, type AccountState } from "./mcp-auth.ts";
 import { checkFirst, cleanMemory, deleteMemory, keptMemory, memoryFull, memoryOn, notesToCheck, saveMemory } from "./memory.ts";
 import type { Source, ToolCall, ToolOutcome, ToolSpec } from "./providers/types.ts";
 import { db } from "./db.ts";
+import { MAX_FILES, safeName, typeOf, type Made } from "./files.ts";
 import { t } from "./i18n.ts";
 import { PROVIDERS } from "./providers/catalog.ts";
 import {
@@ -87,6 +89,34 @@ export const KNOWLEDGE_TOOL: ToolSpec = {
     required: ["query"],
   },
 };
+
+/**
+ * Writing out a file, for models that can't run code of their own: whatever they write as text
+ * becomes a download under the reply. Offered with each request while the key's "Make files" is on.
+ */
+export const FILE_TOOL: ToolSpec = {
+  name: "save_file",
+  description:
+    "Save a text file for the person to download: a table as .csv, a page as .html, notes as .md, data as .json, a drawing as .svg, or code. Write the whole file in content; saving the same name again replaces it. The file shows under your reply, so don't repeat its contents there: say in a sentence what it holds. Only text files can be saved, as you can't run code, so a spreadsheet goes out as .csv and a document as .md or .html.",
+  parameters: {
+    type: "object",
+    properties: {
+      name: { type: "string", description: "The file's name with its extension, like sales.csv" },
+      content: { type: "string", description: "Everything in the file" },
+    },
+    required: ["name", "content"],
+  },
+};
+
+/** Formats that aren't text, which save_file can't write, and the text form to use instead. */
+const NOT_TEXT: Record<string, string> = {
+  ".xlsx": ".csv", ".xls": ".csv", ".ods": ".csv", ".docx": ".md or .html", ".doc": ".md or .html", ".odt": ".md or .html",
+  ".pdf": ".md or .html", ".pptx": ".html", ".ppt": ".html", ".odp": ".html", ".png": ".svg", ".jpg": ".svg", ".jpeg": ".svg",
+  ".gif": ".svg", ".webp": ".svg", ".bmp": ".svg", ".ico": ".svg", ".tif": ".svg", ".tiff": ".svg", ".heic": ".svg",
+  ".zip": "separate files", ".gz": "separate files", ".tar": "separate files", ".7z": "separate files", ".rar": "separate files",
+};
+/** The most save_file keeps of one file. */
+const MAX_WRITTEN_BYTES = 5 * 1024 * 1024;
 
 /** The tools a new chat declares: memory while it's on, knowledge search when the person has any, and the MCP servers open to them. */
 export function toolsForNewChat(userId: number): DeclaredTool[] {
@@ -231,6 +261,8 @@ export function chatToolkit(opts: ToolkitOptions) {
   const refused = new Map<string, ToolOutcome>();
   /** Notes the model was asked to check for repeats in this reply: saving one again keeps it. */
   const checkedNotes = new Set<string>();
+  /** Files save_file wrote in this reply, by name: kept with the reply once it's saved. */
+  const written = new Map<string, Made>();
 
   /** Something from outside the person came in: from here on, notes wait for their OK. */
   const tookIn = () => void (outside = true);
@@ -262,12 +294,13 @@ export function chatToolkit(opts: ToolkitOptions) {
   }
 
   /**
-   * What a model is offered (the chat's tools, and web search and page reading where it has no
-   * search of its own) and a runner for those alone, as a request's functions and runTool. A name
-   * the model wasn't offered is refused, so naming web_search can't get round a key that has it off.
+   * What a model is offered (the chat's tools, web search and page reading where it has no search
+   * of its own, and save_file where it can't make files of its own) and a runner for those alone,
+   * as a request's functions and runTool. A name the model wasn't offered is refused, so naming
+   * web_search can't get round a key that has it off.
    */
-  function offer(webTools: boolean): { functions: ToolSpec[]; runTool: (call: ToolCall) => Promise<ToolOutcome> } {
-    const functions = [...declared, ...(webTools ? WEB_TOOLS : [])];
+  function offer(webTools: boolean, fileTool = false): { functions: ToolSpec[]; runTool: (call: ToolCall) => Promise<ToolOutcome> } {
+    const functions = [...declared, ...(webTools ? WEB_TOOLS : []), ...(fileTool ? [FILE_TOOL] : [])];
     const names = new Set(functions.map((f) => f.name));
     return { functions, runTool: async (call) => (names.has(call.name) ? run(call) : noTool(call.name)) };
   }
@@ -329,6 +362,20 @@ export function chatToolkit(opts: ToolkitOptions) {
     }
 
     switch (call.name) {
+      case "save_file": {
+        const name = safeName(String(input.name ?? ""));
+        const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")).toLowerCase() : "";
+        if (typeof input.content !== "string") return { content: "Write the file's contents in content, as text", isError: true };
+        if (!ext || name === "file") return { content: "Give the file a name with an extension, like notes.md", isError: true };
+        if (NOT_TEXT[ext]) return { content: `A ${ext} file can't be written as text. Save it as ${NOT_TEXT[ext]} instead`, isError: true };
+        const bytes = Buffer.from(input.content, "utf8");
+        if (bytes.length > MAX_WRITTEN_BYTES) return { content: "That's over 5 MB, too big to save. Split it into smaller files", isError: true };
+        if (!written.has(name) && written.size >= MAX_FILES) return { content: `That's ${MAX_FILES} files in this reply already, the most one reply can save`, isError: true };
+        opts.onStatus("tool", t("Writing {name}", { name }));
+        const mime = typeOf(name);
+        written.set(name, { name, mime: mime === "application/octet-stream" ? "text/plain" : mime, bytes });
+        return { content: `Saved ${name}. The person can download it under your reply` };
+      }
       case "memory": {
         if (!byName.has("memory")) break;
         if (!memoryOn(opts.userId)) return { content: "Memory is turned off for this person now. Don't save or delete notes", isError: true };
@@ -464,5 +511,5 @@ export function chatToolkit(opts: ToolkitOptions) {
     }
   }
 
-  return { offer, uses, searches, found, pageUrls, tookIn };
+  return { offer, uses, searches, found, pageUrls, tookIn, written: () => [...written.values()] };
 }

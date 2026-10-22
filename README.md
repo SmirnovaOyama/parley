@@ -29,9 +29,11 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 
 **For people**
 - Chat with any model their admins allow, and pick the model and how hard it thinks, chat by chat.
+- Compare two or three models on the same question and attachments, with independently streamed answers, stopping and retrying, then continue with an answer in its own chat
+- Schedule a prompt once, daily or on chosen weekdays, with an explicit timezone and model, pause or resume it, run it now, and open each saved answer from its run history
 - Attach images, PDFs and text files. Each model opens what it can, and the composer says when one can't.
 - See the model's reasoning, folded above the reply, for models that share it.
-- Let Claude and OpenAI models search the web with cited sources, or run code to make files to download (when an admin turns it on). Other models search and read pages through a search service the admin picks.
+- Let Claude and OpenAI models search the web with cited sources, or run code to make files to download (when an admin turns it on). Other models search and read pages through a search service the admin picks, and write text files to download, such as CSV tables, pages, notes and code.
 - Edit a message or regenerate a reply without losing the earlier version.
 - Set instructions for every chat (about you, how to answer) or for one chat.
 - Keep chats in projects: folders with their own instructions and knowledge that every chat in them shares.
@@ -60,6 +62,15 @@ Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node
 - Replies the AI declined, gathered for review.
 - Usage and estimated cost by person, key and day.
 - Site settings: the system prompt, sign-ups (with a code emailed to each new address, once the site can send email), how many devices an account can be signed in on, sharing, memory, how long chats are kept (including chats people deleted), and optional email rewards (extra allowance for verified addresses on domains you choose, like a school's).
+
+## Scheduled tasks
+
+Tasks run in the server process, so the browser may close but the server must stay online
+The scheduler checks every 15 seconds and catches up at most one missed run per task after downtime
+A run interrupted by a restart is recorded without automatically trying the provider again
+Each run starts a separate chat and uses the same access checks and allowance as ordinary chats
+Unattended runs do not write memories or call connected-service tools, and requests requiring approval are denied
+A task can email its owner after each scheduled run, with the answer or why it didn't finish, when the site can send email
 
 ## AI providers
 

@@ -19,12 +19,6 @@ type Props = {
   onChange: (share: Share | null) => void;
 };
 
-const WHO: Record<SharingMode, string> = {
-  anyone: t("Anyone with the link"),
-  "signed-in": t("People signed in here"),
-  off: t("Nobody"),
-};
-
 /**
  * On a chat's settings page: make a read-only link to the chat as it is now, copy it, bring it up
  * to date, or stop sharing. Later messages stay private until the link is updated.
@@ -75,15 +69,22 @@ export function SharePanel({ conversationId, share, upToDate, sharing, busy, emp
   };
 
   if (!share) {
+    // Translate the whole sentence so the audience never gains extra spaces in Chinese.
+    const description = sharing === "anyone"
+      ? t("Share this chat as read-only with anyone who has the link")
+      : sharing === "signed-in"
+        ? t("Share this chat as read-only with people signed in here")
+        : t("An admin has turned sharing off, so the link doesn't open for now");
     return (
       <div className="settings-panel">
         <p className="settings-text">
           {stopped
-            ? t("Sharing stopped. The old link no longer opens")
+            ? t("Sharing stopped, the old link no longer opens")
             : empty
               ? t("Once there's something in this chat, you can make a read-only link to it")
-              : t("Make a read-only link to this chat as it is now. {WHO} can open it. What you send later stays private until you update the link", { WHO: WHO[sharing] })}
+              : description}
         </p>
+        {!stopped && !empty && sharing !== "off" && <p className="settings-text">{t("Later messages stay private until you update the link")}</p>}
         {error && <p className="settings-text text-danger">{error}</p>}
         {!empty && (
           <div className="form-page-actions">
@@ -100,8 +101,10 @@ export function SharePanel({ conversationId, share, upToDate, sharing, busy, emp
     sharing === "off"
       ? t("An admin has turned sharing off, so the link doesn't open for now")
       : upToDate
-        ? t("Shared on {sharedAt}. {WHO} can read it", { sharedAt: longDate(share.sharedAt), WHO: WHO[sharing] })
-        : t("Shared on {sharedAt}. The chat has changed since, so the link shows the earlier version", { sharedAt: longDate(share.sharedAt) });
+        ? sharing === "anyone"
+          ? t("Shared on {sharedAt}, anyone with the link can read it", { sharedAt: longDate(share.sharedAt) })
+          : t("Shared on {sharedAt}, people signed in here can read it", { sharedAt: longDate(share.sharedAt) })
+        : t("Shared on {sharedAt}, update the link to include newer messages", { sharedAt: longDate(share.sharedAt) });
 
   return (
     <div className="settings-panel">

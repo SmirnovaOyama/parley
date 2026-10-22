@@ -11,6 +11,10 @@ A container's disk starts empty every time it starts, so Parley's data is kept i
 
 The container runs in Western North America, where Claude and OpenAI take requests. It goes to sleep after an hour without visitors, when it costs nothing, and the first visit after that waits a few seconds while it starts.
 
+Scheduled tasks cannot wake a sleeping container and only run while it is awake
+After a visitor wakes it, each task catches up at most one missed run
+For tasks that must run at the selected time, use a server that stays online
+
 ## What it costs
 
 Roughly, at [Cloudflare's prices](https://developers.cloudflare.com/containers/pricing/) in October 2026:

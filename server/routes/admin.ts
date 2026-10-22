@@ -217,8 +217,8 @@ adminRoutes.post("/keys", async (c) => {
   const shared = makeDefault || body.shared !== false;
   // Claude and OpenAI search with their own tool; other models through the site's search service, once it's set up.
   const webSearch = body.webSearch === true;
-  // Only Claude and OpenAI make files.
-  const codeExecution = !!provider.tools && body.codeExecution === true;
+  // Claude and OpenAI make files by running code; other models write them out as text.
+  const codeExecution = body.codeExecution === true;
   // Another service offers every model listed for it.
   const known = modelsOf(draft).map((m) => m.id);
   const models = parseModels(endpoint ? known : body.models, known, model);
@@ -275,7 +275,7 @@ adminRoutes.patch("/keys/:id", async (c) => {
   const isDefault = body.isDefault === true || !!key.is_default;
   const shared = isDefault || (body.shared !== undefined ? body.shared !== false : !!key.shared);
   const webSearch = body.webSearch !== undefined ? body.webSearch === true : !!key.web_search;
-  const codeExecution = !!provider.tools && (body.codeExecution !== undefined ? body.codeExecution === true : !!key.code_execution);
+  const codeExecution = body.codeExecution !== undefined ? body.codeExecution === true : !!key.code_execution;
   // A new starting model joins the list even when the list itself wasn't sent. Another service
   // offers every model listed for it.
   const known = modelsOf(draft).map((m) => m.id);

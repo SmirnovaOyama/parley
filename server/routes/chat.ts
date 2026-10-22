@@ -3,7 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
-import { requireUser, type AppEnv } from "../auth.ts";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { requireUser, type AppEnv, type SessionUser } from "../auth.ts";
 import {
   declinedBy,
   getConversation,
@@ -18,6 +19,7 @@ import {
   viewPath,
   type ConversationRow,
   type MessageRow,
+  type PublicMessage,
 } from "../chat-store.ts";
 import { allowanceOf, overLimitMessage } from "../allowance.ts";
 import { searchChats } from "../chat-search.ts";
@@ -38,7 +40,7 @@ import {
 } from "../instructions.ts";
 import { maybeRetitle } from "../titles.ts";
 import { shareOf, shareOut, shareUpTo, stopSharing } from "../shares.ts";
-import { fileHeaders, keepFiles, storedFile } from "../files.ts";
+import { fileHeaders, keepFiles, keepWrittenFiles, storedFile } from "../files.ts";
 import {
   attachTo,
   discardUpload,
@@ -58,6 +60,7 @@ import { answerAsk, askPerson, asksOf } from "../asks.ts";
 import { chatContext, chatToolkit, codeOnSite, declaredOf, searchOnSite, toolsForNewChat, type ToolUse } from "../tools.ts";
 import { searchServiceReady } from "../web-tools.ts";
 import { purgeConversations } from "../retention.ts";
+import { comparisonOut, comparisonRun, continuedRun, exactChoice, ownComparison, type ComparisonRow } from "../comparisons.ts";
 
 export const chatRoutes = new Hono<AppEnv>();
 chatRoutes.use("*", requireUser);
@@ -78,7 +81,7 @@ const HOUR_MS = 60 * MINUTE_MS;
 const HEARTBEAT_MS = 20_000;
 
 /** Replies being written right now, so a person can stop one or come back to it. */
-const generating = new Map<string, { controller: AbortController; userId: number }>();
+const generating = new Map<string, { controller: AbortController; userId: number; comparisonId?: string }>();
 const recentSends = new Map<number, number[]>();
 const hourSends = new Map<number, number[]>();
 const recentUploads = new Map<number, number[]>();
@@ -109,6 +112,14 @@ function repliesUnderway(userId: number): number {
   return n;
 }
 
+/** Checks temporary capacity without spending it, so a scheduled occurrence can wait its turn. */
+export function chatCapacityAvailable(userId: number): boolean {
+  const now = Date.now();
+  return repliesUnderway(userId) < REPLIES_AT_ONCE &&
+    (recentSends.get(userId) ?? []).filter((at) => now - at < MINUTE_MS).length < MESSAGES_PER_MINUTE &&
+    (hourSends.get(userId) ?? []).filter((at) => now - at < HOUR_MS).length < MESSAGES_PER_HOUR;
+}
+
 /** The models this person can pick from, and which one new chats start with. */
 chatRoutes.get("/models", (c) => {
   const userId = c.var.user!.id;
@@ -118,6 +129,104 @@ chatRoutes.get("/models", (c) => {
     choices: pickerChoices(keys),
     start: start ? { keyId: start.id, model: start.model, effort: start.effort } : null,
   });
+});
+
+const comparisonActivity = (conversationId: string, comparisonId: string) => {
+  const active = generating.get(conversationId)?.comparisonId === comparisonId;
+  return { generating: active, asks: active ? asksOf(conversationId) : [] };
+};
+
+chatRoutes.get("/comparisons", (c) => {
+  const rows = db.prepare("SELECT * FROM comparisons WHERE user_id = ? ORDER BY updated_at DESC LIMIT 500").all(c.var.user!.id) as ComparisonRow[];
+  return c.json({ comparisons: rows.map((r) => ({ id: r.id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at })) });
+});
+
+chatRoutes.get("/comparisons/:id", (c) => {
+  const row = ownComparison(c.req.param("id"), c.var.user!.id);
+  if (!row) return c.json({ error: t("This comparison doesn't exist") }, 404);
+  return c.json(comparisonOut(row, comparisonActivity));
+});
+
+/** Creates every column before any provider is called, so failures and leaving the page are recoverable. */
+chatRoutes.post("/comparisons", async (c) => {
+  const userId = c.var.user!.id;
+  const body = await c.req.json().catch(() => null);
+  if (!body || typeof body !== "object" || !Array.isArray(body.choices) || body.choices.length < 2 || body.choices.length > 3) {
+    return c.json({ error: t("Pick two or three models to compare") }, 400);
+  }
+  const keys: KeyRow[] = [];
+  for (const choice of body.choices) {
+    const key = exactChoice(userId, choice);
+    if (!key) return c.json({ error: t("One of the selected models or thinking levels is no longer available") }, 400);
+    if (keys.some((k) => k.id === key.id && k.model === key.model)) return c.json({ error: t("Pick a different model for each answer") }, 400);
+    keys.push(key);
+  }
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (text.length > MAX_MESSAGE_CHARS) return c.json({ error: t("That message is too long") }, 400);
+  const files = pickAttachments(userId, null, body.attachments);
+  if (!Array.isArray(files)) return c.json(files, 400);
+  if (!text && !files.length) return c.json({ error: t("Write a message first") }, 400);
+  const codeTool = codeOnSite();
+  for (const key of keys) {
+    const error = unreadable(files, key, keyModelLabel(key, key.model), codeTool);
+    if (error) return c.json({ error }, 400);
+  }
+  const overLimit = overLimitMessage(allowanceOf(userId));
+  if (overLimit) return c.json({ error: overLimit }, 429);
+  const instructions = body.instructions === undefined ? getInstructions(userId) : cleanInstructions(body.instructions);
+  if (!instructions) return c.json({ error: t("Keep each instruction under 1500 characters") }, 400);
+  const project = body.projectId ? ownProject(body.projectId, userId) : undefined;
+  if (body.projectId && !project) return c.json({ error: t("That project doesn't exist") }, 404);
+  if (body.knowledgeIds !== undefined && !Array.isArray(body.knowledgeIds)) return c.json({ error: t("Pick the knowledge bases for this chat") }, 400);
+  const knowledgeIds = [...new Set<string>((body.knowledgeIds ?? []).map(String))];
+  if (knowledgeIds.some((id) => !canUse(getBase(id), userId))) return c.json({ error: t("One of those knowledge bases isn't yours to use") }, 400);
+
+  // All columns copy one starting context, just as a normal new chat does. A model's own search
+  // and code switches still apply; tools and knowledge have their usual permission checks.
+  const id = randomUUID();
+  const title = titleFrom(text || files.map((f) => f.name).join(", "));
+  const now = nowIso();
+  const searchTool = searchOnSite();
+  const toolDefs = toolsForNewChat(userId);
+  const memory = memoryOn(userId) ? memoryPrompt(userId) : null;
+  tx(() => {
+    db.prepare("INSERT INTO comparisons (id, user_id, title, text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(id, userId, title, text, now, now);
+    let firstPromptId: number | null = null;
+    let system = "";
+    let sealed = "";
+    for (const [position, key] of keys.entries()) {
+      const conversationId = randomUUID();
+      db.prepare(
+        `INSERT INTO conversations (id, user_id, title, api_key_id, model, effort, system_prompt, chat_instructions,
+           sealed_instructions, web_search_tool, code_tool, project_id, tool_defs, title_auto, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, '', ?, NULL, ?, ?, ?, ?, 0, ?, ?)`,
+      ).run(conversationId, userId, title, key.id, key.model, key.effort, instructionsJson(instructions),
+        searchTool ? 1 : 0, codeTool ? 1 : 0, project?.id ?? null, toolDefs.length ? JSON.stringify(toolDefs) : null, now, now);
+      const link = db.prepare("INSERT INTO conversation_knowledge (conversation_id, kb_id) VALUES (?, ?)");
+      for (const kb of knowledgeIds) link.run(conversationId, kb);
+      if (position === 0) {
+        const setting = chatSetting(instructions, userId, conversationId, project?.id ?? null);
+        sealed = instructionsJson(setting);
+        system = systemPromptFor(setting, memory);
+      }
+      db.prepare("UPDATE conversations SET system_prompt = ?, sealed_instructions = ? WHERE id = ?").run(system, sealed, conversationId);
+      const searchOff = searchTool && !key.web_search && (hasTools(key.provider) || searchServiceReady());
+      const codeOff = codeTool && hasTools(key.provider) && !key.code_execution;
+      const promptId = Number(db.prepare(
+        "INSERT INTO messages (conversation_id, role, text, search_off, code_off, created_at) VALUES (?, 'user', ?, ?, ?, ?)",
+      ).run(conversationId, text, searchOff ? 1 : 0, codeOff ? 1 : 0, now).lastInsertRowid);
+      // The first message takes ownership of the pending uploads; later columns reference the
+      // same bytes with their own attachment rows, as editing a message already does.
+      attachTo(promptId, firstPromptId == null ? files : files.map((file) => ({ ...file, message_id: firstPromptId })));
+      firstPromptId ??= promptId;
+      db.prepare("UPDATE conversations SET head_id = ? WHERE id = ?").run(promptId, conversationId);
+      db.prepare(
+        `INSERT INTO comparison_runs (comparison_id, position, conversation_id, prompt_message_id, key_id, model, effort, label)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(id, position, conversationId, promptId, key.id, key.model, key.effort, keyModelLabel(key, key.model));
+    }
+  });
+  return c.json(comparisonOut(ownComparison(id, userId)!, comparisonActivity));
 });
 
 chatRoutes.get("/conversations", (c) => {
@@ -159,6 +268,7 @@ chatRoutes.get("/conversations/:id", (c) => {
       keyId: conv.api_key_id,
       model: conv.model,
       effort: conv.effort,
+      comparisonId: comparisonRun(conv.id)?.comparison_id ?? null,
       instructions: personalOnly(parseInstructions(conv.chat_instructions)),
       project: conv.project_id ? projectOut(conv.project_id, conv.user_id) : null,
       knowledgeIds: (db.prepare("SELECT kb_id FROM conversation_knowledge WHERE conversation_id = ?").all(conv.id) as { kb_id: string }[]).map((r) => r.kb_id),
@@ -368,8 +478,26 @@ chatRoutes.post("/conversations/:id/asks/:askId", async (c) => {
   return c.json({ ok: true });
 });
 
+/** A request that cannot start, before a provider is called. */
+export class ChatStartError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ChatStartError";
+    this.status = status;
+  }
+}
+
+type ChatSender = (event: string, data: unknown) => Promise<void>;
+export type PreparedChat = {
+  conversationId: string;
+  cancel: () => void;
+  run: (send?: ChatSender) => Promise<PublicMessage>;
+};
+
 /**
- * Sends a message and streams the reply. Three ways in:
+ * Prepares a reply and reserves its slot, for a browser or background caller. Three ways in:
  * - `text`: a new message at the end of the branch on screen (or the first of a new chat);
  * - `text` + `parentId`: an edit, a new version of the message that followed `parentId`
  *   (null for the first message), so the old version and its replies stay as a branch;
@@ -377,23 +505,36 @@ chatRoutes.post("/conversations/:id/asks/:askId", async (c) => {
  * A new message or an edit can carry `attachments`: ids of files uploaded for it, or (editing)
  * of files on a message in this chat, which the new version keeps.
  */
-chatRoutes.post("/chat", async (c) => {
-  const user = c.var.user!;
-  const body = await c.req.json().catch(() => ({}));
+export async function prepareChat(
+  user: SessionUser,
+  body: Record<string, unknown>,
+  options: { unattended?: boolean; title?: string } = {},
+): Promise<PreparedChat> {
+  // This option belongs to trusted server callers, never to the HTTP body.
+  const unattended = options.unattended === true;
+  if (unattended) {
+    const account = db.prepare("SELECT id, email, role, disabled FROM users WHERE id = ?").get(user.id) as (SessionUser & { disabled: number }) | undefined;
+    if (!account || account.disabled) throw new ChatStartError(403, t("This account is turned off. Ask an admin"));
+    user = { id: account.id, email: account.email, role: account.role };
+  }
   const regenerate = body.regenerate != null ? Number(body.regenerate) : null;
   const editing = regenerate == null && body.parentId !== undefined;
   const text = String(body.text ?? "").trim();
-  if (text.length > MAX_MESSAGE_CHARS) return c.json({ error: t("That message is too long") }, 400);
+  if (text.length > MAX_MESSAGE_CHARS) throw new ChatStartError(400, t("That message is too long"));
+
+  if (unattended && (body.conversationId != null || body.regenerate != null || body.parentId !== undefined || body.comparisonId !== undefined)) {
+    throw new ChatStartError(400, t("Scheduled tasks start a new chat each time"));
+  }
 
   let conversationId = body.conversationId ? String(body.conversationId) : null;
   const existing = conversationId ? ownConversation(conversationId, user.id) : undefined;
-  if (conversationId && !existing) return c.json({ error: t("This chat doesn't exist") }, 404);
+  if (conversationId && !existing) throw new ChatStartError(404, t("This chat doesn't exist"));
   const files = regenerate == null ? pickAttachments(user.id, existing?.id ?? null, body.attachments) : [];
-  if (!Array.isArray(files)) return c.json(files, 400);
-  if (regenerate == null && !text && !files.length) return c.json({ error: t("Write a message first") }, 400);
-  if ((editing || regenerate != null) && !existing) return c.json({ error: t("This chat doesn't exist") }, 404);
+  if (!Array.isArray(files)) throw new ChatStartError(400, files.error);
+  if (regenerate == null && !text && !files.length) throw new ChatStartError(400, t("Write a message first"));
+  if ((editing || regenerate != null) && !existing) throw new ChatStartError(404, t("This chat doesn't exist"));
   if (conversationId && generating.has(conversationId)) {
-    return c.json({ error: t("A reply is still being written in this chat") }, 409);
+    throw new ChatStartError(409, t("A reply is still being written in this chat"));
   }
 
   // Where the new message (or regenerated reply) attaches in the tree.
@@ -401,14 +542,14 @@ chatRoutes.post("/chat", async (c) => {
   if (regenerate != null) {
     const prompt = getMessage(regenerate);
     if (!prompt || prompt.conversation_id !== conversationId || prompt.role !== "user") {
-      return c.json({ error: t("That message isn't in this chat") }, 400);
+      throw new ChatStartError(400, t("That message isn't in this chat"));
     }
     parentId = prompt.id;
   } else if (editing) {
     parentId = body.parentId === null ? null : Number(body.parentId);
     const parent = parentId == null ? null : getMessage(parentId);
     if (parentId != null && (!parent || parent.conversation_id !== conversationId || parent.role !== "assistant")) {
-      return c.json({ error: t("That message isn't in this chat") }, 400);
+      throw new ChatStartError(400, t("That message isn't in this chat"));
     }
   }
 
@@ -417,26 +558,44 @@ chatRoutes.post("/chat", async (c) => {
   const available = availableKeys(user.id);
   const requested = body.keyId != null ? Number(body.keyId) : (existing?.api_key_id ?? null);
   const picked = available.find((k) => k.id === requested) ?? startingKey(user.id, available);
-  if (!picked) return c.json({ error: t("No AI model is set up yet. Ask an admin to add one") }, 409);
+  if (!picked) throw new ChatStartError(409, t("No AI model is set up yet. Ask an admin to add one"));
   const sameKey = existing?.api_key_id === picked.id;
-  const key = withChoice(
+  let key = withChoice(
     picked,
     body.model != null ? String(body.model) : sameKey ? existing?.model : null,
     body.effort != null ? String(body.effort) : sameKey ? existing?.effort : null,
   );
+  const comparisonId = typeof body.comparisonId === "string" ? body.comparisonId : undefined;
+  if (body.comparisonId !== undefined) {
+    if (!comparisonId || !ownComparison(comparisonId, user.id)) throw new ChatStartError(404, t("This comparison doesn't exist"));
+    const run = existing && comparisonRun(existing.id);
+    if (!run || run.comparison_id !== comparisonId || regenerate !== run.prompt_message_id ||
+        body.keyId !== run.key_id || body.model !== run.model || body.effort !== run.effort) {
+      throw new ChatStartError(400, t("This answer doesn't match the comparison"));
+    }
+    if (continuedRun(run, existing!)) throw new ChatStartError(409, t("This chat has continued since the comparison"));
+    const exact = exactChoice(user.id, { keyId: run.key_id, model: run.model, effort: run.effort });
+    if (!exact) throw new ChatStartError(409, t("This model is no longer available for the comparison"));
+    key = exact;
+  }
+  if (unattended) {
+    const exact = exactChoice(user.id, body);
+    if (!exact) throw new ChatStartError(409, t("The selected model or thinking level is no longer available"));
+    key = exact;
+  }
   const codeTool = existing ? !!existing.code_tool : codeOnSite();
   // The files the model has to open for this reply: the new message's, or the regenerated one's.
   const messageFiles = regenerate == null ? files : historyAttachments(regenerate);
   const cantRead = unreadable(messageFiles, key, keyModelLabel(key, key.model), codeTool);
-  if (cantRead) return c.json({ error: cantRead }, 400);
+  if (cantRead) throw new ChatStartError(400, cantRead);
   const overLimit = overLimitMessage(allowanceOf(user.id));
-  if (overLimit) return c.json({ error: overLimit }, 429);
+  if (overLimit) throw new ChatStartError(429, overLimit);
   if (repliesUnderway(user.id) >= REPLIES_AT_ONCE) {
-    return c.json({ error: t("{REPLIES_AT_ONCE} replies are being written for you already. Wait for one to finish", { REPLIES_AT_ONCE }) }, 429);
+    throw new ChatStartError(429, t("{REPLIES_AT_ONCE} replies are being written for you already. Wait for one to finish", { REPLIES_AT_ONCE }));
   }
-  if (rateLimited(user.id)) return c.json({ error: t("You're sending messages quickly. Wait a moment and try again") }, 429);
+  if (rateLimited(user.id)) throw new ChatStartError(429, t("You're sending messages quickly. Wait a moment and try again"));
   if (rateLimited(user.id, hourSends, MESSAGES_PER_HOUR, HOUR_MS)) {
-    return c.json({ error: t("You've sent {MESSAGES_PER_HOUR} messages in the last hour. Try again a little later", { MESSAGES_PER_HOUR }) }, 429);
+    throw new ChatStartError(429, t("You've sent {MESSAGES_PER_HOUR} messages in the last hour. Try again a little later", { MESSAGES_PER_HOUR }));
   }
 
   // A new chat starts with the instructions set on its page, or the person's defaults in Settings, in
@@ -444,17 +603,17 @@ chatRoutes.post("/chat", async (c) => {
   let startInstructions = getInstructions(user.id);
   if (!existing && body.instructions !== undefined) {
     const cleaned = cleanInstructions(body.instructions);
-    if (!cleaned) return c.json({ error: t("Keep each instruction under 1500 characters") }, 400);
+    if (!cleaned) throw new ChatStartError(400, t("Keep each instruction under 1500 characters"));
     startInstructions = cleaned;
   }
   const startProject = !existing && body.projectId ? ownProject(body.projectId, user.id) : undefined;
-  if (!existing && body.projectId && !startProject) return c.json({ error: t("That project doesn't exist") }, 404);
+  if (!existing && body.projectId && !startProject) throw new ChatStartError(404, t("That project doesn't exist"));
   const startKnowledge = !existing && Array.isArray(body.knowledgeIds) ? [...new Set((body.knowledgeIds as unknown[]).map(String))] : [];
-  if (startKnowledge.some((id) => !canUse(getBase(id), user.id))) return c.json({ error: t("One of those knowledge bases isn't yours to use") }, 400);
+  if (startKnowledge.some((id) => !canUse(getBase(id), user.id))) throw new ChatStartError(400, t("One of those knowledge bases isn't yours to use"));
 
   const now = nowIso();
   const created = !conversationId;
-  const title = created ? titleFrom(text || files.map((f) => f.name).join(", ")) : existing!.title;
+  const title = created ? options.title?.trim() || titleFrom(text || files.map((f) => f.name).join(", ")) : existing!.title;
   // Whether this chat declares web search is settled when it starts: yes while any Claude or OpenAI
   // key has search on. It never changes after (see db.ts); each key's switch then decides. Claude
   // needs this, because it ties its reasoning to the tools a chat declares. GPT's history goes
@@ -476,17 +635,19 @@ chatRoutes.post("/chat", async (c) => {
   const current = existing ? settingOf(existing, personalOnly(parseInstructions(existing.chat_instructions)), before!) : null;
   const changedInstructions = existing && regenerate == null && !sameInstructions(current!, before!) ? instructionsJson(current!) : null;
   // The app's own tools a new chat declares: settled now, for good (see db.ts).
-  const toolDefs = existing ? declaredOf(existing.tool_defs) : toolsForNewChat(user.id);
+  const offeredTools = existing ? declaredOf(existing.tool_defs) : toolsForNewChat(user.id);
+  // Scheduled replies can search the person's documents, but cannot change memory or use MCP.
+  const toolDefs = unattended ? offeredTools.filter((tool) => tool.name === "search_knowledge" && !tool.mcp) : offeredTools;
   const userMessageId = tx(() => {
     if (!conversationId) {
       conversationId = randomUUID();
       db.prepare(
         `INSERT INTO conversations (id, user_id, title, api_key_id, model, effort, system_prompt, chat_instructions,
-           sealed_instructions, web_search_tool, code_tool, project_id, tool_defs, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, '', ?, NULL, ?, ?, ?, ?, ?, ?)`,
+           sealed_instructions, web_search_tool, code_tool, project_id, tool_defs, title_auto, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, '', ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         conversationId, user.id, title, key.id, key.model, key.effort, instructionsJson(startInstructions),
-        searchTool ? 1 : 0, codeTool ? 1 : 0, startProject?.id ?? null, toolDefs.length ? JSON.stringify(toolDefs) : null, now, now,
+        searchTool ? 1 : 0, codeTool ? 1 : 0, startProject?.id ?? null, toolDefs.length ? JSON.stringify(toolDefs) : null, unattended ? 0 : 1, now, now,
       );
       const link = db.prepare("INSERT INTO conversation_knowledge (conversation_id, kb_id) VALUES (?, ?)");
       for (const id of startKnowledge) link.run(conversationId, id);
@@ -518,35 +679,13 @@ chatRoutes.post("/chat", async (c) => {
   const convId = conversationId!;
 
   const controller = new AbortController();
-  generating.set(convId, { controller, userId: user.id });
+  generating.set(convId, { controller, userId: user.id, comparisonId });
 
-  return streamSSE(c, async (stream) => {
-    // Writes go out in order; once the browser leaves they're skipped, but the reply carries on
-    // and is saved, so it's there when the person comes back.
-    let queue = Promise.resolve();
-    const send = (event: string, data: unknown) => {
-      queue = queue.then(async () => {
-        if (stream.aborted || stream.closed) return;
-        try {
-          await stream.writeSSE({ event, data: JSON.stringify(data) });
-        } catch {
-          // The browser went away.
-        }
-      });
-      return queue;
-    };
-    const heartbeat = setInterval(() => {
-      queue = queue.then(async () => {
-        if (stream.aborted || stream.closed) return clearInterval(heartbeat);
-        try {
-          await stream.write(": keep-alive\n\n");
-        } catch {
-          // The browser went away.
-        }
-      });
-    }, HEARTBEAT_MS);
-    heartbeat.unref();
-
+  const release = () => {
+    // A later reply may already own the conversation while this one finishes naming it.
+    if (generating.get(convId)?.controller === controller) generating.delete(convId);
+  };
+  const execute = async (send: ChatSender): Promise<PublicMessage> => {
     await send("meta", {
       conversationId: convId,
       title,
@@ -586,15 +725,18 @@ chatRoutes.post("/chat", async (c) => {
       conversationId: convId,
       declared: toolDefs,
       context: chatContext(pathTo(userMessageId)),
-      ask: (question) => askPerson(convId, question, controller.signal, (asks) => void send("asks", { asks })),
+      ask: (question) => unattended ? Promise.resolve("deny") : askPerson(convId, question, controller.signal, (asks) => void send("asks", { asks })),
       signal: controller.signal,
       onStatus: (status, detail) => void send("status", { status, detail }),
     });
     const webToolsFor = (k: KeyRow) => searchTool && searchAllowed && !hasTools(k.provider) && !!k.web_search && searchServiceReady();
+    // Models that can't run code write files out as text instead, while their key's "Make files" is on.
+    const fileToolFor = (k: KeyRow) => !hasTools(k.provider) && !!k.code_execution;
 
     // Claude reads attached files from its own account, and OpenAI's sandbox takes them from its
     // account when the reply can run code: any not uploaded there yet go first. If the account lost
-    // one (deleted there), they're uploaded again and the reply tried once more.
+    // one (deleted there), ordinary chats upload again and try once more. Comparison retries stay
+    // explicit, since repeating a reply could run a memory or MCP action a second time.
     const attempt = async (k: KeyRow): Promise<ChatResult> => {
       const apiKey = decryptSecret(k.encrypted_key);
       const withFiles =
@@ -609,7 +751,7 @@ chatRoutes.post("/chat", async (c) => {
       try {
         return await run();
       } catch (err) {
-        if (!withFiles || partial || controller.signal.aborted || !lostFile(err)) throw err;
+        if (unattended || comparisonId || !withFiles || partial || controller.signal.aborted || !lostFile(err)) throw err;
         forgetProviderFiles(apiKey, history);
         return await run();
       }
@@ -617,6 +759,7 @@ chatRoutes.post("/chat", async (c) => {
     const ask = (k: KeyRow, apiKey: string, fileIds: Map<string, string> | undefined) =>
       getProvider(k.provider).chat({
         apiKey,
+        exactModel: unattended || !!comparisonId,
         baseUrl: endpointOf(k)?.baseUrl,
         reads: opensOf(k),
         cacheKey: convId,
@@ -632,7 +775,7 @@ chatRoutes.post("/chat", async (c) => {
         codeTool,
         codeAllowed,
         container: containerFor(k),
-        ...kit.offer(webToolsFor(k)),
+        ...kit.offer(webToolsFor(k), fileToolFor(k)),
         onText: (delta) => {
           if (thinkingStarted && thinkingMs == null) thinkingMs = Date.now() - thinkingStarted;
           partial += delta;
@@ -660,11 +803,11 @@ chatRoutes.post("/chat", async (c) => {
     let failure: string | null = null;
     try {
       try {
-        result = await attempt(key);
+        if (!controller.signal.aborted) result = await attempt(key);
       } catch (err) {
         // Before any text has arrived, a key or provider failure moves to the backup key once.
         const backup = keyById(key.fallback_key_id);
-        if (controller.signal.aborted || partial || !backup || backup.id === key.id || !shouldUseBackup(err)) throw err;
+        if (unattended || comparisonId || controller.signal.aborted || partial || !backup || backup.id === key.id || !shouldUseBackup(err)) throw err;
         // A backup that can't open this message's files would answer without them.
         if (unreadable(messageFiles, backup, "", codeTool)) throw err;
         console.error(`[chat] ${key.provider}/${key.model} failed, trying backup "${backup.label}":`, err);
@@ -683,8 +826,6 @@ chatRoutes.post("/chat", async (c) => {
         failure = describeProviderError(err) + (user.role === "admin" ? ` ${t("(key “{label}”)", { label: used.label })}` : "");
         console.error(`[chat] ${used.provider}/${used.model} failed:`, err);
       }
-    } finally {
-      generating.delete(convId);
     }
 
     if (thinkingStarted && thinkingMs == null) thinkingMs = Date.now() - thinkingStarted;
@@ -708,6 +849,7 @@ chatRoutes.post("/chat", async (c) => {
       key: used,
       partial,
       result,
+      stopped: controller.signal.aborted,
       failure,
       note: sentences(notes) || null,
       thinking: thought.trim() || null,
@@ -715,11 +857,20 @@ chatRoutes.post("/chat", async (c) => {
       tools: kit.uses,
       pageUrls: kit.pageUrls,
     });
+    if (comparisonId) {
+      db.prepare("UPDATE comparison_runs SET answer_message_id = ? WHERE comparison_id = ? AND conversation_id = ?").run(saved.id, comparisonId, convId);
+      db.prepare("UPDATE comparisons SET updated_at = ? WHERE id = ?").run(nowIso(), comparisonId);
+    }
     // Files the reply's code made are copied here before the reply counts as done, so its cards
-    // can link to them straight away.
-    if (result?.fileIds.length && saved.status !== "failed" && saved.status !== "declined") {
+    // can link to them straight away. Files it wrote out with save_file are kept the same way.
+    const written = kit.written();
+    if ((result?.fileIds.length || written.length) && saved.status !== "failed" && saved.status !== "declined") {
       void send("status", { status: "saving" });
-      const kept = await keepFiles(used.provider, decryptSecret(used.encrypted_key), result.fileIds, saved.id, convId);
+      const fromCode = result?.fileIds.length
+        ? await keepFiles(used.provider, decryptSecret(used.encrypted_key), result.fileIds, saved.id, convId)
+        : { files: [], failed: 0 };
+      const fromText = keepWrittenFiles(written, saved.id, convId);
+      const kept = { files: [...fromCode.files, ...fromText.files], failed: fromCode.failed + fromText.failed };
       saved.files = kept.files;
       if (kept.failed) {
         const note = sentences(
@@ -731,6 +882,7 @@ chatRoutes.post("/chat", async (c) => {
         saved.note = note;
       }
     }
+    release();
     if (saved.status === "ok" || saved.status === "truncated" || saved.status === "stopped") {
       await send("done", { message: saved });
     } else {
@@ -738,11 +890,69 @@ chatRoutes.post("/chat", async (c) => {
     }
 
     // The reply is done and the chat is free again; naming it happens on the same stream after.
-    if (saved.status === "ok" || saved.status === "truncated") {
+    if (!unattended && (saved.status === "ok" || saved.status === "truncated")) {
       const newTitle = await maybeRetitle(convId, user.id, used, saved.id);
       if (newTitle) await send("title", { title: newTitle });
     }
-    clearInterval(heartbeat);
+    return saved;
+  };
+  let running: Promise<PublicMessage> | undefined;
+  const run = (send: ChatSender = async () => {}) => {
+    // Preparing once can only cause one provider call, even if two callers await the runner.
+    running ??= Promise.resolve().then(() => execute(send)).finally(release);
+    return running;
+  };
+  return {
+    conversationId: convId,
+    run,
+    cancel: () => {
+      controller.abort();
+      // A prepared reply cancelled before run still saves its stopped state and frees its slot.
+      void run().catch(() => {});
+    },
+  };
+}
+
+chatRoutes.post("/chat", async (c) => {
+  let prepared: PreparedChat;
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    prepared = await prepareChat(c.var.user!, body && typeof body === "object" ? body : {});
+  } catch (err) {
+    if (err instanceof ChatStartError) return c.json({ error: err.message }, err.status as ContentfulStatusCode);
+    throw err;
+  }
+  return streamSSE(c, async (stream) => {
+    // Writes go out in order; once the browser leaves they're skipped, but the reply carries on
+    // and is saved, so it's there when the person comes back.
+    let queue = Promise.resolve();
+    const send: ChatSender = (event, data) => {
+      queue = queue.then(async () => {
+        if (stream.aborted || stream.closed) return;
+        try {
+          await stream.writeSSE({ event, data: JSON.stringify(data) });
+        } catch {
+          // The browser went away.
+        }
+      });
+      return queue;
+    };
+    const heartbeat = setInterval(() => {
+      queue = queue.then(async () => {
+        if (stream.aborted || stream.closed) return clearInterval(heartbeat);
+        try {
+          await stream.write(": keep-alive\n\n");
+        } catch {
+          // The browser went away.
+        }
+      });
+    }, HEARTBEAT_MS);
+    heartbeat.unref();
+    try {
+      await prepared.run(send);
+    } finally {
+      clearInterval(heartbeat);
+    }
   });
 });
 
@@ -754,6 +964,8 @@ type Outcome = {
   key: KeyRow;
   partial: string;
   result: ChatResult | null;
+  /** Some providers finish their iterator normally on abort, still returning partial text and usage. */
+  stopped: boolean;
   failure: string | null;
   note: string | null;
   thinking: string | null;
@@ -768,7 +980,7 @@ type Outcome = {
  * Stores the reply. Declined, failed and empty stopped replies stay readable for admins but
  * leave the context, together with the message that prompted them.
  */
-function saveOutcome({ convId, userId, userMessageId, key, partial, result, failure, note, thinking, thinkingMs, tools, pageUrls }: Outcome) {
+function saveOutcome({ convId, userId, userMessageId, key, partial, result, stopped, failure, note, thinking, thinkingMs, tools, pageUrls }: Outcome) {
   const now = nowIso();
   return tx(() => {
     let row: Omit<
@@ -779,7 +991,21 @@ function saveOutcome({ convId, userId, userMessageId, key, partial, result, fail
     // A reply with no words (nothing, or thinking only) is a failure, shown with "Try again"; it
     // stays out of what's sent back, like any failed reply.
     const empty = !!result && !result.refused && !result.text.trim();
-    if (result && !result.refused && !empty) {
+    if (stopped || (!result && !failure)) {
+      // The user's stop wins even when the provider returns a normal result. Keep its text and
+      // usage, but replay an interrupted Claude turn as plain text rather than unfinished blocks.
+      const text = result?.text || partial;
+      const kept = text.trim() ? 1 : 0;
+      row = {
+        text,
+        content: kept && key.provider === "anthropic" ? JSON.stringify([{ type: "text", text }]) : null,
+        provider: key.provider,
+        model: result?.model ?? key.model,
+        stop_reason: "aborted",
+        error: null,
+        in_context: kept,
+      };
+    } else if (result && !result.refused && !empty) {
       row = {
         text: result.text,
         content: result.content ? JSON.stringify(result.content) : null,
@@ -793,20 +1019,8 @@ function saveOutcome({ convId, userId, userMessageId, key, partial, result, fail
       row = { text: "", content: null, provider: key.provider, model: result.model, stop_reason: "error", error: t("No reply came back. Try again"), in_context: 0 };
     } else if (result?.refused) {
       row = { text: partial, content: null, provider: key.provider, model: result.model, stop_reason: "refusal", error: t("The AI declined to answer this message"), in_context: 0 };
-    } else if (failure) {
-      row = { text: partial, content: null, provider: key.provider, model: key.model, stop_reason: "error", error: failure, in_context: 0 };
     } else {
-      // Stopped by the person. Keep what was written as plain text.
-      const kept = partial.trim() ? 1 : 0;
-      row = {
-        text: partial,
-        content: kept && key.provider === "anthropic" ? JSON.stringify([{ type: "text", text: partial }]) : null,
-        provider: key.provider,
-        model: key.model,
-        stop_reason: "aborted",
-        error: null,
-        in_context: kept,
-      };
+      row = { text: partial, content: null, provider: key.provider, model: key.model, stop_reason: "error", error: failure, in_context: 0 };
     }
 
     // The prompt's own flag only feeds admin listings; what reaches the model is worked out

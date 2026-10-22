@@ -84,6 +84,22 @@ export function ChatsPage() {
           <>
             {/* Projects and knowledge live in the sidebar on wide screens; here they lead the list. */}
             <div className="oy-section chats-places">
+              <SlideLink className="oy-row" to="/compare" direction="forward">
+                <Icon name="compare" size={20} />
+                <div className="text">
+                  <p className="title">{t("Compare models")}</p>
+                  <p className="desc">{t("Ask one question and compare the answers")}</p>
+                </div>
+                <Icon name="chevron-right" size={18} />
+              </SlideLink>
+              <SlideLink className="oy-row" to="/tasks" direction="forward">
+                <Icon name="clock" size={20} />
+                <div className="text">
+                  <p className="title">{t("Scheduled tasks")}</p>
+                  <p className="desc">{t("Run prompts on a schedule")}</p>
+                </div>
+                <Icon name="chevron-right" size={18} />
+              </SlideLink>
               <SlideLink className="oy-row" to="/projects" direction="forward">
                 <Icon name="folder" size={20} />
                 <div className="text">

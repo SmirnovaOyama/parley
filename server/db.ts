@@ -574,6 +574,82 @@ addColumn("sessions", "address", "TEXT");
 addColumn("sessions", "user_agent", "TEXT");
 db.exec("CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)");
 
+// A comparison remembers the same first question across independent, ordinary chats. Run ids
+// deliberately survive a chat being purged, so a missing column can be shown as deleted. The
+// group itself goes when none of its chats remain visible, including after retention cleanup.
+db.exec(`
+CREATE TABLE IF NOT EXISTS comparisons (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS comparisons_user ON comparisons(user_id, updated_at);
+CREATE TABLE IF NOT EXISTS comparison_runs (
+  comparison_id TEXT NOT NULL REFERENCES comparisons(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  conversation_id TEXT NOT NULL UNIQUE,
+  prompt_message_id INTEGER NOT NULL,
+  answer_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+  key_id INTEGER NOT NULL,
+  model TEXT NOT NULL,
+  effort TEXT NOT NULL,
+  label TEXT NOT NULL,
+  PRIMARY KEY (comparison_id, position)
+);
+CREATE TRIGGER IF NOT EXISTS comparisons_deleted_chat AFTER UPDATE OF deleted_at ON conversations
+WHEN NEW.deleted_at IS NOT NULL BEGIN
+  DELETE FROM comparisons WHERE id IN (SELECT comparison_id FROM comparison_runs WHERE conversation_id = NEW.id)
+    AND NOT EXISTS (SELECT 1 FROM comparison_runs r JOIN conversations c ON c.id = r.conversation_id
+      WHERE r.comparison_id = comparisons.id AND c.deleted_at IS NULL);
+END;
+CREATE TRIGGER IF NOT EXISTS comparisons_purged_chat AFTER DELETE ON conversations BEGIN
+  DELETE FROM comparisons WHERE id IN (SELECT comparison_id FROM comparison_runs WHERE conversation_id = OLD.id)
+    AND NOT EXISTS (SELECT 1 FROM comparison_runs r JOIN conversations c ON c.id = r.conversation_id
+      WHERE r.comparison_id = comparisons.id AND c.deleted_at IS NULL);
+END;
+`);
+
+// Scheduled prompts are durable; each claimed occurrence keeps its outcome independently of its chat.
+db.exec(`
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  key_id INTEGER REFERENCES api_keys(id) ON DELETE SET NULL,
+  model TEXT NOT NULL,
+  effort TEXT NOT NULL,
+  model_label TEXT NOT NULL,
+  schedule TEXT NOT NULL,
+  language TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  next_run_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS scheduled_tasks_due ON scheduled_tasks(enabled, next_run_at);
+CREATE INDEX IF NOT EXISTS scheduled_tasks_user ON scheduled_tasks(user_id, updated_at);
+CREATE TABLE IF NOT EXISTS scheduled_runs (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+  trigger TEXT NOT NULL CHECK (trigger IN ('scheduled', 'manual')),
+  scheduled_for TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'stopped', 'interrupted')),
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS scheduled_runs_task ON scheduled_runs(task_id, started_at);
+CREATE UNIQUE INDEX IF NOT EXISTS scheduled_runs_occurrence ON scheduled_runs(task_id, scheduled_for) WHERE trigger = 'scheduled';
+CREATE UNIQUE INDEX IF NOT EXISTS scheduled_runs_active ON scheduled_runs(task_id) WHERE status = 'running';
+`);
+// 1: each scheduled run emails its owner the answer, or why it didn't finish.
+addColumn("scheduled_tasks", "email", "INTEGER NOT NULL DEFAULT 0");
+
 export const nowIso = () => new Date().toISOString();
 
 export function startOfMonthIso(): string {

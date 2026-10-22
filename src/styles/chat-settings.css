@@ -1,0 +1,65 @@
+/* This page separates changes waiting for Save from actions that take effect immediately. */
+.chat-settings-page {
+  min-height: 100dvh;
+  background: var(--bg);
+}
+
+/* The title stays legible when the form scrolls underneath, in either theme. */
+.chat-settings-page > .oy-page-header {
+  background: var(--bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.chat-settings-page > .page-body { padding-top: 20px; }
+.chat-settings-editable { gap: 24px; }
+.chat-settings-section-heading { display: grid; gap: 6px; }
+.chat-settings-section-heading h2 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+.chat-settings-section-heading p {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text-muted);
+}
+.chat-settings-editable .panel-note { margin-top: -8px; }
+.chat-settings-pin { border-top: 1px solid var(--border); }
+.chat-settings-pin > .oy-row { padding: 20px 0 0; }
+.chat-settings-pin label { cursor: pointer; }
+.chat-settings-pin .oy-switch[aria-checked="false"] {
+  background: color-mix(in oklab, var(--border) 80%, var(--text-muted));
+}
+.chat-settings-pin .switch-knob { box-shadow: none; }
+.chat-settings-editable > .form-page-actions {
+  padding-top: 4px;
+  flex-wrap: wrap;
+}
+
+.chat-settings-utilities {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.chat-settings-action {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.chat-settings-action h3 {
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+.chat-settings-action .settings-panel { padding-top: 8px; gap: 16px; }
+.chat-settings-delete {
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.chat-settings-delete > :is(.danger-row, .inline-confirm) { border-top: 0; }

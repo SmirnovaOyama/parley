@@ -22,6 +22,7 @@ type Loaded = {
     effort: string | null;
     instructions: Instructions;
     project: { id: string; name: string } | null;
+    comparisonId?: string | null;
   };
   messages: Message[];
   generating: boolean;
@@ -86,6 +87,7 @@ export function ChatPage() {
   const [headerNote, setHeaderNote] = useState<string | null>(null);
   /** The project an open chat is in. */
   const [chatProject, setChatProject] = useState<{ id: string; name: string } | null>(null);
+  const [comparisonId, setComparisonId] = useState<string | null>(null);
   const [models, setModels] = useState<Models>({ choices: [], start: null });
   const [chatPick, setChatPick] = useState<ChatPick | null>(null);
   /** A model or thinking level picked for this chat and not sent yet. */
@@ -123,6 +125,7 @@ export function ChatPage() {
       setChatPick({ keyId: data.conversation.keyId, model: data.conversation.model, effort: data.conversation.effort });
       setShared(!!data.share);
       setChatProject(data.conversation.project);
+      setComparisonId(data.conversation.comparisonId ?? null);
       setMessages(
         data.generating
           ? [...data.messages, { id: -1, parentId: null, role: "assistant", text: "", model: "", status: "ok", error: null, note: null, thinking: null, thinkingMs: null, instructionsChanged: false, siblingIds: [], createdAt: "", streaming: true, phase: "writing", asks: data.asks ?? [] }]
@@ -144,6 +147,7 @@ export function ChatPage() {
   useEffect(() => {
     shownIdRef.current = id ?? null;
     setSendError(null);
+    setComparisonId(null);
     setHandPick(null);
     // The header shows the chat's project and sharing straight away, from the list, so its
     // subtitle doesn't blink out while the chat loads.
@@ -496,6 +500,24 @@ export function ChatPage() {
           ) : undefined
         }
         below={headerNote ? <p className="header-note">{headerNote}</p> : undefined}
+        actions={
+          comparisonId ? (
+            <SlideLink className="btn-ghost compare-entry" to={`/compare/${comparisonId}`} direction="back">
+              <Icon name="compare" size={18} />
+              {t("Back to comparison")}
+            </SlideLink>
+          ) : !id && !uploads.files.length ? (
+            <SlideLink
+              className="btn-ghost compare-entry"
+              to={`/compare${newProjectId ? `?project=${encodeURIComponent(newProjectId)}` : ""}`}
+              direction="forward"
+              state={{ compareText: draft }}
+            >
+              <Icon name="compare" size={18} />
+              {t("Compare models")}
+            </SlideLink>
+          ) : undefined
+        }
         trailing={
           !missing ? (
             <SlideLink className="btn-ghost icon-button" to={settingsPath} direction="forward" aria-label={t("Chat settings")}>

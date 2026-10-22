@@ -25,6 +25,10 @@ type Props = {
   messages: UiMessage[];
   /** Admin view: show times and every status plainly; no editing. */
   readOnly?: boolean;
+  /** Comparison columns already name the model in their heading. */
+  showModel?: boolean;
+  /** Narrow comparison columns show each table row as labelled fields. */
+  stackTables?: boolean;
   /** A reply is being written, so editing, regenerating and switching wait. */
   busy?: boolean;
   /** Sends a new version of your message, with the files it keeps. */
@@ -39,7 +43,7 @@ type Props = {
   onAnswer?: (ask: Ask, allow: boolean) => void;
 };
 
-export function Transcript({ messages, readOnly, busy, onEdit, onRegenerate, onSwitch, onAnswer, fileUrl = (id) => `/api/files/${id}` }: Props) {
+export function Transcript({ messages, readOnly, showModel = true, stackTables = false, busy, onEdit, onRegenerate, onSwitch, onAnswer, fileUrl = (id) => `/api/files/${id}` }: Props) {
   const switcher = (m: UiMessage) =>
     onSwitch && m.siblingIds.length > 1 ? <VersionSwitcher message={m} onSwitch={onSwitch} disabled={busy} /> : null;
 
@@ -63,6 +67,8 @@ export function Transcript({ messages, readOnly, busy, onEdit, onRegenerate, onS
             key={m.id}
             message={m}
             readOnly={readOnly}
+            showModel={showModel}
+            stackTables={stackTables}
             switcher={switcher(m)}
             fileUrl={fileUrl}
             busy={busy}
@@ -230,6 +236,8 @@ function EditBox({ initial, files, fileUrl, onCancel, onSend }: EditProps) {
 type AssistantProps = {
   message: UiMessage;
   readOnly?: boolean;
+  showModel: boolean;
+  stackTables: boolean;
   switcher: React.ReactNode;
   fileUrl: (fileId: string) => string;
   /** A reply is on its way: Regenerate stays where it is but rests. */
@@ -241,7 +249,7 @@ type AssistantProps = {
 /** Phases that get their own status line under the text while the reply is still coming. */
 const BUSY_PHASES = new Set(["searching", "coding", "saving", "tool"]);
 
-function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegenerate, onAnswer }: AssistantProps) {
+function AssistantMessage({ message, readOnly, showModel, stackTables, switcher, fileUrl, busy, onRegenerate, onAnswer }: AssistantProps) {
   const [copied, setCopied] = useState(false);
   const failed = message.status === "failed" || message.status === "declined";
   const waiting = message.streaming && !message.text;
@@ -261,7 +269,7 @@ function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegene
       )}
       {message.text && (
         <Suspense fallback={<div className="md md-plain">{message.text}</div>}>
-          <Markdown text={message.text} streaming={message.streaming} />
+          <Markdown text={message.text} streaming={message.streaming} stackTables={stackTables} />
         </Suspense>
       )}
       {asks.length > 0 && <AskLines asks={asks} onAnswer={onAnswer} />}
@@ -290,7 +298,7 @@ function AssistantMessage({ message, readOnly, switcher, fileUrl, busy, onRegene
       {message.status === "truncated" && <p className="msg-note">{t("The reply reached its length limit")}</p>}
       {!message.streaming && (message.text || readOnly || switcher) && (
         <div className="msg-meta">
-          {message.model && <span>{message.model}</span>}
+          {showModel && message.model && <span>{message.model}</span>}
           {readOnly && <span>{dateTime(message.createdAt)}</span>}
           {switcher}
           {message.text && (

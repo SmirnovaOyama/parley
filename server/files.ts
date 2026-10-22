@@ -1,7 +1,7 @@
-// Files a reply made with Claude's code execution or OpenAI's code interpreter. They live in the
-// provider's account only for a while, and only that key can read them, so each one is copied here
-// when the reply is saved: next to the database (never inside the repository), under a random name,
-// one folder per chat.
+// Files a reply made: with Claude's code execution or OpenAI's code interpreter, or written out by
+// other models through the save_file tool (tools.ts). A provider keeps its files only for a while,
+// and only that key can read them, so each one is copied here when the reply is saved: next to the
+// database (never inside the repository), under a random name, one folder per chat.
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
@@ -13,7 +13,7 @@ import { anthropicClient, OPENAI_API, openaiClient } from "./providers/clients.t
 export const FILES_DIR = join(dirname(env.databasePath), "files");
 
 /** At most this many files are kept from one reply, and each up to this size. */
-const MAX_FILES = 20;
+export const MAX_FILES = 20;
 const MAX_BYTES = 50 * 1024 * 1024;
 
 /** A name that's safe to save and to offer back: no folders, no control characters, a sane length. */
@@ -26,7 +26,7 @@ export function safeName(name: string): string {
 }
 
 /** A made file as fetched: its name, its type, and its bytes. Null when it's too big to keep. */
-type Fetched = { name: string; mime: string; bytes: Buffer } | null;
+type Fetched = Made | null;
 
 /** Claude's Files API: the name and type come with the file. */
 function fromClaude(apiKey: string): (fileId: string) => Promise<Fetched> {
@@ -39,7 +39,7 @@ function fromClaude(apiKey: string): (fileId: string) => Promise<Fetched> {
   };
 }
 
-/** Types of the files code usually makes, by extension: OpenAI's sandbox doesn't say. */
+/** Types of the files code usually makes, by extension: OpenAI's sandbox and save_file don't say. */
 const TYPES: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -58,6 +58,7 @@ const TYPES: Record<string, string> = {
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   ".zip": "application/zip",
 };
+export const typeOf = (name: string) => TYPES[extname(name).toLowerCase()] ?? "application/octet-stream";
 
 /** OpenAI's sandbox, a file at a time ("container_id/file_id"): named after its path there. */
 function fromOpenAI(apiKey: string): (ref: string) => Promise<Fetched> {
@@ -68,7 +69,7 @@ function fromOpenAI(apiKey: string): (ref: string) => Promise<Fetched> {
     if (meta.bytes > MAX_BYTES) return null;
     const bytes = Buffer.from(await (await client.containers.files.content.retrieve(fileId, { container_id })).arrayBuffer());
     const name = basename(meta.path);
-    return { name, mime: TYPES[extname(name).toLowerCase()] ?? "application/octet-stream", bytes };
+    return { name, mime: typeOf(name), bytes };
   };
 }
 
@@ -84,7 +85,6 @@ export async function keepFiles(
   conversationId: string,
 ): Promise<{ files: PublicFile[]; failed: number }> {
   const fetchFile = provider === "openai" ? fromOpenAI(apiKey) : fromClaude(apiKey);
-  const folder = join(FILES_DIR, conversationId);
   const files: PublicFile[] = [];
   let failed = 0;
   for (const fileId of fileIds.slice(0, MAX_FILES)) {
@@ -94,22 +94,44 @@ export async function keepFiles(
         failed++;
         continue;
       }
-      const { bytes, mime } = fetched;
-      const id = randomBytes(12).toString("base64url");
-      const name = safeName(fetched.name);
-      mkdirSync(folder, { recursive: true });
-      const path = join(folder, `${id}${extname(name).slice(0, 12)}`);
-      writeFileSync(path, bytes);
-      db.prepare(
-        "INSERT INTO message_files (id, message_id, name, mime, size, path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ).run(id, messageId, name, mime, bytes.length, path, nowIso());
-      files.push({ id, name, mime, size: bytes.length });
+      files.push(storeFile(fetched, messageId, conversationId));
     } catch (err) {
       console.error(`[files] couldn't keep ${fileId}:`, err);
       failed++;
     }
   }
   return { files, failed };
+}
+
+/** Files a reply wrote out with save_file, kept the same way. */
+export function keepWrittenFiles(written: Made[], messageId: number, conversationId: string): { files: PublicFile[]; failed: number } {
+  const files: PublicFile[] = [];
+  let failed = 0;
+  for (const file of written.slice(0, MAX_FILES)) {
+    try {
+      files.push(storeFile(file, messageId, conversationId));
+    } catch (err) {
+      console.error(`[files] couldn't keep ${file.name}:`, err);
+      failed++;
+    }
+  }
+  return { files, failed };
+}
+
+/** A file a reply made, ready to keep. */
+export type Made = { name: string; mime: string; bytes: Buffer };
+
+function storeFile(made: Made, messageId: number, conversationId: string): PublicFile {
+  const folder = join(FILES_DIR, conversationId);
+  const id = randomBytes(12).toString("base64url");
+  const name = safeName(made.name);
+  mkdirSync(folder, { recursive: true });
+  const path = join(folder, `${id}${extname(name).slice(0, 12)}`);
+  writeFileSync(path, made.bytes);
+  db.prepare(
+    "INSERT INTO message_files (id, message_id, name, mime, size, path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(id, messageId, name, made.mime, made.bytes.length, path, nowIso());
+  return { id, name, mime: made.mime, size: made.bytes.length };
 }
 
 /**

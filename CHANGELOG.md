@@ -8,6 +8,12 @@ Claude's and OpenAI's keys now go only to api.anthropic.com and api.openai.com: 
 
 ### Added
 
+- Scheduled prompts run once, daily or on selected weekdays in a chosen timezone, with pause, resume, stop, run now and saved chat history
+- Background runs use current model permissions and allowances, catch up at most once after downtime and never automatically repeat an interrupted provider call
+- Ask two or three models the same question with the same attachments and chat settings, view their answers together, and continue in any answer's own chat
+- Saved comparisons reopen after a refresh, with independent progress, stop and retry controls and the existing usage limits
+- A scheduled task can email its owner after each scheduled run, with the answer or why the run didn't finish
+- DeepSeek, Gemini, Grok and other services make files too: with a key's "Make files" on, they write text files such as CSV tables, pages, notes and code, which download from under the reply
 - The interface in Chinese. Parley follows the browser's language, or the one picked under Settings → Appearance → Language, and the server's messages and emails come in it too. What the model is told stays in English. `node scripts/i18n-check.ts` lists strings that have no Chinese yet.
 - Account is now Settings, with who's signed in at the top, Personas, memory and connected services together under Assistant, and Sign out at the foot. About shows Parley's version and links to its code on GitHub. Old /account addresses still arrive.
 - Two-step verification, under Settings: after the password, a six-digit code from an authenticator app (scan a QR code or type the key) or a passkey, and ten one-time recovery codes for a lost phone, shown once. Setting either up or removing it takes the password again. A reset link by email no longer signs in past it. Admins can turn it off for someone locked out, from their page under Admin → People.
@@ -25,6 +31,8 @@ Claude's and OpenAI's keys now go only to api.anthropic.com and api.openai.com: 
 
 - Memory no longer keeps the same thing twice. Before the AI keeps a new note, it looks over any that read alike and any kept since the chat began (which some models no longer have in front of them a reply later), and saves only what none of them says, in whatever words or language. A note it already has word for word changes nothing, and notes are written in the person's language.
 - A reply's stream sends a keep-alive line every 20 seconds, so Cloudflare and other proxies that cut a silent connection after about 100 seconds no longer cut off a model thinking quietly or running a long tool.
+
+- Shared chats no longer appear blank when a browser's social-content filters hide elements named `share-page`
 
 ### Security
 

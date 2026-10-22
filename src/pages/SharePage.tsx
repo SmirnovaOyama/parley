@@ -43,7 +43,7 @@ export function SharePage() {
   }, [token, loading, user]);
 
   return (
-    <div className="share-page">
+    <div className="public-chat-page">
       <PageHeader title={data?.title ?? t("Shared chat")} subtitle={data ? t("Shared on {sharedAt}", { sharedAt: longDate(data.sharedAt) }) : undefined} />
       <div className="oy-page-column page-body">
         {error ? (
@@ -69,7 +69,7 @@ export function SharePage() {
         ) : (
           <>
             <Transcript messages={data.messages} fileUrl={(fileId) => `/api/shared/${token}/files/${fileId}`} />
-            <div className="share-foot">
+            <div className="public-chat-footer">
               <p className="text-muted">{t("A read-only copy, as the chat was when it was shared")}</p>
               <Link className="btn-secondary" to="/chat">
                 {user ? t("Go to your chats") : t("Start your own chat")}

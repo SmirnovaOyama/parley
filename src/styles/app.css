@@ -70,6 +70,7 @@ a.oy-nav-item, .oy-page-header a.back { text-decoration: none; }
 }
 a:is(.btn-primary, .btn-secondary, .btn-tonal, .btn-danger, .btn-ghost) { text-decoration: none; }
 .btn-secondary { color: var(--text); }
+.compare-entry { border-radius: var(--radius-sm); }
 
 /* House rule: every tick draws left to right — the short leg, then the long stroke up and right.
    (Tick paths start at the left end; a positive dash offset reveals them from their start.)
@@ -948,8 +949,9 @@ a.oy-row:hover { background: var(--surface-hover); }
 .share-stop { margin-inline-start: auto; color: var(--danger); }
 .btn-ghost.share-stop:hover:not(:disabled) { color: var(--danger); }
 /* The shared-chat page: no app frame, just the chat and a way in. */
-.share-page { min-height: 100dvh; }
-.share-foot {
+/* Social-widget filters can hide names beginning with "share", including an entire chat page. */
+.public-chat-page { min-height: 100dvh; }
+.public-chat-footer {
   display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
   margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; line-height: 18px;
 }

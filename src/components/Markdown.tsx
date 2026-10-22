@@ -1,4 +1,4 @@
-import { Children, isValidElement, memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { Children, cloneElement, isValidElement, memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -16,6 +16,8 @@ type Props = {
    * doesn't flash up as errors (it shows as plain code until then).
    */
   streaming?: boolean;
+  /** Adds column labels so narrow comparison columns can stack each row into readable fields */
+  stackTables?: boolean;
 };
 
 const REMARK = [remarkGfm, remarkMath];
@@ -25,7 +27,7 @@ const REHYPE_DONE = [
 ] as ComponentProps<typeof ReactMarkdown>["rehypePlugins"];
 
 /** Renders a reply. Raw HTML in the text is never rendered, only Markdown. */
-export const Markdown = memo(function Markdown({ text, streaming }: Props) {
+export const Markdown = memo(function Markdown({ text, streaming, stackTables }: Props) {
   // While a reply streams, parsing the growing text waits behind scrolling and typing: React
   // renders the newest text when it has a moment, and the element is reused until then.
   const deferred = useDeferredValue(text);
@@ -49,18 +51,69 @@ export const Markdown = memo(function Markdown({ text, streaming }: Props) {
           ),
           // A finished block that can run (a page, a picture, a component, a diagram) offers a preview.
           pre: (props) => <CodeBlock {...props} done={!streaming} />,
-          table: ({ node: _node, ...props }) => (
-            <div className="md-table">
-              <table {...props} />
-            </div>
-          ),
+          table: ({ node: _node, ...props }) => <MarkdownTable {...props} stackable={stackTables} />,
         }}
       >
         {source}
       </ReactMarkdown>
     </div>
-  ), [source, streaming]);
+  ), [source, streaming, stackTables]);
 });
+
+type TablePart = { children?: ReactNode; "data-label"?: string; role?: ComponentProps<"td">["role"]; scope?: "col" };
+
+/** Formatting stays in the header, while each narrow cell gets its readable text as a label */
+function tableLabel(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(tableLabel).join("");
+  if (!isValidElement<{ children?: ReactNode; alt?: string; "aria-hidden"?: boolean | "true" | "false" }>(node)) return "";
+  if (node.props["aria-hidden"] === true || node.props["aria-hidden"] === "true" || node.type === "annotation") return "";
+  if (node.type === "br") return " ";
+  if (node.type === "img") return node.props.alt ?? "";
+  return tableLabel(node.props.children);
+}
+
+function MarkdownTable({ children, stackable, ...props }: ComponentProps<"table"> & { stackable?: boolean }) {
+  if (!stackable) return <div className="md-table"><table {...props}>{children}</table></div>;
+  const head = Children.toArray(children).find((child) => isValidElement(child) && child.type === "thead");
+  const row = isValidElement<TablePart>(head)
+    ? Children.toArray(head.props.children).find((child) => isValidElement(child) && child.type === "tr")
+    : undefined;
+  const labels = isValidElement<TablePart>(row)
+    ? Children.toArray(row.props.children).filter((child) => isValidElement(child) && child.type === "th")
+      .map((cell) => isValidElement<TablePart>(cell) ? tableLabel(cell.props.children).replace(/\s+/g, " ").trim() : "")
+    : [];
+  const labelRow = (child: ReactNode, heading = false) => {
+    if (!isValidElement<TablePart>(child) || child.type !== "tr") return child;
+    let column = 0;
+    return cloneElement(child, {
+      role: "row",
+      children: Children.map(child.props.children, (cell) => {
+        if (!isValidElement<TablePart>(cell) || (cell.type !== "td" && cell.type !== "th")) return cell;
+        if (heading) return cloneElement(cell, { role: "columnheader", scope: "col" });
+        const label = labels[column] || t("Column {number}", { number: column + 1 });
+        column++;
+        return cloneElement(cell, {
+          role: cell.type === "th" ? "rowheader" : "cell",
+          "data-label": label,
+          children: <><span className="md-cell-label" aria-hidden="true">{label}</span><span className="md-cell-value">{cell.props.children}</span></>,
+        });
+      }),
+    });
+  };
+  return (
+    <div className="md-table is-stackable">
+      <table {...props} role="table">
+        {Children.map(children, (child) => {
+          if (!isValidElement<TablePart>(child)) return child;
+          if (child.type === "tr") return labelRow(child);
+          if (child.type !== "thead" && child.type !== "tbody" && child.type !== "tfoot") return child;
+          return cloneElement(child, { role: "rowgroup", children: Children.map(child.props.children, (row) => labelRow(row, child.type === "thead")) });
+        })}
+      </table>
+    </div>
+  );
+}
 
 const LANGUAGE_NAMES: Record<string, string> = {
   js: "JavaScript", javascript: "JavaScript", jsx: "JSX", ts: "TypeScript", typescript: "TypeScript", tsx: "TSX",

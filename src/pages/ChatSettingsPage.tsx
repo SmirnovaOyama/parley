@@ -15,6 +15,7 @@ import { sentences, t, tn } from "../lib/i18n.ts";
 import { ABOUT_HINT, charsLeft, MAX_INSTRUCTION_CHARS, STYLE_HINT } from "../lib/instructions.ts";
 import { useSession } from "../lib/session.tsx";
 import { useSlideNavigate } from "../lib/slide.ts";
+import "../styles/chat-settings.css";
 
 type Loaded = {
   conversation: {
@@ -169,19 +170,19 @@ export function ChatSettingsPage() {
 
   if (missing) {
     return (
-      <>
+      <div className="chat-settings-page">
         <PageHeader title={t("Chat settings")} back={{ label: t("Chats"), to: "/chats" }} />
         <div className="oy-page-column page-body">
           <EmptyState doodle="chat" title={t("This chat isn't here")}>
             {t("It may have been deleted")}
           </EmptyState>
         </div>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
+    <div className="chat-settings-page">
       <PageHeader title={t("Chat settings")} subtitle={isNew ? t("For the chat you're about to start") : undefined} back={backLink} />
       <div className="oy-page-column page-body">
         {/* Personas load with the rest, so their list never pops in above the fields. */}
@@ -189,7 +190,11 @@ export function ChatSettingsPage() {
           <Spinner />
         ) : (
           <>
-            <form className="form-page" onSubmit={save}>
+            <form className="form-page chat-settings-editable" aria-labelledby="chat-settings-editable-title" onSubmit={save}>
+              <div className="chat-settings-section-heading">
+                <h2 id="chat-settings-editable-title">{t("Editable settings")}</h2>
+                <p>{t("Changes below apply when you choose Save")}</p>
+              </div>
               {!isNew && (
                 <LineField id="chat-name" label={t("Name")} value={name} maxLength={120} autoComplete="off" onChange={(e) => setName(e.target.value)} />
               )}
@@ -226,8 +231,8 @@ export function ChatSettingsPage() {
               />
               <p className="panel-note">
                 {isNew
-                  ? t("For this chat only. Which persona new chats start as is under Settings")
-                  : t("For this chat only. A change applies from your next message")}
+                  ? t("For this chat only")
+                  : t("For this chat only, from your next message")}
               </p>
 
               {projects.length > 0 && (
@@ -267,13 +272,12 @@ export function ChatSettingsPage() {
                     ),
                   };
                 })}
-                empty={t("You have no knowledge bases yet. Make one under Knowledge to let chats search your documents")}
+                empty={t("No knowledge bases yet, create one under Knowledge")}
               />
 
               {!isNew && (
-                <div className="oy-section is-plain">
+                <div className="oy-section is-plain chat-settings-pin">
                   <div className="oy-row">
-                    <Icon name="pin" size={20} />
                     <div className="text">
                       <label className="title" htmlFor="chat-pinned">
                         {t("Pin to the top of your chats")}
@@ -297,39 +301,47 @@ export function ChatSettingsPage() {
 
             {chat && (
               <>
-                {(chat.sharing !== "off" || share) && (
-                  <div className="oy-group settings-group">
-                    <p className="oy-overline">{t("Sharing")}</p>
-                    <SharePanel
-                      conversationId={id}
-                      share={share}
-                      upToDate={!!share && chat.messages.at(-1)?.id === share.leafId}
-                      sharing={chat.sharing}
-                      busy={chat.generating}
-                      empty={chat.messages.length === 0}
-                      onChange={(s) => {
-                        setShare(s);
-                        void refreshConversations();
-                      }}
-                    />
-                  </div>
-                )}
-                {chat.messages.length > 0 && (
-                  <div className="oy-group settings-group">
-                    <p className="oy-overline">{t("Export")}</p>
-                    <div className="settings-panel">
-                      <p className="settings-text">{t("Save this chat as a Markdown file: what's on screen, without the AI's thinking")}</p>
-                      <div className="form-page-actions">
-                        <a className="btn-secondary" href={`/api/conversations/${id}/export`} download>
-                          <Icon name="download" size={16} />
-                          {t("Download as Markdown")}
-                        </a>
-                      </div>
+                {(chat.sharing !== "off" || share || chat.messages.length > 0) && (
+                  <section className="chat-settings-utilities" aria-labelledby="chat-settings-utilities-title">
+                    <div className="chat-settings-section-heading">
+                      <h2 id="chat-settings-utilities-title">{t("Sharing and export")}</h2>
+                      <p>{t("These actions take effect immediately")}</p>
                     </div>
-                  </div>
+                    {(chat.sharing !== "off" || share) && (
+                      <section className="chat-settings-action" aria-labelledby="chat-settings-sharing-title">
+                        <h3 id="chat-settings-sharing-title">{t("Sharing")}</h3>
+                        <SharePanel
+                          conversationId={id}
+                          share={share}
+                          upToDate={!!share && chat.messages.at(-1)?.id === share.leafId}
+                          sharing={chat.sharing}
+                          busy={chat.generating}
+                          empty={chat.messages.length === 0}
+                          onChange={(s) => {
+                            setShare(s);
+                            void refreshConversations();
+                          }}
+                        />
+                      </section>
+                    )}
+                    {chat.messages.length > 0 && (
+                      <section className="chat-settings-action" aria-labelledby="chat-settings-export-title">
+                        <h3 id="chat-settings-export-title">{t("Export")}</h3>
+                        <div className="settings-panel">
+                          <p className="settings-text">{t("Download this chat as Markdown, with only the content shown on screen and without the AI's thinking")}</p>
+                          <div className="form-page-actions">
+                            <a className="btn-secondary" href={`/api/conversations/${id}/export`} download>
+                              <Icon name="download" size={16} />
+                              {t("Download as Markdown")}
+                            </a>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+                  </section>
                 )}
-                {/* The row turns into its "are you sure" line in the same place, so nothing jumps. */}
-                <div className="settings-danger">
+                {/* Deleting still asks for a second, explicit confirmation in the same row. */}
+                <div className="settings-danger chat-settings-delete">
                   <DangerRow label={t("Delete this chat")} confirmLabel={deleteWarning(policy)} onConfirm={remove} />
                 </div>
               </>
@@ -337,6 +349,6 @@ export function ChatSettingsPage() {
           </>
         )}
       </div>
-    </>
+    </div>
   );
 }

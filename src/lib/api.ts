@@ -131,6 +131,57 @@ export type ModelChoice = {
 /** One chat's pick: which key runs it, the model, and how hard it thinks. */
 export type Choice = { keyId: number; model: string; effort: string };
 
+/** One saved answer to the common prompt, backed by a chat that can be continued on its own. */
+export type ComparisonRun = {
+  conversationId: string;
+  promptMessageId: number;
+  choice: Choice;
+  label: string;
+  messages: Message[];
+  generating: boolean;
+  asks: Ask[];
+  deleted: boolean;
+  continued: boolean;
+};
+
+export type ComparisonSummary = { id: string; title: string; createdAt: string; updatedAt: string };
+export type Comparison = ComparisonSummary & { text: string; runs: ComparisonRun[] };
+
+export type TaskSchedule = {
+  kind: "once" | "daily" | "weekly";
+  timeZone: string;
+  time: string;
+  date?: string;
+  /** Sunday is 0, Saturday is 6. */
+  days?: number[];
+};
+export type TaskRun = {
+  id: string;
+  trigger: "scheduled" | "manual";
+  scheduledFor: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "succeeded" | "failed" | "stopped" | "interrupted";
+  conversationId: string | null;
+  error: string | null;
+};
+export type ScheduledTask = {
+  id: string;
+  name: string;
+  prompt: string;
+  choice: Choice;
+  modelLabel: string;
+  schedule: TaskSchedule;
+  enabled: boolean;
+  /** Each scheduled run emails the answer, or why it didn't finish. */
+  email: boolean;
+  nextRunAt: string | null;
+  lastRun: TaskRun | null;
+  createdAt: string;
+  updatedAt: string;
+};
+export type TaskDetail = ScheduledTask & { runs: TaskRun[] };
+
 export type ConversationSummary = {
   id: string;
   title: string;
@@ -310,6 +361,8 @@ export async function streamChat(
     parentId?: number | null;
     /** Regenerate: a new reply to this user message. */
     regenerate?: number;
+    /** Locks a comparison reply to its original prompt and selected model. */
+    comparisonId?: string;
     /** A new chat's own instructions (else it starts with the defaults in Settings). */
     instructions?: Instructions;
     /** A new chat's project, and the knowledge bases picked for it. */

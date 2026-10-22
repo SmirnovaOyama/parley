@@ -8,7 +8,7 @@ import { SlideLink } from "../components/SlideLink.tsx";
 import { Transcript, type UiMessage } from "../components/Transcript.tsx";
 import { Icon } from "../icons/Icon.tsx";
 import {
-  api, ApiError, streamChat, type Ask, type Choice, type Comparison, type ComparisonRun,
+  api, ApiError, streamChat, type Ask, type AskAnswer, type Choice, type Comparison, type ComparisonRun,
   type ComparisonSummary, type Message, type ModelChoice,
 } from "../lib/api.ts";
 import { dateTime } from "../lib/format.ts";
@@ -52,6 +52,7 @@ function statusText(run: UiRun) {
   if (run.stopping) return t("Stopping");
   const reply = latestReply(run);
   if (run.generating) {
+    if (reply?.asks?.some((ask) => ask.kind === "question")) return t("Waiting for your answer");
     if (reply?.asks?.length) return t("Waiting for approval");
     if (reply?.phase === "thinking") return t("Thinking");
     if (reply?.phase === "searching") return t("Searching");
@@ -298,6 +299,7 @@ export function ComparePage() {
         onAsks: (asks) => patchRun(comparisonId, conversationId, (current) => ({
           ...current, asks, messages: current.messages.map((message) => message.id === pending.id ? { ...message, asks } : message),
         })),
+        onMoments: (moments) => patchReply((message) => ({ ...message, moments })),
         onDone: finish,
         onError: finish,
       }, controller.signal);
@@ -377,14 +379,14 @@ export function ComparePage() {
     }
   };
 
-  const answer = async (run: UiRun, ask: Ask, allow: boolean) => {
+  const answer = async (run: UiRun, ask: Ask, reply: AskAnswer) => {
     if (!id) return;
     patchRun(id, run.conversationId, (current) => ({
       ...current, asks: current.asks.filter((item) => item.id !== ask.id),
       messages: current.messages.map((message) => ({ ...message, asks: message.asks?.filter((item) => item.id !== ask.id) })),
     }));
     try {
-      await api.post(`/conversations/${run.conversationId}/asks/${ask.id}`, { allow });
+      await api.post(`/conversations/${run.conversationId}/asks/${ask.id}`, reply);
     } catch (err) {
       patchRun(id, run.conversationId, (current) => ({
         ...current, requestError: (err as Error).message,
@@ -493,7 +495,7 @@ export function ComparePage() {
                         <>
                           {run.requestError && <Advisory>{run.requestError}</Advisory>}
                           {run.messages.some((message) => message.role === "assistant")
-                            ? <Transcript messages={run.messages.filter((message) => message.role === "assistant")} showModel={false} stackTables busy={run.generating} onAnswer={(ask, allow) => void answer(run, ask, allow)} />
+                            ? <Transcript messages={run.messages.filter((message) => message.role === "assistant")} showModel={false} stackTables busy={run.generating} onAnswer={(ask, reply) => void answer(run, ask, reply)} />
                             : <p className="compare-empty-answer">{t("This model has not answered yet")}</p>}
                         </>
                       )}

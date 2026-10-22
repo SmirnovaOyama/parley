@@ -7,7 +7,7 @@ import { SlideLink } from "../components/SlideLink.tsx";
 import { CONTEXT_NEARLY_FULL, ModelPicker } from "../components/ModelPicker.tsx";
 import { Transcript, type UiMessage } from "../components/Transcript.tsx";
 import { Icon } from "../icons/Icon.tsx";
-import { api, streamChat, type Ask, type Attachment, type Choice, type Instructions, type Message, type ModelChoice, type Share } from "../lib/api.ts";
+import { api, streamChat, type Ask, type AskAnswer, type Attachment, type Choice, type Instructions, type Message, type ModelChoice, type Moment, type Share } from "../lib/api.ts";
 import { kindsPhrase } from "../lib/format.ts";
 import { t, tx } from "../lib/i18n.ts";
 import { useSession } from "../lib/session.tsx";
@@ -23,11 +23,14 @@ type Loaded = {
     instructions: Instructions;
     project: { id: string; name: string } | null;
     comparisonId?: string | null;
+    /** The AI proposes a plan for your OK before doing the work. */
+    planFirst?: boolean;
   };
   messages: Message[];
   generating: boolean;
-  /** While a reply is being written: the questions it's waiting on. */
+  /** While a reply is being written: the questions it's waiting on, and what it asked and planned before. */
   asks?: Ask[];
+  moments?: Moment[];
   share: Share | null;
 };
 type Models = { choices: ModelChoice[]; start: Choice | null };
@@ -62,6 +65,8 @@ export function ChatPage() {
     setNewChatInstructions,
     newChatKnowledge,
     setNewChatKnowledge,
+    newChatPlanFirst,
+    setNewChatPlanFirst,
     projects,
   } = useSession();
   const [searchParams] = useSearchParams();
@@ -88,6 +93,9 @@ export function ChatPage() {
   /** The project an open chat is in. */
   const [chatProject, setChatProject] = useState<{ id: string; name: string } | null>(null);
   const [comparisonId, setComparisonId] = useState<string | null>(null);
+  /** An open chat plans first (a new one, as set on its settings page). */
+  const [chatPlanFirst, setChatPlanFirst] = useState(false);
+  const planFirst = id ? chatPlanFirst : newChatPlanFirst;
   const [models, setModels] = useState<Models>({ choices: [], start: null });
   const [chatPick, setChatPick] = useState<ChatPick | null>(null);
   /** A model or thinking level picked for this chat and not sent yet. */
@@ -126,9 +134,10 @@ export function ChatPage() {
       setShared(!!data.share);
       setChatProject(data.conversation.project);
       setComparisonId(data.conversation.comparisonId ?? null);
+      setChatPlanFirst(!!data.conversation.planFirst);
       setMessages(
         data.generating
-          ? [...data.messages, { id: -1, parentId: null, role: "assistant", text: "", model: "", status: "ok", error: null, note: null, thinking: null, thinkingMs: null, instructionsChanged: false, siblingIds: [], createdAt: "", streaming: true, phase: "writing", asks: data.asks ?? [] }]
+          ? [...data.messages, { id: -1, parentId: null, role: "assistant", text: "", model: "", status: "ok", error: null, note: null, thinking: null, thinkingMs: null, instructionsChanged: false, siblingIds: [], createdAt: "", streaming: true, phase: "writing", asks: data.asks ?? [], moments: data.moments ?? [] }]
           : data.messages,
       );
       setSending(data.generating);
@@ -149,6 +158,7 @@ export function ChatPage() {
     setSendError(null);
     setComparisonId(null);
     setHandPick(null);
+    if (justCreatedRef.current !== id) setChatPlanFirst(false);
     // The header shows the chat's project and sharing straight away, from the list, so its
     // subtitle doesn't blink out while the chat loads.
     const listed = id ? conversations.find((c) => c.id === id) : undefined;
@@ -330,6 +340,7 @@ export function ChatPage() {
             ...(convId || !newChatInstructions ? {} : { instructions: newChatInstructions }),
             ...(convId || !newProjectId ? {} : { projectId: newProjectId }),
             ...(convId || !newChatKnowledge.length ? {} : { knowledgeIds: newChatKnowledge }),
+            ...(convId || !newChatPlanFirst ? {} : { planFirst: true }),
           }
         : request.kind === "edit"
           ? { conversationId: convId, text, ...picked, ...attachments, parentId: request.target.parentId }
@@ -368,6 +379,8 @@ export function ChatPage() {
               // The draft instructions went with the first message; the next new chat starts afresh.
               setNewChatInstructions(null);
               setNewChatKnowledge([]);
+              setChatPlanFirst(newChatPlanFirst);
+              setNewChatPlanFirst(false);
               if (newProject) setChatProject({ id: newProject.id, name: newProject.name });
               shownIdRef.current = convId;
               justCreatedRef.current = convId;
@@ -396,6 +409,7 @@ export function ChatPage() {
           onStatus: (status, detail) => patchReply((m) => ({ ...m, phase: status, searchQuery: status === "searching" ? detail : undefined })),
           onNotice: (notice) => patchReply((m) => ({ ...m, notice })),
           onAsks: (asks) => patchReply((m) => ({ ...m, asks })),
+          onMoments: (moments) => patchReply((m) => ({ ...m, moments })),
           onDone: (message) => {
             cancelAnimationFrame(frame);
             patchReply((m) => ({ ...message, notice: m.notice }));
@@ -454,12 +468,12 @@ export function ChatPage() {
 
   // An answer to a question the reply is waiting on. Its line goes straight away; the stream (or,
   // for someone who came back to the chat, the next look at it) says what's still waiting.
-  const answer = async (ask: Ask, allow: boolean) => {
+  const answer = async (ask: Ask, reply: AskAnswer) => {
     const convId = streamingIdRef.current ?? id;
     if (!convId) return;
     setMessages((list) => list.map((m) => (m.asks?.some((a) => a.id === ask.id) ? { ...m, asks: m.asks.filter((a) => a.id !== ask.id) } : m)));
     try {
-      await api.post(`/conversations/${convId}/asks/${ask.id}`, { allow });
+      await api.post(`/conversations/${convId}/asks/${ask.id}`, reply);
     } catch (err) {
       setSendError((err as Error).message);
     }
@@ -547,7 +561,7 @@ export function ChatPage() {
             }
             onRegenerate={(target) => void run({ kind: "regenerate", target })}
             onSwitch={(messageId) => void switchVersion(messageId)}
-            onAnswer={(ask, allow) => void answer(ask, allow)}
+            onAnswer={(ask, reply) => void answer(ask, reply)}
           />
         )}
       </div>
@@ -572,6 +586,7 @@ export function ChatPage() {
               canSend={(!!draft.trim() || uploads.ready.length > 0) && !uploads.uploading && !unread.length}
               waitingFor={uploads.uploading ? "files" : null}
               dropping={dropping}
+              planFirst={planFirst}
               hint={fileHint}
             />
           </div>
@@ -597,6 +612,8 @@ type ComposerProps = {
   waitingFor: "files" | null;
   /** Files are being dragged over the page. */
   dropping: boolean;
+  /** The chat plans first: the box says so while it's empty. */
+  planFirst: boolean;
   /** A quiet line under the box: a file that couldn't be added, or one the model can't open. */
   hint: string | null;
 };
@@ -605,7 +622,7 @@ type ComposerProps = {
  * The message box: the files on the message in a row of tiles at its top, then the add button,
  * the words and Send. Files come from the button, a drop anywhere on the chat, or a paste.
  */
-function Composer({ value, onChange, onSend, onStop, sending, files, onAddFiles, onRemoveFile, canSend, waitingFor, dropping, hint }: ComposerProps) {
+function Composer({ value, onChange, onSend, onStop, sending, files, onAddFiles, onRemoveFile, canSend, waitingFor, dropping, planFirst, hint }: ComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLInputElement>(null);
 
@@ -659,7 +676,7 @@ function Composer({ value, onChange, onSend, onStop, sending, files, onAddFiles,
             ref={ref}
             rows={1}
             value={value}
-            placeholder={dropping ? t("Drop files to add them") : t("Write a message")}
+            placeholder={dropping ? t("Drop files to add them") : planFirst ? t("Write a message, and it plans first") : t("Write a message")}
             onChange={(e) => onChange(e.target.value)}
             onPaste={(e) => {
               // A pasted picture (a screenshot, say) becomes a file; pasted words stay words.

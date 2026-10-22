@@ -534,6 +534,14 @@ CREATE INDEX IF NOT EXISTS mcp_credentials_user ON mcp_credentials(user_id);
 // On a reply: addresses later replies may read without asking (JSON string[], see tools.ts): what
 // its searches through the site's service returned, and pages the person let it read.
 addColumn("messages", "page_urls", "TEXT");
+// On a reply: what it asked the person and the plans it proposed, with their answers and how far
+// each plan got (JSON Moment[], see tools.ts).
+addColumn("messages", "moments", "TEXT");
+// Plan first: the model proposes a plan for the person's OK before doing the work. Switched per
+// chat; each message keeps whether it was on when it was sent, since a note to the model follows
+// it and replays have to stay the same.
+addColumn("conversations", "plan_first", "INTEGER NOT NULL DEFAULT 0");
+addColumn("messages", "plan_first", "INTEGER NOT NULL DEFAULT 0");
 
 // Personas: up to five ways a person can present themselves to the AI, each a name with what the
 // AI should know about them and how it should answer. users.persona_id is the one new chats start

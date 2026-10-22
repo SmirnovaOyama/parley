@@ -7,7 +7,7 @@ import { t } from "./i18n.ts";
 import { instructionsNote, parseInstructions } from "./instructions.ts";
 import { modelLabel } from "./providers/catalog.ts";
 import type { HistoryTurn } from "./providers/types.ts";
-import type { ToolUse } from "./tools.ts";
+import type { Moment, ToolUse } from "./tools.ts";
 
 export type ConversationRow = {
   id: string;
@@ -38,6 +38,8 @@ export type ConversationRow = {
   pinned_at: string | null;
   /** The app's own tools it declared when it started (JSON DeclaredTool[], see tools.ts). */
   tool_defs: string | null;
+  /** 1 when the model proposes a plan for the person's OK before doing the work. */
+  plan_first: number;
 };
 
 export type MessageRow = {
@@ -74,6 +76,10 @@ export type MessageRow = {
   context_tokens: number | null;
   /** On a reply: addresses later replies may read without asking (JSON string[], see tools.ts). */
   page_urls: string | null;
+  /** On a reply: what it asked the person and the plans it proposed (JSON Moment[], see tools.ts). */
+  moments: string | null;
+  /** On a user message: 1 when the chat planned first as it was sent; a note tells the model so. */
+  plan_first: number;
 };
 
 /** A file a reply made, as people see it: download it from /api/files/:id. */
@@ -116,6 +122,8 @@ export type PublicMessage = {
   tools: ToolUse[];
   /** On a reply: the chat's size in the model's context by its end, in tokens. */
   contextTokens: number | null;
+  /** On a reply: the questions it asked the person and the plans it proposed, where in its text each came. */
+  moments: Moment[];
   createdAt: string;
 };
 
@@ -172,13 +180,15 @@ export function toPublic(m: MessageRow, siblings: number[] = siblingIds(m)): Pub
     ...webOf(m.web),
     files: m.role === "assistant" ? filesOf(m.id) : [],
     attachments: m.role === "user" ? attachmentsOf(m.id) : [],
-    tools: toolsOf(m.tools),
+    tools: jsonList<ToolUse>(m.tools),
     contextTokens: m.context_tokens,
+    moments: m.role === "assistant" ? jsonList<Moment>(m.moments) : [],
     createdAt: m.created_at,
   };
 }
 
-function toolsOf(json: string | null): ToolUse[] {
+/** A JSON list kept on a message (its tools or moments), or none. */
+function jsonList<T>(json: string | null): T[] {
   if (!json) return [];
   try {
     const list = JSON.parse(json);
@@ -257,6 +267,10 @@ export function viewPath(conv: ConversationRow, via?: number): PublicMessage[] {
 export const CODE_OFF_NOTE =
   "Running code and making files is turned off for this message. Don't try to run code; answer in text, with any code written out for the person to copy.";
 
+/** Follows a message sent while the chat plans first. Fixed text, so replays never change. */
+export const PLAN_FIRST_NOTE =
+  "Plan first is on for this message. Before doing any larger piece of work, propose a short plan with propose_plan and wait for the person's answer; carry out only a plan they approved, marking each step with update_plan as you go. A quick question or a short reply needs no plan: just answer.";
+
 export const SEARCH_OFF_NOTE =
   "Web search is turned off for this message. Answer from what you already know, and say so when the answer may be out of date.";
 
@@ -285,6 +299,9 @@ export function historyFor(leafId: number): HistoryTurn[] {
     }
     if (m.role === "user" && m.code_off) {
       turns.push({ role: "system", text: CODE_OFF_NOTE, content: null, provider: null });
+    }
+    if (m.role === "user" && m.plan_first) {
+      turns.push({ role: "system", text: PLAN_FIRST_NOTE, content: null, provider: null });
     }
   });
   return turns;

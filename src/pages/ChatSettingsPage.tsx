@@ -25,6 +25,9 @@ type Loaded = {
     project: { id: string; name: string } | null;
     knowledgeIds: string[];
     pinned: boolean;
+    planFirst: boolean;
+    /** Chats started before planning first was here can't. */
+    canPlan: boolean;
   };
   messages: Message[];
   generating: boolean;
@@ -32,7 +35,7 @@ type Loaded = {
   sharing: SharingMode;
 };
 
-type Saved = { name: string; aboutMe: string; answerStyle: string; projectId: string; knowledge: string[]; pinned: boolean };
+type Saved = { name: string; aboutMe: string; answerStyle: string; projectId: string; knowledge: string[]; pinned: boolean; planFirst: boolean };
 
 /**
  * What the delete line says, by how long the site keeps deleted chats for its admins. When the
@@ -56,7 +59,17 @@ export function ChatSettingsPage() {
   const isNew = id === "new";
   const { search } = useLocation();
   const slideTo = useSlideNavigate();
-  const { refreshConversations, newChatInstructions, setNewChatInstructions, newChatKnowledge, setNewChatKnowledge, projects, refreshProjects } = useSession();
+  const {
+    refreshConversations,
+    newChatInstructions,
+    setNewChatInstructions,
+    newChatKnowledge,
+    setNewChatKnowledge,
+    newChatPlanFirst,
+    setNewChatPlanFirst,
+    projects,
+    refreshProjects,
+  } = useSession();
   const startProject = isNew ? (new URLSearchParams(search).get("project") ?? "") : "";
 
   const [chat, setChat] = useState<Loaded | null>(null);
@@ -67,10 +80,11 @@ export function ChatSettingsPage() {
   const [projectId, setProjectId] = useState("");
   const [knowledge, setKnowledge] = useState<string[]>([]);
   const [pinned, setPinned] = useState(false);
+  const [planFirst, setPlanFirst] = useState(false);
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
   const [personas, setPersonas] = useState<Persona[] | null>(null);
   const [policy, setPolicy] = useState<Policy | null>(null);
-  const [saved, setSaved] = useState<Saved>({ name: "", aboutMe: "", answerStyle: "", projectId: "", knowledge: [], pinned: false });
+  const [saved, setSaved] = useState<Saved>({ name: "", aboutMe: "", answerStyle: "", projectId: "", knowledge: [], pinned: false, planFirst: false });
   const [ready, setReady] = useState(false);
   const [share, setShare] = useState<Share | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,12 +103,13 @@ export function ChatSettingsPage() {
       setProjectId(next.projectId);
       setKnowledge(next.knowledge);
       setPinned(next.pinned);
+      setPlanFirst(next.planFirst);
       setSaved(next);
       setReady(true);
     };
     if (isNew) {
       // The chat about to start: a draft from earlier, else the defaults in Settings.
-      const draft = { name: "", projectId: startProject, knowledge: newChatKnowledge, pinned: false };
+      const draft = { name: "", projectId: startProject, knowledge: newChatKnowledge, pinned: false, planFirst: newChatPlanFirst };
       if (newChatInstructions) fill({ ...draft, ...newChatInstructions });
       else
         api.get<Instructions>("/auth/instructions").then(
@@ -108,7 +123,7 @@ export function ChatSettingsPage() {
         setChat(data);
         setShare(data.share);
         const c = data.conversation;
-        fill({ name: c.title, ...c.instructions, projectId: c.project?.id ?? "", knowledge: c.knowledgeIds, pinned: c.pinned });
+        fill({ name: c.title, ...c.instructions, projectId: c.project?.id ?? "", knowledge: c.knowledgeIds, pinned: c.pinned, planFirst: c.planFirst });
       },
       () => setMissing(true),
     );
@@ -122,7 +137,9 @@ export function ChatSettingsPage() {
   const projectChanged = projectId !== saved.projectId;
   const knowledgeChanged = [...knowledge].sort().join() !== [...saved.knowledge].sort().join();
   const pinChanged = pinned !== saved.pinned;
-  const changed = nameChanged || instructionsChanged || projectChanged || knowledgeChanged || pinChanged;
+  const planChanged = planFirst !== saved.planFirst;
+  const changed = nameChanged || instructionsChanged || projectChanged || knowledgeChanged || pinChanged || planChanged;
+  const canPlan = isNew || !!chat?.conversation.canPlan;
   const project = projects.find((p) => p.id === projectId);
 
   const save = async (e: FormEvent) => {
@@ -137,6 +154,7 @@ export function ChatSettingsPage() {
       if (isNew) {
         setNewChatInstructions(next);
         setNewChatKnowledge(knowledge);
+        setNewChatPlanFirst(planFirst);
         slideTo(back, "back", { state: { note: t("Saved for this chat") } });
         return;
       }
@@ -144,13 +162,14 @@ export function ChatSettingsPage() {
         ...(nameChanged ? { title: name.trim() } : {}),
         ...(projectChanged ? { projectId: projectId || null } : {}),
         ...(pinChanged ? { pinned } : {}),
+        ...(planChanged ? { planFirst } : {}),
       };
       if (Object.keys(patch).length) await api.patch(`/conversations/${id}`, patch);
       if (instructionsChanged) await api.put<Instructions>(`/conversations/${id}/instructions`, next);
       if (knowledgeChanged) await api.put(`/conversations/${id}/knowledge`, { knowledgeIds: knowledge });
       if (nameChanged || projectChanged || pinChanged) void refreshConversations();
       if (projectChanged) void refreshProjects();
-      const reachesModel = instructionsChanged || projectChanged || knowledgeChanged;
+      const reachesModel = instructionsChanged || projectChanged || knowledgeChanged || planChanged;
       slideTo(back, "back", { state: { note: reachesModel ? t("Saved. The changes apply from your next message") : t("Saved") } });
     } catch (err) {
       setError((err as Error).message);
@@ -274,6 +293,22 @@ export function ChatSettingsPage() {
                 })}
                 empty={t("No knowledge bases yet, create one under Knowledge")}
               />
+
+              <div className="oy-section is-plain chat-settings-plan">
+                <div className="oy-row">
+                  <div className="text">
+                    <label className="title" htmlFor="chat-plan-first">
+                      {t("Plan first")}
+                    </label>
+                    <p className="desc">
+                      {canPlan
+                        ? t("Before larger work, the AI lists its steps for you to edit and approve, then ticks them off as it goes")
+                        : t("This chat started before planning was here. Start a new chat to plan first")}
+                    </p>
+                  </div>
+                  <Switch id="chat-plan-first" checked={planFirst} onChange={setPlanFirst} disabled={!canPlan && !planFirst} />
+                </div>
+              </div>
 
               {!isNew && (
                 <div className="oy-section is-plain chat-settings-pin">

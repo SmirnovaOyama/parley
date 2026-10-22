@@ -57,7 +57,20 @@ import { canUse, getBase } from "../knowledge.ts";
 import { memoryOn, memoryPrompt } from "../memory.ts";
 import { chatSetting, ownProject, settingOf } from "../projects.ts";
 import { answerAsk, askPerson, asksOf } from "../asks.ts";
-import { chatContext, chatToolkit, codeOnSite, declaredOf, searchOnSite, toolsForNewChat, type ToolUse } from "../tools.ts";
+import {
+  ASK_TOOL,
+  canPlan,
+  chatContext,
+  chatToolkit,
+  codeOnSite,
+  declaredOf,
+  PLAN_TOOL,
+  PLAN_UPDATE_TOOL,
+  searchOnSite,
+  toolsForNewChat,
+  type Moment,
+  type ToolUse,
+} from "../tools.ts";
 import { searchServiceReady } from "../web-tools.ts";
 import { purgeConversations } from "../retention.ts";
 import { comparisonOut, comparisonRun, continuedRun, exactChoice, ownComparison, type ComparisonRow } from "../comparisons.ts";
@@ -80,8 +93,11 @@ const HOUR_MS = 60 * MINUTE_MS;
 // keeps the reply's stream open; browsers skip it.
 const HEARTBEAT_MS = 20_000;
 
-/** Replies being written right now, so a person can stop one or come back to it. */
-const generating = new Map<string, { controller: AbortController; userId: number; comparisonId?: string }>();
+/**
+ * Replies being written right now, so a person can stop one or come back to it, with what it has
+ * asked them and the plan it's carrying out so far.
+ */
+const generating = new Map<string, { controller: AbortController; userId: number; comparisonId?: string; moments?: () => Moment[] }>();
 const recentSends = new Map<number, number[]>();
 const hourSends = new Map<number, number[]>();
 const recentUploads = new Map<number, number[]>();
@@ -273,11 +289,16 @@ chatRoutes.get("/conversations/:id", (c) => {
       project: conv.project_id ? projectOut(conv.project_id, conv.user_id) : null,
       knowledgeIds: (db.prepare("SELECT kb_id FROM conversation_knowledge WHERE conversation_id = ?").all(conv.id) as { kb_id: string }[]).map((r) => r.kb_id),
       pinned: !!conv.pinned_at,
+      // Planning first needs the planning tools, which only chats started since they came declare.
+      planFirst: !!conv.plan_first,
+      canPlan: canPlan(declaredOf(conv.tool_defs)),
     },
     messages: viewPath(conv),
     generating: generating.has(conv.id),
-    // Questions the reply being written is waiting on, for someone who comes back to it.
+    // Questions the reply being written is waiting on, for someone who comes back to it, and what
+    // it asked and planned before.
     asks: generating.has(conv.id) ? asksOf(conv.id) : [],
+    moments: generating.get(conv.id)?.moments?.() ?? [],
     share: shareInfo(conv),
     sharing: getSettings().sharing,
   });
@@ -428,6 +449,10 @@ chatRoutes.patch("/conversations/:id", async (c) => {
   if (body.pinned !== undefined) {
     db.prepare("UPDATE conversations SET pinned_at = ? WHERE id = ?").run(body.pinned ? nowIso() : null, conv.id);
   }
+  if (body.planFirst !== undefined) {
+    if (body.planFirst && !canPlan(declaredOf(conv.tool_defs))) return c.json({ error: t("This chat started before planning was here. Start a new chat to plan first") }, 400);
+    db.prepare("UPDATE conversations SET plan_first = ? WHERE id = ?").run(body.planFirst ? 1 : 0, conv.id);
+  }
   return c.json({ ok: true });
 });
 
@@ -468,13 +493,22 @@ chatRoutes.post("/conversations/:id/stop", (c) => {
   return c.json({ ok: true });
 });
 
-/** The person's answer to a question the reply is waiting on (asks.ts): allow: true lets the tool run. */
+/**
+ * The person's answer to a question the reply is waiting on (asks.ts): allow: true lets the tool
+ * run. A question of the model's own is answered with allow and the choice or their own words in
+ * text (allow: false leaves it to the model); a plan, with allow and its steps as they left them,
+ * or allow: false and a comment in text to send it back.
+ */
 chatRoutes.post("/conversations/:id/asks/:askId", async (c) => {
   const conv = ownConversation(c.req.param("id"), c.var.user!.id);
   if (!conv) return c.json({ error: t("This chat doesn't exist") }, 404);
   const body = await c.req.json().catch(() => ({}));
   if (typeof body.allow !== "boolean") return c.json({ error: t("Say whether to allow it") }, 400);
-  if (!answerAsk(conv.id, c.req.param("askId"), body.allow)) return c.json({ error: t("That isn't waiting for an answer any more") }, 409);
+  if (body.text !== undefined && typeof body.text !== "string") return c.json({ error: t("Write the answer as text") }, 400);
+  if (body.steps !== undefined && !Array.isArray(body.steps)) return c.json({ error: t("Send the plan's steps as a list") }, 400);
+  const answered = answerAsk(conv.id, c.req.param("askId"), { allow: body.allow, text: body.text, steps: body.steps });
+  if (answered === "not waiting") return c.json({ error: t("That isn't waiting for an answer any more") }, 409);
+  if (answered === "incomplete") return c.json({ error: t("Pick an answer or write your own") }, 400);
   return c.json({ ok: true });
 });
 
@@ -637,17 +671,24 @@ export async function prepareChat(
   // The app's own tools a new chat declares: settled now, for good (see db.ts).
   const offeredTools = existing ? declaredOf(existing.tool_defs) : toolsForNewChat(user.id);
   // Scheduled replies can search the person's documents, but cannot change memory or use MCP.
-  const toolDefs = unattended ? offeredTools.filter((tool) => tool.name === "search_knowledge" && !tool.mcp) : offeredTools;
+  // Their questions and plans are answered straight away: nobody is there.
+  const unattendedTools = new Set(["search_knowledge", ASK_TOOL.name, PLAN_TOOL.name, PLAN_UPDATE_TOOL.name]);
+  const toolDefs = unattended ? offeredTools.filter((tool) => unattendedTools.has(tool.name) && !tool.mcp) : offeredTools;
+  // Whether the model plans first: the chat's switch (a new chat's as it's started), as the message
+  // is sent. A regenerated reply keeps its message's, since the note that goes with it is fixed.
+  const startPlanFirst = !existing && !unattended && body.planFirst === true && canPlan(toolDefs);
+  const planFirst = existing ? !!existing.plan_first && canPlan(toolDefs) : startPlanFirst;
   const userMessageId = tx(() => {
     if (!conversationId) {
       conversationId = randomUUID();
       db.prepare(
         `INSERT INTO conversations (id, user_id, title, api_key_id, model, effort, system_prompt, chat_instructions,
-           sealed_instructions, web_search_tool, code_tool, project_id, tool_defs, title_auto, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, '', ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+           sealed_instructions, web_search_tool, code_tool, project_id, tool_defs, title_auto, plan_first, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, '', ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         conversationId, user.id, title, key.id, key.model, key.effort, instructionsJson(startInstructions),
-        searchTool ? 1 : 0, codeTool ? 1 : 0, startProject?.id ?? null, toolDefs.length ? JSON.stringify(toolDefs) : null, unattended ? 0 : 1, now, now,
+        searchTool ? 1 : 0, codeTool ? 1 : 0, startProject?.id ?? null, toolDefs.length ? JSON.stringify(toolDefs) : null, unattended ? 0 : 1,
+        startPlanFirst ? 1 : 0, now, now,
       );
       const link = db.prepare("INSERT INTO conversation_knowledge (conversation_id, kb_id) VALUES (?, ?)");
       for (const id of startKnowledge) link.run(conversationId, id);
@@ -667,10 +708,10 @@ export async function prepareChat(
     const id = Number(
       db
         .prepare(
-          `INSERT INTO messages (conversation_id, parent_id, role, text, instructions, search_off, code_off, created_at)
-           VALUES (?, ?, 'user', ?, ?, ?, ?, ?)`,
+          `INSERT INTO messages (conversation_id, parent_id, role, text, instructions, search_off, code_off, plan_first, created_at)
+           VALUES (?, ?, 'user', ?, ?, ?, ?, ?, ?)`,
         )
-        .run(conversationId, parentId, text, changedInstructions, searchOff ? 1 : 0, codeOff ? 1 : 0, now).lastInsertRowid,
+        .run(conversationId, parentId, text, changedInstructions, searchOff ? 1 : 0, codeOff ? 1 : 0, planFirst ? 1 : 0, now).lastInsertRowid,
     );
     attachTo(id, files);
     db.prepare("UPDATE conversations SET head_id = ? WHERE id = ?").run(id, conversationId);
@@ -725,10 +766,16 @@ export async function prepareChat(
       conversationId: convId,
       declared: toolDefs,
       context: chatContext(pathTo(userMessageId)),
-      ask: (question) => unattended ? Promise.resolve("deny") : askPerson(convId, question, controller.signal, (asks) => void send("asks", { asks })),
+      ask: (question) => unattended ? Promise.resolve({ answer: "deny" }) : askPerson(convId, question, controller.signal, (asks) => void send("asks", { asks })),
+      unattended,
+      // Where in the reply's text each question and plan comes, so it stays there.
+      at: () => partial.length,
+      onMoments: (moments) => void send("moments", { moments }),
       signal: controller.signal,
       onStatus: (status, detail) => void send("status", { status, detail }),
     });
+    const job = generating.get(convId);
+    if (job?.controller === controller) job.moments = kit.moments;
     const webToolsFor = (k: KeyRow) => searchTool && searchAllowed && !hasTools(k.provider) && !!k.web_search && searchServiceReady();
     // Models that can't run code write files out as text instead, while their key's "Make files" is on.
     const fileToolFor = (k: KeyRow) => !hasTools(k.provider) && !!k.code_execution;
@@ -856,6 +903,7 @@ export async function prepareChat(
       thinkingMs: thought.trim() ? thinkingMs : null,
       tools: kit.uses,
       pageUrls: kit.pageUrls,
+      moments: kit.moments(),
     });
     if (comparisonId) {
       db.prepare("UPDATE comparison_runs SET answer_message_id = ? WHERE comparison_id = ? AND conversation_id = ?").run(saved.id, comparisonId, convId);
@@ -974,19 +1022,21 @@ type Outcome = {
   tools: ToolUse[];
   /** Addresses its searches returned and pages the person let it read, which later replies may read unasked. */
   pageUrls: string[];
+  /** What it asked the person and the plans it proposed. */
+  moments: Moment[];
 };
 
 /**
  * Stores the reply. Declined, failed and empty stopped replies stay readable for admins but
  * leave the context, together with the message that prompted them.
  */
-function saveOutcome({ convId, userId, userMessageId, key, partial, result, stopped, failure, note, thinking, thinkingMs, tools, pageUrls }: Outcome) {
+function saveOutcome({ convId, userId, userMessageId, key, partial, result, stopped, failure, note, thinking, thinkingMs, tools, pageUrls, moments }: Outcome) {
   const now = nowIso();
   return tx(() => {
     let row: Omit<
       MessageRow,
       | "id" | "conversation_id" | "parent_id" | "role" | "created_at" | "note" | "thinking" | "thinking_ms" | "instructions" | "declined_by"
-      | "reviewed_at" | "reviewed_by" | "web" | "search_off" | "code_off" | "tools" | "context_tokens" | "page_urls"
+      | "reviewed_at" | "reviewed_by" | "web" | "search_off" | "code_off" | "tools" | "context_tokens" | "page_urls" | "moments" | "plan_first"
     >;
     // A reply with no words (nothing, or thinking only) is a failure, shown with "Try again"; it
     // stays out of what's sent back, like any failed reply.
@@ -1035,16 +1085,18 @@ function saveOutcome({ convId, userId, userMessageId, key, partial, result, stop
 
     const toolsJson = tools.length ? JSON.stringify(tools) : null;
     const pageUrlsJson = pageUrls.length ? JSON.stringify(pageUrls) : null;
+    // A question or plan sits where it was asked: never past the end of the text kept.
+    const momentsJson = moments.length ? JSON.stringify(moments.map((m) => ({ ...m, at: Math.min(m.at, row.text.length) }))) : null;
     const contextTokens = result?.contextTokens || null;
     const id = Number(
       db
         .prepare(
           `INSERT INTO messages (conversation_id, parent_id, role, text, content, provider, model, stop_reason, error, note,
-             thinking, thinking_ms, in_context, declined_by, web, tools, context_tokens, page_urls, created_at)
-           VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             thinking, thinking_ms, in_context, declined_by, web, tools, context_tokens, page_urls, moments, created_at)
+           VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(convId, userMessageId, row.text, row.content, row.provider, row.model, row.stop_reason, row.error, note,
-          thinking, thinkingMs, row.in_context, declined, web, toolsJson, contextTokens, pageUrlsJson, now)
+          thinking, thinkingMs, row.in_context, declined, web, toolsJson, contextTokens, pageUrlsJson, momentsJson, now)
         .lastInsertRowid,
     );
 
@@ -1090,6 +1142,8 @@ function saveOutcome({ convId, userId, userMessageId, key, partial, result, stop
       tools: toolsJson,
       context_tokens: contextTokens,
       page_urls: pageUrlsJson,
+      moments: momentsJson,
+      plan_first: 0,
       ...row,
     });
   });

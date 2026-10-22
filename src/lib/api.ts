@@ -72,8 +72,21 @@ export type Message = {
   tools?: ToolUse[];
   /** On a reply: how much of the model's context the chat filled by its end, in tokens. */
   contextTokens?: number | null;
+  /** On a reply: the questions it asked you and the plans it proposed, each where it came in the text. */
+  moments?: Moment[];
   createdAt: string;
 };
+
+/**
+ * How a question or plan ended: answered (or approved), left to the AI, sent back, not answered in
+ * time, the reply was stopped, or nobody was there to ask (a scheduled task).
+ */
+export type MomentOutcome = "answered" | "left" | "returned" | "unanswered" | "stopped" | "away";
+export type PlanStep = { text: string; status: "todo" | "done" | "skipped"; reason?: string };
+/** Something a reply asked you: a question with its choices, or a plan with its steps. `at`: where in its text. */
+export type Moment =
+  | { kind: "question"; at: number; question: string; options: string[]; answer?: string; own?: boolean; outcome: MomentOutcome }
+  | { kind: "plan"; at: number; steps: PlanStep[]; edited?: boolean; comment?: string; outcome: MomentOutcome };
 
 export type ToolUse = {
   kind: "memory" | "knowledge" | "page" | "mcp";
@@ -101,10 +114,24 @@ export type Connection = {
 };
 
 /**
- * A question a reply is waiting on before one of its tools runs (reading a page nobody linked,
- * keeping a note, an MCP tool that may change things), answered on a line in the reply.
+ * A question a reply is waiting on, answered on a line in the reply: before one of its tools runs
+ * (reading a page nobody linked, keeping a note, an MCP tool that may change things), a question of
+ * the AI's own with its choices, or a plan with its steps for your OK.
  */
-export type Ask = { id: string; kind: "page" | "memory" | "mcp"; question: string; detail: string; reason: string };
+export type Ask = {
+  id: string;
+  kind: "page" | "memory" | "mcp" | "question" | "plan";
+  question: string;
+  detail: string;
+  reason: string;
+  options?: string[];
+  steps?: string[];
+};
+/**
+ * Your answer: allow (or, to a question, your choice or own words in text; to a plan, its steps as
+ * you left them), or not (a question left to the AI; a plan sent back, with a comment in text).
+ */
+export type AskAnswer = { allow: boolean; text?: string; steps?: string[] };
 
 /** A file attached to a message: what the model gets is its kind (other: only code can open it). */
 export type Attachment = { id: string; name: string; mime: string; size: number; kind: "image" | "pdf" | "text" | "other" };
@@ -339,6 +366,8 @@ export type StreamHandlers = {
   onNotice: (message: string) => void;
   /** The questions the reply is waiting on now (none once they're answered). */
   onAsks?: (asks: Ask[]) => void;
+  /** What the reply has asked so far and the plans it proposed, each time one is added or a step is ticked. */
+  onMoments?: (moments: Moment[]) => void;
   onDone: (message: Message) => void;
   onError: (message: Message) => void;
   /** The chat got a new title, written after the reply. */
@@ -370,6 +399,8 @@ export async function streamChat(
     knowledgeIds?: string[];
     /** Files for the new message or the edited version (uploaded first, see uploadFile). */
     attachments?: string[];
+    /** A new chat plans first: the AI proposes a plan for your OK before doing the work. */
+    planFirst?: boolean;
   },
   handlers: StreamHandlers,
   signal?: AbortSignal,
@@ -409,6 +440,7 @@ export async function streamChat(
       else if (event === "status") handlers.onStatus(payload.status, payload.detail);
       else if (event === "notice") handlers.onNotice(payload.message);
       else if (event === "asks") handlers.onAsks?.(payload.asks);
+      else if (event === "moments") handlers.onMoments?.(payload.moments);
       else if (event === "done") handlers.onDone(payload.message);
       else if (event === "error") handlers.onError(payload.message);
       else if (event === "title") handlers.onTitle?.(payload.title);

@@ -416,6 +416,8 @@ test("repeated failed manual runs reach the request limit without adding more ru
 });
 
 test("unattended tasks neither offer nor execute memory and MCP tools, even if a provider requests them", async () => {
+  // Asking and planning stay: nobody is there, so they're answered straight away (ask-plan.test.ts).
+  const own = ["ask_person", "propose_plan", "update_plan"];
   const person = new Person();
   const now = nowIso();
   db.prepare("INSERT INTO knowledge_bases (id, user_id, name, created_at, updated_at) VALUES (?, ?, 'Task notes', ?, ?)")
@@ -433,11 +435,11 @@ test("unattended tasks neither offer nor execute memory and MCP tools, even if a
   assert.equal(run.status, "failed", "A provider returning only undeclared actions cannot produce a successful reply");
   const saved = db.prepare("SELECT tool_defs, title_auto FROM conversations WHERE id = ?").get(run.conversationId!)!;
   assert.equal(saved.title_auto, 0);
-  assert.deepEqual(JSON.parse(String(saved.tool_defs)).map((tool: { name: string }) => tool.name), ["search_knowledge"]);
+  assert.deepEqual(JSON.parse(String(saved.tool_defs)).map((tool: { name: string }) => tool.name), [...own, "search_knowledge"]);
   const sent = service.requests.slice(before);
   assert.equal(sent.length, 1, "Undeclared tool requests stop here without a retry, title, or MCP request");
   assert.ok(sent.every((request) => request.path === "/v1/chat/completions" && request.body.stream));
-  assert.deepEqual(sent[0].body.tools.map((tool: { function: { name: string } }) => tool.function.name), ["search_knowledge"]);
+  assert.deepEqual(sent[0].body.tools.map((tool: { function: { name: string } }) => tool.function.name), [...own, "search_knowledge"]);
   assert.equal(count("memories", person.id), 0);
 });
 

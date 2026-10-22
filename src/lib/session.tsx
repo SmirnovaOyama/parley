@@ -16,6 +16,9 @@ type SessionValue = {
   /** Knowledge bases picked for the chat about to start. */
   newChatKnowledge: string[];
   setNewChatKnowledge: (next: string[]) => void;
+  /** The chat about to start plans first: the AI proposes a plan for your OK before doing the work. */
+  newChatPlanFirst: boolean;
+  setNewChatPlanFirst: (next: boolean) => void;
   /** The person's projects, newest activity first. */
   projects: Project[];
   refreshProjects: () => Promise<void>;
@@ -29,6 +32,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [newChatInstructions, setNewChatInstructions] = useState<Instructions | null>(null);
   const [newChatKnowledge, setNewChatKnowledge] = useState<string[]>([]);
+  const [newChatPlanFirst, setNewChatPlanFirst] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
 
   const refreshUser = useCallback(async () => {
@@ -72,6 +76,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setProjects([]);
     setNewChatInstructions(null);
     setNewChatKnowledge([]);
+    setNewChatPlanFirst(false);
   }, []);
 
   useEffect(() => {
@@ -107,6 +112,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setNewChatInstructions,
         newChatKnowledge,
         setNewChatKnowledge,
+        newChatPlanFirst,
+        setNewChatPlanFirst,
         projects,
         refreshProjects,
       }}

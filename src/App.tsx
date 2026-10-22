@@ -9,6 +9,7 @@ import { ComparePage } from "./pages/ComparePage.tsx";
 import { ChatSettingsPage } from "./pages/ChatSettingsPage.tsx";
 import { ChatsPage } from "./pages/ChatsPage.tsx";
 import { TaskFormPage, TasksPage } from "./pages/TasksPage.tsx";
+import { CoworkJobPage, CoworkPage } from "./pages/CoworkPage.tsx";
 import { ConnectionsPage, ConnectionTokenPage } from "./pages/ConnectionsPage.tsx";
 import { DevicesPage } from "./pages/DevicesPage.tsx";
 import { TwoStepPage } from "./pages/TwoStepPage.tsx";
@@ -54,6 +55,8 @@ export function App() {
             <Route path="tasks" element={<TasksPage />} />
             <Route path="tasks/new" element={<TaskFormPage />} />
             <Route path="tasks/:id" element={<TaskFormPage />} />
+            <Route path="cowork" element={<CoworkPage />} />
+            <Route path="cowork/:id" element={<CoworkJobPage />} />
             <Route path="settings" element={<AccountPage />} />
             <Route path="settings/bonus" element={<BonusPage />} />
             <Route path="settings/connections" element={<ConnectionsPage />} />

@@ -100,6 +100,14 @@ export function ChatsPage() {
                 </div>
                 <Icon name="chevron-right" size={18} />
               </SlideLink>
+              <SlideLink className="oy-row" to="/cowork" direction="forward">
+                <Icon name="briefcase" size={20} />
+                <div className="text">
+                  <p className="title">{t("Cowork")}</p>
+                  <p className="desc">{t("Give a model a job to work through on its own")}</p>
+                </div>
+                <Icon name="chevron-right" size={18} />
+              </SlideLink>
               <SlideLink className="oy-row" to="/projects" direction="forward">
                 <Icon name="folder" size={20} />
                 <div className="text">

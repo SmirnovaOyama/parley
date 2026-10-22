@@ -75,6 +75,17 @@ Each run starts a separate chat and uses the same access checks and allowance as
 Unattended runs do not write memories or call connected-service tools, and requests requiring approval are denied. When the model asks a question or proposes a plan, it's told nobody is there, so it decides and says what it assumed
 A task can email its owner after each scheduled run, with the answer or why it didn't finish, when the site can send email
 
+## Cowork
+
+Give a model a job in one box, with files and knowledge if it needs them, and it works through it on its own in the server process
+Its page shows the work as it happens: what it writes, each tool it uses, a checklist it keeps, the files it makes and what it works with
+You can send it a message as it works, which it reads after the step it's on, or stop it; once it's done, a message has it carry on
+It uses the chat's tools except memory: knowledge, web search and page reading where they're set up, making files, and connected services
+A tool that needs your OK holds the job at "Waiting for you" until you answer on its page or in its chat, for up to three days, and that time doesn't count toward its working time
+Each job has limits on steps, working time and spending, 50 steps, an hour and $2 unless you change them on its page, besides your monthly allowance; it says which one stopped it
+A step interrupted by a restart is never sent again on its own: the job waits for Carry on
+Its answer and files go in an ordinary chat, and it can email you when it finishes or needs your OK, when the site can send email
+
 ## AI providers
 
 | Provider | Models | Reads | Extras |

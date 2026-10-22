@@ -530,7 +530,7 @@ function PlanAsk({ ask, onAnswer }: { ask: Ask; onAnswer?: (answer: AskAnswer) =
   const edit = (i: number, value: string) => setSteps((list) => (list ?? proposed).map((s, j) => (j === i ? value : s)));
   return (
     <div className="tool-ask is-plan" role="group" aria-label={ask.question}>
-      <Icon name="list" size={16} />
+      <Icon name="plan" size={16} />
       <div className="tool-ask-body">
         <p className="tool-ask-question">{ask.question}</p>
         {steps ? (
@@ -683,7 +683,7 @@ function PlanMoment({ moment, live }: { moment: Extract<Moment, { kind: "plan" }
   };
   return (
     <div className={`moment plan${carried ? "" : " is-idle"}`} role="group" aria-label={title[moment.outcome]}>
-      <Icon name="list" size={16} />
+      <Icon name="plan" size={16} />
       <div className="moment-body">
         <p className="moment-title">
           <span>{title[moment.outcome]}</span>

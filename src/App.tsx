@@ -21,7 +21,7 @@ import { KeysPage } from "./pages/admin/KeysPage.tsx";
 import { OverviewPage } from "./pages/admin/OverviewPage.tsx";
 import { PeoplePage } from "./pages/admin/PeoplePage.tsx";
 import { PersonFormPage } from "./pages/admin/PersonFormPage.tsx";
-import { SettingsPage } from "./pages/admin/SettingsPage.tsx";
+import { SettingsPage, SettingsSectionPage } from "./pages/admin/SettingsPage.tsx";
 import { UsagePage } from "./pages/admin/UsagePage.tsx";
 import { GroupFormPage, GroupsPage } from "./pages/admin/GroupsPage.tsx";
 import { McpFormPage, ToolsPage } from "./pages/admin/ToolsPage.tsx";
@@ -92,6 +92,14 @@ export function App() {
               <Route path="usage" element={<UsagePage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
+            <Route
+              path="admin/settings/:section"
+              element={
+                <RequireAdmin>
+                  <SettingsSectionPage />
+                </RequireAdmin>
+              }
+            />
             <Route
               path="admin/chats/:id"
               element={

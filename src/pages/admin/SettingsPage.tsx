@@ -1,14 +1,17 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Navigate, useParams } from "react-router";
 import { BusyButton } from "../../components/BusyButton.tsx";
 import { OptionList, Switch, Tick } from "../../components/Controls.tsx";
 import { InlineConfirm } from "../../components/DangerRow.tsx";
 import { Advisory, Spinner } from "../../components/Feedback.tsx";
 import { LineArea, LineField } from "../../components/LineField.tsx";
-import { Icon } from "../../icons/Icon.tsx";
+import { PageHeader } from "../../components/PageHeader.tsx";
+import { SlideLink } from "../../components/SlideLink.tsx";
+import { Icon, type IconName } from "../../icons/Icon.tsx";
 import { api, type SharingMode, type SiteNotice } from "../../lib/api.ts";
 import { AUDIT_ACTIONS as ACTIONS } from "../../lib/audit.ts";
-import { amountInput, amountText, dateTime } from "../../lib/format.ts";
-import { t } from "../../lib/i18n.ts";
+import { amountInput, amountText, dateTime, formatCost, formatNumber } from "../../lib/format.ts";
+import { t, tn } from "../../lib/i18n.ts";
 import { useSession } from "../../lib/session.tsx";
 
 import type { ApiKey } from "./KeysPage.tsx";
@@ -34,14 +37,12 @@ type Settings = {
 type MailMode = "smtp" | "dev" | "off";
 type AuditEntry = { id: number; action: string; target: string | null; createdAt: string; admin: string };
 
-export function SettingsPage() {
+/** What every settings page loads: the settings, how the site sends email, and the notice. */
+function useSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [notice, setNotice] = useState<SiteNotice | null>(null);
   const [mail, setMail] = useState<MailMode>("dev");
-  const [prompt, setPrompt] = useState("");
+  const [notice, setNotice] = useState<SiteNotice | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
-  const [saved, setSaved] = useState(false);
-  const [savingPrompt, setSavingPrompt] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadAudit = () => api.get<{ entries: AuditEntry[] }>("/admin/audit").then((r) => setAudit(r.entries), () => {});
@@ -50,21 +51,20 @@ export function SettingsPage() {
     api.get<{ settings: Settings; mail: MailMode; notice: SiteNotice | null }>("/admin/settings").then(
       (r) => {
         setSettings(r.settings);
-        setNotice(r.notice);
         setMail(r.mail);
-        setPrompt(r.settings.systemPrompt);
+        setNotice(r.notice);
       },
       (err) => setError((err as Error).message),
     );
     void loadAudit();
   }, []);
 
+  /** Saves some settings; false when the server said no (its reason is in `error`). */
   const update = async (next: Partial<Settings>) => {
     setError(null);
     try {
       const r = await api.patch<{ settings: Settings }>("/admin/settings", next);
       setSettings(r.settings);
-      void loadAudit();
       return true;
     } catch (err) {
       setError((err as Error).message);
@@ -72,104 +72,285 @@ export function SettingsPage() {
     }
   };
 
-  // The rewards form reports its own errors next to its fields.
-  const saveRewards = async (next: Pick<Settings, "bonusDomains" | "bonusTokens" | "bonusSpend" | "bonusKeyIds">) => {
-    const r = await api.patch<{ settings: Settings }>("/admin/settings", next);
-    setSettings(r.settings);
-    void loadAudit();
-  };
+  return { settings, setSettings, mail, notice, setNotice, audit, loadAudit, error, update };
+}
 
-  if (!settings) return error ? <Advisory>{error}</Advisory> : <Spinner />;
+type Loaded = ReturnType<typeof useSettings> & { settings: Settings };
+
+const signupCodeOn = (s: Settings, mail: MailMode) => mail !== "off" && (s.signupCode ?? mail === "smtp");
+
+const SHARING_LABELS: Record<SharingMode, string> = {
+  anyone: t("Anyone with the link"),
+  "signed-in": t("People signed in here"),
+  off: t("Nobody"),
+};
+
+type Section = {
+  id: string;
+  icon: IconName;
+  title: string;
+  /** The row's second line on the Settings menu: how it's set now. */
+  summary: (s: Loaded) => string;
+  page: (s: Loaded) => ReactNode;
+};
+
+/**
+ * Admin › Settings is a menu: one row for each part, each opening its own page
+ * (/admin/settings/<id>), so no page holds every setting at once.
+ */
+const SECTIONS: { label: string; sections: Section[] }[] = [
+  {
+    label: t("People"),
+    sections: [
+      {
+        id: "notice",
+        icon: "megaphone",
+        title: t("Notice for everyone"),
+        summary: ({ notice }) => notice?.text ?? t("Nothing posted"),
+        page: ({ notice, setNotice, loadAudit }) => (
+          <NoticeForm
+            notice={notice}
+            onChange={(next) => {
+              setNotice(next);
+              void loadAudit();
+            }}
+          />
+        ),
+      },
+      {
+        id: "sign-ups",
+        icon: "users",
+        title: t("Sign-ups"),
+        summary: ({ settings, mail }) =>
+          !settings.allowSignup
+            ? t("Only admins add people")
+            : signupCodeOn(settings, mail)
+              ? t("Anyone can sign up, with a code sent to their address")
+              : t("Anyone can sign up"),
+        page: (s) => <SignupsPage {...s} />,
+      },
+      {
+        id: "signing-in",
+        icon: "devices",
+        title: t("Signing in"),
+        summary: ({ settings }) =>
+          settings.maxSessions == null
+            ? t("No limit on devices")
+            : tn(settings.maxSessions, "Each account on up to {count} device", "Each account on up to {count} devices", { count: formatNumber(settings.maxSessions) }),
+        page: ({ settings, update }) => <DevicesForm saved={settings.maxSessions} onSave={(maxSessions) => update({ maxSessions })} />,
+      },
+      {
+        id: "spending",
+        icon: "coin",
+        title: t("Spending"),
+        summary: ({ settings }) =>
+          settings.spendLimit == null ? t("No monthly limit") : t("{amount} a month for each member", { amount: formatCost(settings.spendLimit) }),
+        page: ({ settings, update }) => <SpendingForm saved={settings.spendLimit} onSave={(spendLimit) => update({ spendLimit })} />,
+      },
+      {
+        id: "rewards",
+        icon: "gift",
+        title: t("Email rewards"),
+        summary: ({ settings }) =>
+          settings.bonusDomains.length === 0
+            ? t("No domains yet")
+            : tn(settings.bonusDomains.length, "{count} domain earns a reward", "{count} domains earn a reward", { count: formatNumber(settings.bonusDomains.length) }),
+        page: ({ settings, setSettings, mail }) => (
+          <RewardsForm
+            settings={settings}
+            mail={mail}
+            onSave={async (next) => {
+              // The rewards form reports its own errors next to its fields.
+              const r = await api.patch<{ settings: Settings }>("/admin/settings", next);
+              setSettings(r.settings);
+            }}
+          />
+        ),
+      },
+    ],
+  },
+  {
+    label: t("Chats"),
+    sections: [
+      {
+        id: "assistant",
+        icon: "chat",
+        title: t("Assistant"),
+        summary: () => t("Instructions for the AI, its thinking and memory"),
+        page: (s) => <AssistantPage {...s} />,
+      },
+      {
+        id: "sharing",
+        icon: "share",
+        title: t("Sharing"),
+        summary: ({ settings }) => SHARING_LABELS[settings.sharing],
+        page: ({ settings, setSettings, update }) => (
+          <OptionList<SharingMode>
+            label={t("Who can open shared chats")}
+            value={settings.sharing}
+            onChange={(sharing) => {
+              setSettings({ ...settings, sharing });
+              void update({ sharing });
+            }}
+            options={[
+              { id: "anyone", label: SHARING_LABELS.anyone, detail: t("No account needed") },
+              { id: "signed-in", label: SHARING_LABELS["signed-in"], detail: t("A link asks for an account on this site first") },
+              { id: "off", label: SHARING_LABELS.off, detail: t("People can't share chats, and existing links stop opening until it's back on") },
+            ]}
+          />
+        ),
+      },
+      {
+        id: "keeping-chats",
+        icon: "hourglass",
+        title: t("Keeping chats"),
+        summary: ({ settings: { retainChatsDays: chats, retainDeletedDays: deleted } }) =>
+          chats != null
+            ? tn(chats, "Chats nobody touches go after {count} day", "Chats nobody touches go after {count} days", { count: formatNumber(chats) })
+            : deleted === 0
+              ? t("Chats people delete are removed right away")
+              : deleted != null
+                ? tn(deleted, "Chats people delete stay {count} day for admins", "Chats people delete stay {count} days for admins", { count: formatNumber(deleted) })
+                : t("Chats are kept for good"),
+        page: ({ settings, update }) => <RetentionForm settings={settings} onSave={(next) => update(next)} />,
+      },
+      {
+        id: "privacy",
+        icon: "eye",
+        title: t("Privacy"),
+        summary: ({ settings }) => (settings.privacyNotice ? t("People are told admins can read chats") : t("People aren't told admins can read chats")),
+        page: (s) => <PrivacyPage {...s} />,
+      },
+    ],
+  },
+  {
+    label: t("Admins"),
+    sections: [
+      {
+        id: "activity",
+        icon: "list",
+        title: t("Recent admin activity"),
+        summary: ({ audit }) => (audit[0] ? t("Latest: {action}", { action: ACTIONS[audit[0].action] ?? audit[0].action }) : t("Nothing yet")),
+        page: ({ audit }) => <ActivityPage audit={audit} />,
+      },
+    ],
+  },
+];
+
+/** Admin › Settings: the menu of settings, each row saying how it's set now. */
+export function SettingsPage() {
+  const s = useSettings();
+  if (!s.settings) return s.error ? <Advisory>{s.error}</Advisory> : <Spinner />;
+  const loaded = s as Loaded;
 
   return (
     <>
-      {error && <Advisory>{error}</Advisory>}
-      <NoticeForm
-        notice={notice}
-        onChange={(next) => {
-          setNotice(next);
-          void loadAudit();
-        }}
-      />
+      {SECTIONS.map((group) => (
+        <div key={group.label} className="oy-group">
+          <p className="oy-overline">{group.label}</p>
+          <div className="oy-section">
+            {group.sections.map((section) => (
+              <SlideLink key={section.id} className="oy-row" to={`/admin/settings/${section.id}`} direction="forward">
+                <Icon name={section.icon} size={20} />
+                <div className="text">
+                  <p className="title">{section.title}</p>
+                  <div className="desc truncate">{section.summary(loaded)}</div>
+                </div>
+                <Icon name="chevron-right" size={18} className="chevron" />
+              </SlideLink>
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
 
-      <div className="oy-group">
-        <p className="oy-overline">{t("Sign-ups")}</p>
-        <div className="oy-section">
-          <div className="oy-row">
-            <Icon name="users" size={20} />
-            <div className="text">
-              <label className="title" htmlFor="allow-signup">
-                {t("Let people create accounts")}
-              </label>
-              <div className="desc">{t("When it's off, only admins can add people")}</div>
-            </div>
-            <Switch id="allow-signup" checked={settings.allowSignup} onChange={(v) => void update({ allowSignup: v })} />
+/** Admin › Settings › one part of them (/admin/settings/<id>). */
+export function SettingsSectionPage() {
+  const { section: id } = useParams();
+  const section = SECTIONS.flatMap((g) => g.sections).find((x) => x.id === id);
+  const s = useSettings();
+  if (!section) return <Navigate to="/admin/settings" replace />;
+
+  return (
+    <div className="admin-page">
+      <PageHeader title={section.title} back={{ label: t("Settings"), to: "/admin/settings" }} />
+      <div className="oy-page-column page-body">
+        {s.error && <Advisory>{s.error}</Advisory>}
+        {s.settings ? section.page(s as Loaded) : !s.error && <Spinner />}
+      </div>
+    </div>
+  );
+}
+
+function SignupsPage({ settings, mail, update }: Loaded) {
+  return (
+    <div className="oy-section">
+      <div className="oy-row">
+        <Icon name="users" size={20} />
+        <div className="text">
+          <label className="title" htmlFor="allow-signup">
+            {t("Let people create accounts")}
+          </label>
+          <div className="desc">{t("When it's off, only admins can add people")}</div>
+        </div>
+        <Switch id="allow-signup" checked={settings.allowSignup} onChange={(v) => void update({ allowSignup: v })} />
+      </div>
+      <div className="oy-row">
+        <Icon name="mail" size={20} />
+        <div className="text">
+          <label className="title" htmlFor="signup-code">
+            {t("Check new addresses with a code")}
+          </label>
+          <div className="desc">{SIGNUP_CODE_NOTE[mail]}</div>
+        </div>
+        <Switch id="signup-code" checked={signupCodeOn(settings, mail)} disabled={mail === "off"} onChange={(v) => void update({ signupCode: v })} />
+      </div>
+    </div>
+  );
+}
+
+function AssistantPage({ settings, update }: Loaded) {
+  const [prompt, setPrompt] = useState(settings.systemPrompt);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setSaved(await update({ systemPrompt: prompt }));
+    setBusy(false);
+  };
+
+  return (
+    <>
+      <div className="oy-group oy-section">
+        <div className="oy-row">
+          <Icon name="eye" size={20} />
+          <div className="text">
+            <label className="title" htmlFor="show-thinking">
+              {t("Show the AI's thinking")}
+            </label>
+            <div className="desc">{t("Folded above each reply, for models that share it: a summary of their reasoning, or the reasoning itself")}</div>
           </div>
-          <div className="oy-row">
-            <Icon name="mail" size={20} />
-            <div className="text">
-              <label className="title" htmlFor="signup-code">
-                {t("Check new addresses with a code")}
-              </label>
-              <div className="desc">{SIGNUP_CODE_NOTE[mail]}</div>
-            </div>
-            <Switch
-              id="signup-code"
-              checked={mail !== "off" && (settings.signupCode ?? mail === "smtp")}
-              disabled={mail === "off"}
-              onChange={(v) => void update({ signupCode: v })}
-            />
+          <Switch id="show-thinking" checked={settings.showThinking} onChange={(v) => void update({ showThinking: v })} />
+        </div>
+        <div className="oy-row">
+          <Icon name="note" size={20} />
+          <div className="text">
+            <label className="title" htmlFor="memory">
+              {t("Memory")}
+            </label>
+            <div className="desc">{t("The AI keeps short notes about each person between chats. People see and edit theirs, and can turn it off for themselves")}</div>
           </div>
+          <Switch id="memory" checked={settings.memory} onChange={(v) => void update({ memory: v })} />
         </div>
       </div>
-
-      <DevicesForm saved={settings.maxSessions} onSave={(maxSessions) => update({ maxSessions })} />
-
-      <OptionList<SharingMode>
-        label={t("Who can open shared chats")}
-        value={settings.sharing}
-        onChange={(sharing) => {
-          setSettings({ ...settings, sharing });
-          void update({ sharing });
-        }}
-        options={[
-          { id: "anyone", label: t("Anyone with the link"), detail: t("No account needed") },
-          { id: "signed-in", label: t("People signed in here"), detail: t("A link asks for an account on this site first") },
-          { id: "off", label: t("Nobody"), detail: t("People can't share chats, and existing links stop opening until it's back on") },
-        ]}
-      />
-
-      <div className="oy-group">
-        <p className="oy-overline">{t("Assistant")}</p>
-        <div className="oy-section">
-          <div className="oy-row">
-            <Icon name="eye" size={20} />
-            <div className="text">
-              <label className="title" htmlFor="show-thinking">
-                {t("Show the AI's thinking")}
-              </label>
-              <div className="desc">{t("Folded above each reply, for models that share it: a summary of their reasoning, or the reasoning itself")}</div>
-            </div>
-            <Switch id="show-thinking" checked={settings.showThinking} onChange={(v) => void update({ showThinking: v })} />
-          </div>
-          <div className="oy-row">
-            <Icon name="note" size={20} />
-            <div className="text">
-              <label className="title" htmlFor="memory">
-                {t("Memory")}
-              </label>
-              <div className="desc">{t("The AI keeps short notes about each person between chats. People see and edit theirs, and can turn it off for themselves")}</div>
-            </div>
-            <Switch id="memory" checked={settings.memory} onChange={(v) => void update({ memory: v })} />
-          </div>
-        </div>
-        <label className="oy-field-label" htmlFor="system-prompt">
-          {t("Instructions for the AI")}
-        </label>
-        <textarea
+      <form className="oy-group form-page" onSubmit={save}>
+        <LineArea
           id="system-prompt"
-          className="input-base"
-          rows={6}
+          label={t("Instructions for the AI")}
           value={prompt}
           onChange={(e) => {
             setPrompt(e.target.value);
@@ -178,73 +359,52 @@ export function SettingsPage() {
         />
         <div className="form-actions">
           <p className="oy-field-hint">{t("Sent with every chat on every key. Changes apply to the next message")}</p>
-          <BusyButton
-            type="button"
-            className="btn-primary"
-            busy={savingPrompt}
-            disabled={prompt === settings.systemPrompt}
-            onClick={() => {
-              setSavingPrompt(true);
-              void update({ systemPrompt: prompt }).then((ok) => {
-                setSaved(ok);
-                setSavingPrompt(false);
-              });
-            }}
-          >
+          <BusyButton type="submit" className="btn-primary" busy={busy} disabled={prompt === settings.systemPrompt}>
             {saved && prompt === settings.systemPrompt ? t("Saved") : t("Save")}
           </BusyButton>
         </div>
-      </div>
+      </form>
+    </>
+  );
+}
 
-      <SpendingForm saved={settings.spendLimit} onSave={(spendLimit) => update({ spendLimit })} />
-
-      <div className="oy-group">
-        <p className="oy-overline">{t("Privacy")}</p>
-        <div className="oy-section">
-          <div className="oy-row">
-            <Icon name="eye" size={20} />
-            <div className="text">
-              <label className="title" htmlFor="privacy-notice">
-                {t("Tell people admins can read chats")}
-              </label>
-              <div className="desc">
-                {t(
-                  "Under Settings, everyone sees that the people who run this site can open any chat, and that each time is logged, and deleting a chat says admins can still see it. Off, none of this is shown, but admins can still read chats and each time is still logged",
-                )}
-              </div>
-            </div>
-            <Switch id="privacy-notice" checked={settings.privacyNotice} onChange={(v) => void update({ privacyNotice: v })} />
+function PrivacyPage({ settings, update }: Loaded) {
+  return (
+    <div className="oy-section">
+      <div className="oy-row">
+        <Icon name="eye" size={20} />
+        <div className="text">
+          <label className="title" htmlFor="privacy-notice">
+            {t("Tell people admins can read chats")}
+          </label>
+          <div className="desc">
+            {t(
+              "Under Settings, everyone sees that the people who run this site can open any chat, and that each time is logged, and deleting a chat says admins can still see it. Off, none of this is shown, but admins can still read chats and each time is still logged",
+            )}
           </div>
         </div>
+        <Switch id="privacy-notice" checked={settings.privacyNotice} onChange={(v) => void update({ privacyNotice: v })} />
       </div>
+    </div>
+  );
+}
 
-      <RetentionForm settings={settings} onSave={(next) => update(next)} />
-
-      <RewardsForm settings={settings} mail={mail} onSave={saveRewards} />
-
-      <div className="oy-group">
-        <p className="oy-overline">{t("Recent admin activity")}</p>
-        {audit.length === 0 ? (
-          <p className="text-muted">{t("Nothing yet")}</p>
-        ) : (
-          <div className="oy-section is-plain">
-            {audit.map((a) => (
-              <div key={a.id} className="oy-row audit-row">
-                <div className="text">
-                  <p className="title">
-                    {ACTIONS[a.action] ?? a.action}
-                    {a.target && <span className="audit-target"> {a.target}</span>}
-                  </p>
-                  <div className="desc">
-                    {t("By {admin} on {createdAt}", { admin: a.admin, createdAt: dateTime(a.createdAt) })}
-                  </div>
-                </div>
-              </div>
-            ))}
+function ActivityPage({ audit }: { audit: AuditEntry[] }) {
+  if (audit.length === 0) return <p className="text-muted">{t("Nothing yet")}</p>;
+  return (
+    <div className="oy-section is-plain">
+      {audit.map((a) => (
+        <div key={a.id} className="oy-row audit-row">
+          <div className="text">
+            <p className="title">
+              {ACTIONS[a.action] ?? a.action}
+              {a.target && <span className="audit-target"> {a.target}</span>}
+            </p>
+            <div className="desc">{t("By {admin} on {createdAt}", { admin: a.admin, createdAt: dateTime(a.createdAt) })}</div>
           </div>
-        )}
-      </div>
-    </>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -295,7 +455,6 @@ function NoticeForm({ notice, onChange }: { notice: SiteNotice | null; onChange:
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">{t("Notice for everyone")}</p>
       <p className="group-intro">
         {notice
           ? t("Showing at the top of the app since {postedAt}. People can dismiss it, and it shows again when you change it", { postedAt: dateTime(notice.postedAt) })
@@ -354,7 +513,6 @@ function DevicesForm({ saved, onSave }: { saved: number | null; onSave: (limit: 
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">{t("Signing in")}</p>
       <form className="form-page" onSubmit={save}>
         <LineField
           id="max-sessions"
@@ -404,7 +562,6 @@ function RetentionForm({ settings, onSave }: { settings: Settings; onSave: (next
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">{t("Keeping chats")}</p>
       <form className="form-page" onSubmit={save}>
         <LineField
           id="retain-chats"
@@ -464,7 +621,6 @@ function SpendingForm({ saved, onSave }: { saved: number | null; onSave: (limit:
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">{t("Spending")}</p>
       <form className="form-page" onSubmit={save}>
         <LineField
           id="spend-limit"
@@ -563,7 +719,6 @@ function RewardsForm({
 
   return (
     <div className="oy-group">
-      <p className="oy-overline">{t("Email rewards")}</p>
       <p className="group-intro">
         {t(
           "People who prove they own an address on one of these domains, with a code sent to it, get the reward. It's optional for them, and lasts while the domain stays listed",

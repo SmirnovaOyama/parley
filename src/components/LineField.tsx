@@ -52,6 +52,20 @@ export function LineArea({ id, label, hint, error, value, ...area }: AreaProps) 
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }, [value]);
+  // A narrower window wraps the text onto more lines, so it's measured again when the width changes.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let width = el.clientWidth;
+    const resize = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    });
+    resize.observe(el);
+    return () => resize.disconnect();
+  }, []);
 
   return (
     <div className="line-field">

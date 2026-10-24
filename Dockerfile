@@ -3,14 +3,14 @@
 
 # The built site is the same on every platform, so it's built natively even when the image is for
 # another one (arm64 images are made on amd64).
-FROM --platform=$BUILDPLATFORM node:24-slim AS build
+FROM --platform=$BUILDPLATFORM node:26-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:24-slim
+FROM node:26-slim
 WORKDIR /app
 ENV NODE_ENV=production PORT=8787 DATABASE_PATH=/data/chat.db
 COPY package.json package-lock.json ./

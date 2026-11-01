@@ -24,7 +24,7 @@ app.route("/api", chatRoutes);
 app.route("/api", taskRoutes);
 
 /** One turn of the scripted model: some words, then the tool calls it makes (none: it's done). */
-type Turn = { text?: string; calls?: { name: string; input: Record<string, unknown> }[] };
+type Turn = { thinking?: string; text?: string; calls?: { name: string; input: Record<string, unknown> }[] };
 /** What the model does, turn by turn: its nth turn comes after n rounds of tool results. */
 let script: Turn[] = [];
 let service: MockServer;
@@ -121,6 +121,7 @@ function responsesTurn(turn: Turn): Reply {
 function completionsTurn(turn: Turn): Reply {
   const calls = (turn.calls ?? []).map((call, index) => ({ index, id: nextId(), type: "function", function: { name: call.name, arguments: JSON.stringify(call.input) } }));
   return completionStream([
+    ...(turn.thinking ? [chunk({ reasoning_content: turn.thinking })] : []),
     ...(turn.text ? [chunk({ content: turn.text })] : []),
     ...(calls.length ? [chunk({ tool_calls: calls })] : []),
     chunk({}, calls.length ? "tool_calls" : "stop"),
@@ -237,7 +238,12 @@ class Person {
   async load(conversationId: string) {
     const response = await this.request("GET", `/conversations/${conversationId}`);
     assert.equal(response.status, 200);
-    return (await response.json()) as { conversation: { planFirst: boolean; canPlan: boolean }; messages: Message[] };
+    return (await response.json()) as {
+      conversation: { planFirst: boolean; canPlan: boolean };
+      messages: Message[];
+      generating: boolean;
+      live: { text: string; thinking: string } | null;
+    };
   }
 }
 
@@ -259,6 +265,22 @@ const since = (from: number) => service.requests.slice(from).filter(streamed);
 
 const ASK = { name: "ask_person", input: { question: "Which colour should the chart use?", options: ["Teal", "Orange", "Grey"] } };
 const PLAN = { name: "propose_plan", input: { steps: ["Read the data", "Draw the chart", "Write a summary"] } };
+
+test("coming back to a reply that's still being written shows what it has thought and written so far", async () => {
+  const person = new Person();
+  script = [{ thinking: "Which colour suits a chart of sales?", text: "Let me check one thing.", calls: [ASK] }, { text: " Teal it is." }];
+  const { message, conversationId } = await person.chat({ text: "Make me a chart", keyId: keys.get("deepseek"), model: "deepseek-flash", effort: "off" }, async (ask, id) => {
+    // As another page of theirs sees it, mid-reply.
+    const meanwhile = await person.load(id);
+    assert.equal(meanwhile.generating, true);
+    assert.deepEqual(meanwhile.live, { text: "Let me check one thing.", thinking: "Which colour suits a chart of sales?" });
+    await person.answer(id, ask.id, { allow: true, text: "Teal" });
+  });
+  assert.match(message.text, /Let me check one thing\.\s*Teal it is\./);
+  // Once it's saved there's nothing live left; the thinking is with the message.
+  const after = await person.load(conversationId);
+  assert.deepEqual([after.generating, after.live], [false, null]);
+});
 
 for (const p of PROVIDERS) {
   const pick = { keyId: keys.get(p.provider), model: p.model, effort: p.effort };

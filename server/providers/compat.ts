@@ -30,6 +30,10 @@ import {
 export type Dialect = {
   /** The service's address; null when each key brings its own (an admin's own endpoint). */
   baseURL: string | null;
+  /** The address its model list hangs off, where that isn't the chat's (OpenCode lists a level up). */
+  modelsBaseURL?: string;
+  /** Headers a chat's requests carry besides the key, such as the conversation OpenCode routes by. */
+  headers?: (req: ChatRequest) => Record<string, string>;
   /** The request fields that set a thinking level, and ask for the reasoning when it's shown. */
   thinking: (effort: string, model: string, show: boolean) => Record<string, unknown>;
   /** The fields for a short one-off answer (a chat's title): as little thinking as the model allows. */
@@ -42,8 +46,8 @@ export type Dialect = {
   systemMidChat: boolean;
   /** Whether a reply may open with its reasoning in <think> or <thought> tags (open models, Gemini). */
   thinkTags?: boolean;
-  /** Whether a turn that calls tools goes back with its reasoning_content (DeepSeek asks for it). */
-  echoReasoning?: boolean;
+  /** Whether a turn that calls tools goes back with its reasoning_content (DeepSeek asks for it), or for which models. */
+  echoReasoning?: boolean | ((model: string) => boolean);
 };
 
 /**
@@ -66,6 +70,8 @@ type ServiceUsage = {
   /** DeepSeek's own names for cache hits and misses. */
   prompt_cache_hit_tokens?: number;
   prompt_cache_miss_tokens?: number;
+  /** OpenCode's count of what it billed: input without the cache, output with the reasoning. */
+  opencode?: { tokens?: { input: number; output: number; cache_read?: number; cache_write_5m?: number; cache_write_1h?: number } };
 };
 
 function clientFor(dialect: Dialect, apiKey: string, baseUrl: string | undefined, maxRetries: number) {
@@ -78,9 +84,18 @@ function clientFor(dialect: Dialect, apiKey: string, baseUrl: string | undefined
 /**
  * Cache hits come in under different names; what's left of the prompt is ordinary input. Some
  * services (Gemini, xAI) leave the reasoning out of completion_tokens but count it in the total, so
- * whichever is larger is what the model wrote.
+ * whichever is larger is what the model wrote. OpenCode says what it billed, cache writes included.
  */
 function usageOf(u: ServiceUsage): Usage {
+  const billed = u.opencode?.tokens;
+  if (typeof billed?.input === "number" && typeof billed.output === "number") {
+    return {
+      input: billed.input,
+      output: billed.output,
+      cacheRead: billed.cache_read ?? 0,
+      cacheWrite: (billed.cache_write_5m ?? 0) + (billed.cache_write_1h ?? 0),
+    };
+  }
   const cacheRead = u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0;
   return {
     input: u.prompt_cache_miss_tokens ?? Math.max(0, u.prompt_tokens - cacheRead),
@@ -250,6 +265,8 @@ export function compatProvider(dialect: Dialect): ChatProvider {
       : null;
     // Only these run, whatever name the model sends back.
     const own = new Set(req.functions.map((f) => f.name));
+    const headers = dialect.headers?.(req);
+    const echoes = typeof dialect.echoReasoning === "function" ? dialect.echoReasoning(req.model) : !!dialect.echoReasoning;
     const params = (lastRound: boolean) =>
       ({
         model: req.model,
@@ -274,12 +291,12 @@ export function compatProvider(dialect: Dialect): ChatProvider {
     for (let round = 0; ; round++) {
       let stream;
       try {
-        stream = await client.chat.completions.create(params(round >= MAX_TOOL_ROUNDS), { signal: req.signal });
+        stream = await client.chat.completions.create(params(round >= MAX_TOOL_ROUNDS), { signal: req.signal, headers });
       } catch (err) {
         if (!tools || round > 0 || !toolsRefused(err)) throw err;
         console.error(`[chat] ${req.model} took no tools, asking without them:`, (err as Error).message);
         tools = null;
-        stream = await client.chat.completions.create(params(false), { signal: req.signal });
+        stream = await client.chat.completions.create(params(false), { signal: req.signal, headers });
       }
 
       // This round's words, reasoning and calls (the calls arrive in pieces, by index).
@@ -339,6 +356,7 @@ export function compatProvider(dialect: Dialect): ChatProvider {
           usage.input += u.input;
           usage.output += u.output;
           usage.cacheRead += u.cacheRead;
+          usage.cacheWrite += u.cacheWrite;
           contextTokens = (chunk.usage as ServiceUsage).prompt_tokens + u.output;
         }
       }
@@ -356,7 +374,7 @@ export function compatProvider(dialect: Dialect): ChatProvider {
         role: "assistant",
         content: said || null,
         tool_calls: asked,
-        ...(reasoned && dialect.echoReasoning ? { reasoning_content: reasoned } : {}),
+        ...(reasoned && echoes ? { reasoning_content: reasoned } : {}),
       } as ChatCompletionMessageParam);
       toolCalls.forEach((call, i) =>
         messages.push({ role: "tool", tool_call_id: call.id, content: outcomes[i].isError ? `Error: ${outcomes[i].content}` : outcomes[i].content || "(no output)" }),
@@ -397,10 +415,11 @@ export function compatProvider(dialect: Dialect): ChatProvider {
   /** Checks the key against the service's model list. A service without one gets a one-word question. */
   async function verify(apiKey: string, model: string, baseUrl?: string) {
     const client = clientFor(dialect, apiKey, baseUrl, 1);
+    const lister = dialect.modelsBaseURL ? openaiClient(apiKey, dialect.modelsBaseURL, 1) : client;
     let ids: string[];
     try {
       ids = [];
-      for await (const m of client.models.list()) ids.push(m.id.replace(/^models\//, ""));
+      for await (const m of lister.models.list()) ids.push(m.id.replace(/^models\//, ""));
     } catch (err) {
       const status = (err as { status?: number }).status;
       if (dialect.baseURL || (status !== 404 && status !== 405)) throw err;

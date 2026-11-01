@@ -7,6 +7,7 @@ import { getGlobalDispatcher, MockAgent, setGlobalDispatcher } from "undici";
 import { anthropicProvider } from "../server/providers/anthropic.ts";
 import { deepseekProvider } from "../server/providers/deepseek.ts";
 import { openaiProvider } from "../server/providers/openai.ts";
+import { opencodeProvider } from "../server/providers/opencode.ts";
 import { json, mockServer } from "./helpers/mock-server.ts";
 
 // The address the environment points at, listening for whatever is sent there.
@@ -73,6 +74,16 @@ test("A service in OpenAI's format gets no OpenAI organization either", async ()
   await deepseekProvider.verify("sk-ds-test", "deepseek-test");
   const req = seen.find((s) => s.origin === "https://api.deepseek.com");
   assert.ok(req, "the request reached DeepSeek");
+  assert.equal(req.headers["openai-organization"], undefined);
+  assert.equal(relay.requests.length, 0);
+});
+
+test("OpenCode's key goes to opencode.ai alone, where it lists its models", async () => {
+  answer("https://opencode.ai", "/inference/v1/models", { object: "list", data: [{ id: "kimi-k3", object: "model", created: 0, owned_by: "opencode" }] });
+  await opencodeProvider.verify("oc_sk_test", "kimi-k3");
+  const req = seen.find((s) => s.origin === "https://opencode.ai");
+  assert.ok(req, "the request reached OpenCode");
+  assert.equal(req.headers.authorization, "Bearer oc_sk_test");
   assert.equal(req.headers["openai-organization"], undefined);
   assert.equal(relay.requests.length, 0);
 });

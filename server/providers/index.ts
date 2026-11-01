@@ -3,6 +3,7 @@ import { customProvider } from "./custom.ts";
 import { deepseekProvider } from "./deepseek.ts";
 import { geminiProvider } from "./gemini.ts";
 import { openaiProvider } from "./openai.ts";
+import { opencodeProvider } from "./opencode.ts";
 import { xaiProvider } from "./xai.ts";
 import { t } from "../i18n.ts";
 import type { ProviderId } from "./catalog.ts";
@@ -14,6 +15,7 @@ const providers: Record<ProviderId, ChatProvider> = {
   openai: openaiProvider,
   gemini: geminiProvider,
   xai: xaiProvider,
+  opencode: opencodeProvider,
   custom: customProvider,
 };
 

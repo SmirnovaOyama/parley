@@ -87,7 +87,7 @@ export function KeysPage() {
           </button>
         }
       >
-        {t("Add a key for Claude, OpenAI, Gemini, Grok, DeepSeek or another service so people can start chatting")}
+        {t("Add a key for Claude, OpenAI, Gemini, Grok, DeepSeek, OpenCode or another service so people can start chatting")}
       </EmptyState>
     );
   }

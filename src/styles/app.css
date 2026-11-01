@@ -639,7 +639,8 @@ button.oy-row:disabled:hover { background: none; }
   /* Glides from level to level (and follows a drag the same way). */
   transition: left 240ms var(--ease-standard), transform var(--duration-quick) var(--ease-standard);
 }
-.effort-track:active .effort-thumb { transform: scale(1.08); }
+.effort-track[aria-disabled="true"] { cursor: default; }
+.effort-track:active:not([aria-disabled="true"]) .effort-thumb { transform: scale(1.08); }
 .effort-track:focus-visible .effort-thumb { border-color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .effort-fill, .effort-thumb, .effort-stop, .picker-pop { transition: none; } }
 

@@ -7,6 +7,9 @@ type Props = {
   levels: Level[];
   value: string;
   onChange: (id: string) => void;
+  /** What screen readers call it, where "Thinking" alone can't tell two models apart. */
+  label?: string;
+  disabled?: boolean;
 };
 
 /** Track padding: the thumb's half-width, so the first and last stops sit fully on the track. */
@@ -18,7 +21,7 @@ const at = (i: number, n: number) => `calc(${PAD}px + (100% - ${PAD * 2}px) * ${
  * a clay fill up to a round thumb that sits on the chosen stop.
  * Click or drag along the track, or use the arrow keys; it always lands on a level.
  */
-export function EffortSlider({ levels, value, onChange }: Props) {
+export function EffortSlider({ levels, value, onChange, label = t("Thinking"), disabled = false }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const n = levels.length;
   const index = Math.max(0, levels.findIndex((l) => l.id === value));
@@ -35,6 +38,7 @@ export function EffortSlider({ levels, value, onChange }: Props) {
     if (level && level.id !== value) onChange(level.id);
   };
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    if (disabled) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     select(nearest(e.clientX));
   };
@@ -42,6 +46,7 @@ export function EffortSlider({ levels, value, onChange }: Props) {
     if (e.currentTarget.hasPointerCapture(e.pointerId)) select(nearest(e.clientX));
   };
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
     const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
     if (step) {
       e.preventDefault();
@@ -66,8 +71,9 @@ export function EffortSlider({ levels, value, onChange }: Props) {
         ref={trackRef}
         className="effort-track"
         role="slider"
-        tabIndex={0}
-        aria-label={t("Thinking")}
+        tabIndex={disabled ? -1 : 0}
+        aria-label={label}
+        aria-disabled={disabled || undefined}
         aria-valuemin={0}
         aria-valuemax={n - 1}
         aria-valuenow={index}

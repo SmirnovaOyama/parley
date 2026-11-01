@@ -184,7 +184,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 | Setting | What it does |
 |---|---|
 | `KEY_ENCRYPTION_SECRET` | Required. Encrypts the API keys in the database. Keep it safe and never change it, or saved keys can't be read. |
-| `VITE_APP_NAME` | The site's name, in the sidebar and the browser tab. It's read when Parley starts, so a restart picks up a change. |
+| `VITE_APP_NAME` | The site's name, in the sidebar and the browser tab (Parley AI unless set). It's read when Parley starts, so a restart picks up a change. |
 | `DATABASE_PATH` | Where the SQLite database lives (default `data/chat.db`). Files sit next to it. |
 | `PORT` | The API's port (default 8787). |
 | `SMTP_URL`, `MAIL_FROM` | Outgoing email, for password reset links and the optional email rewards. |

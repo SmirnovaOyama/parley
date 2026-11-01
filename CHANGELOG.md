@@ -33,6 +33,10 @@ Claude's and OpenAI's keys now go only to api.anthropic.com and api.openai.com: 
 - `TRUST_PROXY=1` for a proxy that connects from addresses Parley can't tell apart from the internet's, like the Worker in front of a Cloudflare Container: the last address in `X-Forwarded-For` is then always the visitor's.
 - A limit on how many devices one account can be signed in on, under Admin → Settings → Signing in: 5 unless you change it, or empty for none. Signing in on one more signs out the one used longest ago, and a lower number holds as soon as it's saved, except for the admin's own device that saved it.
 
+### Changed
+
+- The site is called Parley AI unless `VITE_APP_NAME` names it otherwise: in the browser tab, the hand-lettered name in the sidebar and on the sign-in page, the installed app and its emails. Browsers, link previews and the install prompt describe it as "Chat and work with LLMs". A site that sets `VITE_APP_NAME=Parley` keeps that name, still hand-lettered.
+
 ### Fixed
 
 - Memory no longer keeps the same thing twice. Before the AI keeps a new note, it looks over any that read alike and any kept since the chat began (which some models no longer have in front of them a reply later), and saves only what none of them says, in whatever words or language. A note it already has word for word changes nothing, and notes are written in the person's language.

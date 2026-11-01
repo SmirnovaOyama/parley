@@ -70,7 +70,7 @@ openssl rand -hex 32
 |---|---|
 | `CLOUDFLARE_ACCOUNT_ID` | 你的 Account ID |
 | `PARLEY_DOMAIN` | 网站的地址，比如 `chat.example.com`。选一个没被占用的名字，部署时会自动创建。 |
-| `VITE_APP_NAME` | 可选。网站名称（不设就叫 Parley）。 |
+| `VITE_APP_NAME` | 可选。网站名称（不设就叫 Parley AI）。 |
 | `MAIL_FROM` | 可选。重设密码邮件的发件人，比如 `Chat <no-reply@example.com>`。 |
 
 **Secrets** 标签页：

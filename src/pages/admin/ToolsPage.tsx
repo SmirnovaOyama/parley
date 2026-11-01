@@ -164,7 +164,7 @@ function SearchForm() {
     <div className="oy-group">
       <p className="oy-overline">{t("Web search for other models")}</p>
       <p className="group-intro">
-        {t("Claude and OpenAI search with their own tools. DeepSeek, Gemini, Grok and other services search through the service picked here, and can read the pages they find, on keys with web search on")}
+        {t("Claude and OpenAI search with their own tools. DeepSeek, Gemini, Grok, OpenCode and other services search through the service picked here, and can read the pages they find, on keys with web search on")}
       </p>
       <form className="form-page" onSubmit={save}>
         <OptionList

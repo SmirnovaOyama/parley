@@ -36,6 +36,12 @@ describe("allowedModels", () => {
     assert.deepEqual(allowedModels(key({})), ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]);
   });
 
+  test("leaves the expensive models off an OpenCode key too", () => {
+    const offered = allowedModels(key({ provider: "opencode" }));
+    assert.equal(offered.length, findProvider("opencode")!.models.length - 2);
+    assert.equal(offered.includes("claude-fable-5-1") || offered.includes("gpt-6-astra"), false);
+  });
+
   test("always offers the model new chats start on, even an expensive one", () => {
     assert.deepEqual(allowedModels(key({ model: "claude-fable-5-1" })), ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"]);
   });
@@ -141,6 +147,11 @@ describe("readsFor", () => {
     assert.deepEqual(readsFor(key({ provider: "deepseek", model: "deepseek-flash", code_execution: 1 }), true), ["text"]);
     assert.deepEqual(readsFor(key({ provider: "gemini", model: "gemini-3.8-flash" }), true), ["image", "text"]);
     assert.deepEqual(readsFor(key({ provider: "xai", model: "grok-4.7" }), true), ["image", "text"]);
+  });
+
+  test("gives OpenCode's models pictures but no PDFs, and text alone where that's all they read", () => {
+    assert.deepEqual(readsFor(key({ provider: "opencode", model: "claude-opus-5-5", code_execution: 1 }), true), ["image", "text"]);
+    assert.deepEqual(readsFor(key({ provider: "opencode", model: "glm-5.3" }), true), ["text"]);
   });
 
   test("lets another service take pictures only when the admin said it reads them", () => {

@@ -32,6 +32,7 @@ Claude's and OpenAI's keys now go only to api.anthropic.com and api.openai.com: 
 - Parley can run on Cloudflare with no server: in a Cloudflare Container on the Workers Paid plan, its database copied to R2 by Litestream and its files kept in R2, in Western North America so Claude and OpenAI answer. A GitHub Actions workflow builds and deploys it. See `cloudflare/README.md`.
 - `TRUST_PROXY=1` for a proxy that connects from addresses Parley can't tell apart from the internet's, like the Worker in front of a Cloudflare Container: the last address in `X-Forwarded-For` is then always the visitor's.
 - A limit on how many devices one account can be signed in on, under Admin → Settings → Signing in: 5 unless you change it, or empty for none. Signing in on one more signs out the one used longest ago, and a lower number holds as soon as it's saved, except for the admin's own device that saved it.
+- OpenCode as a provider: one key for its pay-as-you-go API (OpenCode Console, once called Zen) runs Claude, GPT, Gemini and Grok models alongside Kimi K3, GLM-5.3, Qwen3.8 Max, DeepSeek, MiniMax M3 and Mistral Large 4, at OpenCode's prices, with thinking levels where the model has them. Usage counts the cache as OpenCode bills it. Its Go plan isn't offered: OpenCode keeps that for coding agents.
 
 ### Changed
 

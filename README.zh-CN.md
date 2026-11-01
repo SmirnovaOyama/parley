@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-一个可以自己部署的 AI 聊天网站，适合团队、班级或家人一起用。管理员填入 Claude、OpenAI、Gemini、Grok、DeepSeek 或任何兼容 OpenAI 聊天格式的服务的 API key，决定谁能用哪些模型、每月能花多少；其他人登录后直接聊天。API key 只存在服务器上，不会发到浏览器。
+一个可以自己部署的 AI 聊天网站，适合团队、班级或家人一起用。管理员填入 Claude、OpenAI、Gemini、Grok、DeepSeek、OpenCode 或任何兼容 OpenAI 聊天格式的服务的 API key，决定谁能用哪些模型、每月能花多少；其他人登录后直接聊天。API key 只存在服务器上，不会发到浏览器。
 
 前端用 Vite + React，后端用 Node 上的 Hono，数据存在 SQLite（Node 自带的 `node:sqlite`）里。一个进程，一个数据文件夹。
 
@@ -95,6 +95,7 @@
 | DeepSeek | Flash、V4 Pro | 文本 | |
 | Gemini | 3.8 Flash、3.1 Pro、3.5 Flash-Lite | 图片、文本 | |
 | Grok | 4.7、4.6、4.3 | 图片（JPEG、PNG）、文本 | 4.7 有推理摘要 |
+| OpenCode | Claude Opus、Sonnet、Haiku、Fable；GPT-6.1 Sol、6 Luna、6 Astra；Gemini 4 Argon、3.8 Flash；Grok 4.7；Kimi K3、GLM-5.3、Qwen3.8 Max、DeepSeek V4 Pro 和 V4.1 Flash、MiniMax M3、Mistral Large 4 | 图片（GLM-5.3 和 DeepSeek V4 Pro 除外）、文本 | 一个按量付费的 key 就能全用上；Go 订阅只给编程智能体用 |
 | 其他服务 | 你填写的任意模型名 | 文本，开启后也能读图片 | 预设了 OpenRouter、Groq、Mistral、通义千问、Kimi、GLM 和 Ollama，千问、Kimi、GLM 都有国内地址 |
 
 费用估算用的价格在 [`server/providers/catalog.ts`](server/providers/catalog.ts)。其他服务可以在 key 上填价格，不填就按免费计算。

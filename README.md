@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md)
 
-A self-hosted AI chat site for a team, a class or a family. Admins add API keys for Claude, OpenAI, Gemini, Grok, DeepSeek or any service in OpenAI's chat format, and decide who can use which models and how much they can spend. People sign in and chat. Keys never reach a browser.
+A self-hosted AI chat site for a team, a class or a family. Admins add API keys for Claude, OpenAI, Gemini, Grok, DeepSeek, OpenCode or any service in OpenAI's chat format, and decide who can use which models and how much they can spend. People sign in and chat. Keys never reach a browser.
 
 Vite + React on the front, Hono on Node behind it, SQLite (Node's built-in `node:sqlite`) for storage. One process, one data folder.
 
@@ -95,6 +95,7 @@ Its answer and files go in an ordinary chat, and it can email you when it finish
 | DeepSeek | Flash, V4 Pro | Text | |
 | Gemini | 3.8 Flash, 3.1 Pro, 3.5 Flash-Lite | Images, text | |
 | Grok | 4.7, 4.6, 4.3 | Images (JPEG, PNG), text | Reasoning summaries on 4.7 |
+| OpenCode | Claude Opus, Sonnet, Haiku and Fable; GPT-6.1 Sol, 6 Luna and 6 Astra; Gemini 4 Argon and 3.8 Flash; Grok 4.7; Kimi K3, GLM-5.3, Qwen3.8 Max, DeepSeek V4 Pro and V4.1 Flash, MiniMax M3, Mistral Large 4 | Images (all but GLM-5.3 and DeepSeek V4 Pro), text | All on one pay-as-you-go key; the Go plan is for coding agents only |
 | Another service | Any model names you type | Text, and images if you say so | Presets for OpenRouter, Groq, Mistral, Qwen, Kimi, GLM and Ollama |
 
 Prices for the cost estimates live in [`server/providers/catalog.ts`](server/providers/catalog.ts). For another service you can enter its prices on the key; models without prices count as free.
@@ -237,7 +238,7 @@ Set in `.env` (see [`.env.example`](.env.example)):
 - **Chat.** `POST /api/chat` streams the reply as server-sent events. If the browser leaves, the reply keeps going and is saved; coming back shows it. Stop ends it early.
 - **Claude.** `@anthropic-ai/sdk`, with prompt caching and server-side refusal fallbacks. Earlier replies go back exactly as they came, as the newest models require.
 - **OpenAI and Grok.** The Responses API through the `openai` package, with nothing stored at the provider. Reasoning summaries show where the model gives them.
-- **Gemini, DeepSeek and other services.** OpenAI's chat-completions format ([`server/providers/compat.ts`](server/providers/compat.ts)), one dialect per service. Reasoning shows whether it comes as its own field or in `<think>` tags.
+- **Gemini, DeepSeek, OpenCode and other services.** OpenAI's chat-completions format ([`server/providers/compat.ts`](server/providers/compat.ts)), one dialect per service. Reasoning shows whether it comes as its own field or in `<think>` tags. OpenCode serves every model this way, translating for those whose own API is another.
 - **Tools.** Memory, knowledge search, MCP servers' tools and (for models without their own) web search are functions every provider can call ([`server/tools.ts`](server/tools.ts)); each provider runs the loop its own way. A chat's tool list is settled when it starts, because Claude ties its reasoning to it. A call that needs the person's OK waits for it ([`server/asks.ts`](server/asks.ts)), asked on a line in the reply. The model's own questions (`ask_person`) and plans (`propose_plan`, `update_plan`) wait on the same lines, and what was asked stays with the reply at the place in its text where it came.
 - **Knowledge.** Documents are cut into overlapping parts in an SQLite FTS5 index with the trigram tokenizer, so Chinese and Japanese match without word breaks. No embeddings, no extra service.
 - **Attachments.** Each file uploads as it's added and is kept next to the database. Claude gets files through its Files API, uploaded once per account; other models get images and PDFs inline, and text files go in as text. Photos are scaled down in the browser; files can be up to 30 MB (images 5 MB).

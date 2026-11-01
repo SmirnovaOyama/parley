@@ -34,7 +34,6 @@
 .cowork-job { display: flex; flex-direction: column; min-height: 100dvh; }
 .cowork-job .oy-page-column, .cowork-layout, .cowork-dock-inner { max-width: 1180px; }
 .cowork-job .oy-page-header h1 { white-space: normal; }
-.cowork-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text); font-weight: 500; }
 .cowork-layout {
   flex: 1; box-sizing: border-box; width: 100%; margin: 0 auto; padding: 4px 24px 16px;
   display: flex; flex-direction: column; gap: 20px;
@@ -44,7 +43,13 @@
 @media (min-width: 1100px) {
   .cowork-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 48px; align-items: start; }
   .cowork-main { order: 1; }
-  .cowork-panel { order: 2; position: sticky; top: 16px; max-height: calc(100dvh - 32px); overflow-y: auto; }
+  /* The panel stands still between the header and the message box while the work scrolls past,
+     and scrolls on its own when it's longer than that (CoworkJobPage measures the two). */
+  .cowork-panel {
+    order: 2; position: sticky; top: calc(var(--cowork-top, 0px) + 4px);
+    max-height: calc(100dvh - var(--cowork-top, 0px) - var(--cowork-bottom, 0px) - 8px);
+    overflow-y: auto; overscroll-behavior: contain;
+  }
 }
 
 .cowork-stream { display: flex; flex-direction: column; gap: 16px; padding-bottom: 8px; }

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, type KeyboardEvent } from "react";
 import { Icon } from "../icons/Icon.tsx";
 import type { Choice, ModelChoice } from "../lib/api.ts";
 import { t } from "../lib/i18n.ts";
+import { EffortSlider } from "./EffortSlider.tsx";
 import "../styles/inline-model-picker.css";
 
 type Props = {
@@ -12,7 +13,7 @@ type Props = {
   label: string;
 };
 
-/** Model choices expand in the page, while thinking levels stay within reach below them */
+/** Model choices expand in the page, with the chat's thinking slider in reach below them */
 export function InlineModelPicker({ choices, value, onChange, disabled = false, label }: Props) {
   const id = useId();
   const detailsRef = useRef<HTMLDetailsElement>(null);
@@ -86,25 +87,14 @@ export function InlineModelPicker({ choices, value, onChange, disabled = false, 
         </fieldset>
       </details>
       {current && current.efforts.length > 1 && (
-        <fieldset className="inline-model-effort" disabled={disabled}>
-          <legend className="visually-hidden">{t("{label}: {thinking}", { label, thinking: t("Thinking") })}</legend>
-          <span className="inline-model-effort-label" aria-hidden="true">{t("Thinking")}</span>
-          <div className="inline-model-effort-options">
-            {current.efforts.map((level, index) => (
-              <label className="inline-model-effort-option" key={level.id} htmlFor={`${id}-effort-${index}`}>
-                <input
-                  id={`${id}-effort-${index}`}
-                  type="radio"
-                  name={`${id}-effort`}
-                  value={level.id}
-                  checked={value?.effort === level.id}
-                  onChange={() => { if (!disabled) onChange({ keyId: current.keyId, model: current.model, effort: level.id }); }}
-                />
-                <span>{level.label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <EffortSlider
+          levels={current.efforts}
+          // A level this model doesn't have shows as its lowest, and any stop picked mends it.
+          value={value?.effort ?? ""}
+          onChange={(effort) => onChange({ keyId: current.keyId, model: current.model, effort })}
+          label={t("{label}: {thinking}", { label, thinking: t("Thinking") })}
+          disabled={disabled}
+        />
       )}
     </div>
   );

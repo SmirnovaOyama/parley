@@ -186,12 +186,12 @@ export function CoworkPage() {
   const picked = bases.filter((k) => knowledge.includes(k.id)).map((k) => k.name);
 
   return <div className="tasks-page cowork-page">
-    <PageHeader title={t("Cowork")} subtitle={t("Give a model a job and it works through it on its own")} back={{ label: t("Chats"), to: "/chats", mobileOnly: true }} />
+    <PageHeader title={t("Cowork")} back={{ label: t("Chats"), to: "/chats", mobileOnly: true }} />
     <div className="oy-page-column page-body">
       <section className="cowork-start" aria-labelledby="cowork-start-heading">
-        <h2 id="cowork-start-heading">{t("What should I work on?")}</h2>
+        <h2 id="cowork-start-heading">{t("What should the LLM work on?")}</h2>
         <JobComposer value={goal} onChange={setGoal} onSend={() => void start()} sending={starting} canSend={canStart} uploads={uploads} rows={3}
-          placeholder={t("Describe the job and what the result should be")} />
+          placeholder={t("Enter a prompt")} />
         {uploads.problem && <Advisory>{uploads.problem}</Advisory>}
         <div className="cowork-start-options">
           {!models && !startError ? <Spinner label={t("Loading models")} />

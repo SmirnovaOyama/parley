@@ -31,6 +31,8 @@ type Loaded = {
   /** While a reply is being written: the questions it's waiting on, and what it asked and planned before. */
   asks?: Ask[];
   moments?: Moment[];
+  /** And what it has written and thought so far. */
+  live?: { text: string; thinking: string } | null;
   share: Share | null;
 };
 type Models = { choices: ModelChoice[]; start: Choice | null };
@@ -52,6 +54,12 @@ function resolvePick(models: Models, pick: ChatPick | null): Choice | null {
 
 const NEAR_BOTTOM = 48;
 const POLL_MS = 1500;
+
+/** The saved messages, each keeping the row it had on screen, so nothing open in it folds shut. */
+function keepKeys(saved: UiMessage[], shown: UiMessage[]): UiMessage[] {
+  const keys = new Map(shown.filter((m) => m.key != null).map((m) => [m.id, m.key]));
+  return saved.map((m) => (keys.has(m.id) ? { ...m, key: keys.get(m.id) } : m));
+}
 
 export function ChatPage() {
   const { id } = useParams();
@@ -135,11 +143,17 @@ export function ChatPage() {
       setChatProject(data.conversation.project);
       setComparisonId(data.conversation.comparisonId ?? null);
       setChatPlanFirst(!!data.conversation.planFirst);
-      setMessages(
-        data.generating
-          ? [...data.messages, { id: -1, parentId: null, role: "assistant", text: "", model: "", status: "ok", error: null, note: null, thinking: null, thinkingMs: null, instructionsChanged: false, siblingIds: [], createdAt: "", streaming: true, phase: "writing", asks: data.asks ?? [], moments: data.moments ?? [] }]
-          : data.messages,
-      );
+      const live = data.live;
+      setMessages((list) => {
+        if (data.generating) {
+          const phase = live?.text ? "writing" : live?.thinking ? "thinking" : "writing";
+          return [...data.messages, { id: -1, parentId: null, role: "assistant", text: live?.text ?? "", model: "", status: "ok", error: null, note: null, thinking: live?.thinking || null, thinkingMs: null, instructionsChanged: false, siblingIds: [], createdAt: "", streaming: true, phase, asks: data.asks ?? [], moments: data.moments ?? [] }];
+        }
+        // The reply this page watched come in keeps its row as it's swapped for the saved one.
+        const watched = list.find((m) => m.id === -1);
+        const last = data.messages.at(-1);
+        return watched && last?.role === "assistant" ? [...data.messages.slice(0, -1), { ...last, key: -1 }] : data.messages;
+      });
       setSending(data.generating);
       setMissing(false);
       return data.generating;
@@ -363,7 +377,7 @@ export function ChatPage() {
       const saved = convId;
       if (saved) {
         api.get<Loaded>(`/conversations/${saved}`).then(
-          (data) => shownIdRef.current === saved && !data.generating && setMessages(data.messages),
+          (data) => shownIdRef.current === saved && !data.generating && setMessages((list) => keepKeys(data.messages, list)),
           () => {},
         );
       }
@@ -412,7 +426,7 @@ export function ChatPage() {
           onMoments: (moments) => patchReply((m) => ({ ...m, moments })),
           onDone: (message) => {
             cancelAnimationFrame(frame);
-            patchReply((m) => ({ ...message, notice: m.notice }));
+            patchReply((m) => ({ ...message, notice: m.notice, key: m.key ?? m.id }));
             settle();
           },
           onError: (message) => {

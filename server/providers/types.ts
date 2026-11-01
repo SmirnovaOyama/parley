@@ -115,7 +115,16 @@ export type ChatResult = {
 };
 
 /** A short one-off request (naming a chat), answered in full rather than streamed. */
-export type CompleteRequest = { apiKey: string; baseUrl?: string; model: string; system: string; prompt: string; signal?: AbortSignal };
+export type CompleteRequest = {
+  apiKey: string;
+  baseUrl?: string;
+  model: string;
+  system: string;
+  prompt: string;
+  signal?: AbortSignal;
+  /** The chat it's for, where there is one: services that route by it (OpenCode) keep its requests together. */
+  cacheKey?: string;
+};
 export type CompleteResult = { text: string; model: string; usage: Usage } | null;
 
 export type ChatProvider = {

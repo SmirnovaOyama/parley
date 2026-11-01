@@ -721,6 +721,7 @@
  "On. Nothing saved yet": "已开启。还没记下任何东西",
  "Once there's something in this chat, you can make a read-only link to it": "聊天里有了内容后，就可以给它创建只读链接",
  "One key for Claude, GPT, Gemini, Grok and open models": "一个密钥就能用 Claude、GPT、Gemini、Grok 和开源模型",
+ "The models in your OpenCode Go plan, which OpenCode means for coding agents": "你的 OpenCode Go 订阅里的模型，OpenCode 说 Go 是给编程智能体用的",
  "One of the codes you saved when you turned this on": "开启两步验证时你保存的恢复码之一",
  "One of the files isn't here any more. Remove it and add it again": "有个文件已经不在了。移除后重新添加",
  "One of the selected models or thinking levels is no longer available": "所选的模型或思考强度已不可用，请重新选择",

@@ -2,7 +2,7 @@
 // the usage estimates; DeepSeek bills peak hours at these rates and off-peak at half.
 import { t } from "../i18n.ts";
 
-export type ProviderId = "anthropic" | "deepseek" | "openai" | "gemini" | "xai" | "opencode" | "custom";
+export type ProviderId = "anthropic" | "deepseek" | "openai" | "gemini" | "xai" | "opencode" | "opencode-go" | "custom";
 
 /** Kinds of attached file a model can open itself. */
 export type FileKind = "image" | "pdf" | "text";
@@ -170,6 +170,36 @@ export const PROVIDERS: ProviderInfo[] = [
       { id: "mistral-large-4", label: "Mistral Large 4", input: 0.68, output: 2.09, cacheRead: 0.07, cacheWrite: 0.68, efforts: ["off", "high"], defaultEffort: "off", context: 524_288 },
     ],
     defaultModel: "claude-opus-5-5",
+    reads: ["image", "text"],
+  },
+  // OpenCode Go, its subscription, at the token prices its usage limits are counted in, so an
+  // estimate is what a reply took from the plan's allowance. DeepSeek is counted at its peak-hour
+  // rate, as on DeepSeek's own key; Go serves it only once the workspace allows the Global region.
+  // New chats start on GLM-5.3 Flash, whose allowance goes furthest of the models Go always has.
+  {
+    id: "opencode-go",
+    label: "OpenCode Go",
+    detail: "The models in your OpenCode Go plan, which OpenCode means for coding agents",
+    models: [
+      { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, efforts: CLAUDE_EFFORTS, defaultEffort: "low", context: 1_000_000 },
+      { id: "gpt-6-luna", label: "GPT-6 Luna", input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, efforts: ["off", "low", "medium", "high", "xhigh", "max"], defaultEffort: "low", context: 1_050_000 },
+      // Half price until 30 November 2026: $4 in, $0.20 cached and $20 out from 1 December.
+      { id: "gemini-4-argon", label: "Gemini 4 Argon", input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2, efforts: ["low", "medium", "high"], defaultEffort: "low", context: 1_048_576 },
+      { id: "grok-4.7", label: "Grok 4.7", input: 2, output: 6, cacheRead: 0.5, cacheWrite: 2, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "low", context: 500_000 },
+      { id: "kimi-k3.1-pro", label: "Kimi K3.1 Pro", input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2, efforts: ["low", "high", "max"], defaultEffort: "low", context: 1_048_576 },
+      // On Go, Kimi K3 always thinks at its most.
+      { id: "kimi-k3", label: "Kimi K3", input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3, efforts: ["max"], defaultEffort: "max", context: 1_048_576 },
+      { id: "glm-5.3", label: "GLM-5.3", input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite: 1.4, efforts: ["low", "high", "max"], defaultEffort: "low", reads: ["text"], context: 1_000_000 },
+      { id: "glm-5.3-flash", label: "GLM-5.3 Flash", input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0.15, efforts: ["low", "high", "max"], defaultEffort: "low", context: 1_000_000 },
+      { id: "qwen3.8-max", label: "Qwen3.8 Max", input: 2, output: 6, cacheRead: 0.25, cacheWrite: 2.5, efforts: ["low", "medium", "xhigh"], defaultEffort: "low", context: 1_000_000 },
+      { id: "qwen3.8-flash", label: "Qwen3.8 Flash", input: 0.15, output: 0.47, cacheRead: 0.016, cacheWrite: 0.2, efforts: ["low", "medium", "xhigh"], defaultEffort: "low", context: 1_000_000 },
+      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", input: 1.32, output: 3.96, cacheRead: 0.044, cacheWrite: 1.32, efforts: ["high", "max"], defaultEffort: "high", reads: ["text"], context: 1_000_000 },
+      { id: "deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash", input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0.3, efforts: ["low", "high", "max"], defaultEffort: "low", context: 1_000_000 },
+      { id: "minimax-m3", label: "MiniMax M3", input: 0.3, output: 1.2, cacheRead: 0.06, cacheWrite: 0.3, efforts: ["default"], defaultEffort: "default", context: 1_000_000 },
+      { id: "minimax-m3.1-flash", label: "MiniMax M3.1 Flash", input: 0.15, output: 0.6, cacheRead: 0.015, cacheWrite: 0.15, efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "low", context: 1_000_000 },
+      { id: "mimo-v2.6-pro", label: "MiMo-V2.6 Pro", input: 0.435, output: 0.87, cacheRead: 0.003625, cacheWrite: 0.435, efforts: ["default"], defaultEffort: "default", context: 1_048_576 },
+    ],
+    defaultModel: "glm-5.3-flash",
     reads: ["image", "text"],
   },
   {

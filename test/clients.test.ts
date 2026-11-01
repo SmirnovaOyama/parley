@@ -7,7 +7,7 @@ import { getGlobalDispatcher, MockAgent, setGlobalDispatcher } from "undici";
 import { anthropicProvider } from "../server/providers/anthropic.ts";
 import { deepseekProvider } from "../server/providers/deepseek.ts";
 import { openaiProvider } from "../server/providers/openai.ts";
-import { opencodeProvider } from "../server/providers/opencode.ts";
+import { opencodeGoProvider, opencodeProvider } from "../server/providers/opencode.ts";
 import { json, mockServer } from "./helpers/mock-server.ts";
 
 // The address the environment points at, listening for whatever is sent there.
@@ -85,5 +85,14 @@ test("OpenCode's key goes to opencode.ai alone, where it lists its models", asyn
   assert.ok(req, "the request reached OpenCode");
   assert.equal(req.headers.authorization, "Bearer oc_sk_test");
   assert.equal(req.headers["openai-organization"], undefined);
+  assert.equal(relay.requests.length, 0);
+});
+
+test("An OpenCode Go key goes to opencode.ai alone too, at Go's own address", async () => {
+  answer("https://opencode.ai", "/inference/go/v1/models", { object: "list", data: [{ id: "glm-5.3-flash", object: "model", created: 0, owned_by: "opencode" }] });
+  await opencodeGoProvider.verify("oc_sk_go", "glm-5.3-flash");
+  const req = seen.find((s) => s.origin === "https://opencode.ai" && s.path === "/inference/go/v1/models");
+  assert.ok(req, "the request reached OpenCode Go");
+  assert.equal(req.headers.authorization, "Bearer oc_sk_go");
   assert.equal(relay.requests.length, 0);
 });

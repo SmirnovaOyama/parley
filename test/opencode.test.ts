@@ -1,9 +1,10 @@
-// OpenCode (server/providers/opencode.ts), its dialect of OpenAI's chat format, against a mock of its
-// API. The mock stands at a local address; clients.test.ts checks that keys go to opencode.ai itself.
+// OpenCode (server/providers/opencode.ts), its dialect of OpenAI's chat format on both its plans,
+// against a mock of its API. The mock stands at a local address; clients.test.ts checks that keys go
+// to opencode.ai itself.
 import assert from "node:assert/strict";
 import { describe, test, type TestContext } from "node:test";
 import { compatProvider } from "../server/providers/compat.ts";
-import { opencodeDialect } from "../server/providers/opencode.ts";
+import { opencodeDialect, opencodeGoDialect } from "../server/providers/opencode.ts";
 import type { ChatRequest } from "../server/providers/types.ts";
 import { chatRequest } from "./helpers/chat.ts";
 import { chunk, completionStream, json, mockServer, modelList, usageChunk, type Received, type Reply } from "./helpers/mock-server.ts";
@@ -15,6 +16,23 @@ async function opencode(t: TestContext, handle: (req: Received) => Reply) {
   const provider = compatProvider({ ...opencodeDialect, baseURL: `${api.url}/inference/openai/v1`, modelsBaseURL: `${api.url}/inference/v1` });
   return { api, provider };
 }
+
+/** Its Go plan the same way, at Go's two addresses. */
+async function go(t: TestContext, handle: (req: Received) => Reply) {
+  const api = await mockServer(handle);
+  t.after(() => api.close());
+  const provider = compatProvider({ ...opencodeGoDialect, baseURL: `${api.url}/inference/go/openai/v1`, modelsBaseURL: `${api.url}/inference/go/v1` });
+  return { api, provider };
+}
+
+/** A whole answer to a one-off request, such as naming a chat. */
+const completion = json({
+  id: "c",
+  object: "chat.completion",
+  created: 0,
+  model: "m",
+  choices: [{ index: 0, message: { role: "assistant", content: "Weekend plans", refusal: null }, finish_reason: "stop" }],
+});
 
 /** One reply streamed from these chunks, and the request that asked for it. */
 async function reply(t: TestContext, chunks: unknown[], overrides: Partial<ChatRequest>) {
@@ -41,6 +59,14 @@ describe("opencode: chatting", () => {
     assert.equal(off.sent.body.reasoning_effort, "none");
     const fixed = await reply(t, [chunk({ content: "Hi" }, "stop")], { model: "minimax-m3", effort: "default" });
     assert.equal("reasoning_effort" in fixed.sent.body, false);
+  });
+
+  test("says it's Parley, by name and version, to the chat and the model list alike", async (t) => {
+    const { api, provider } = await opencode(t, (req) => (req.method === "GET" ? modelList(["glm-5.3"]) : completionStream([chunk({ content: "Hi" }, "stop")])));
+    await provider.chat(chatRequest({ apiKey: "oc_sk_test", model: "glm-5.3", effort: "low" }).req);
+    await provider.verify("oc_sk_test", "glm-5.3");
+    assert.equal(api.requests.length, 2);
+    for (const r of api.requests) assert.match(r.headers["user-agent"] ?? "", /^Parley\/\d+\.\d+\.\d+$/);
   });
 
   test("sends no session without a chat to tie it to", async (t) => {
@@ -84,8 +110,8 @@ describe("opencode: tools", () => {
   const knowledge = { name: "search_knowledge", description: "Search the documents", parameters: { type: "object", properties: {} } };
 
   /** A reply that reasons, asks for a tool, then answers; and the second request, which carries the turn back. */
-  async function toolTurn(t: TestContext, model: string) {
-    const { api, provider } = await opencode(t, () =>
+  async function toolTurn(t: TestContext, model: string, setup = opencode) {
+    const { api, provider } = await setup(t, () =>
       completionStream(
         api.requests.length === 1
           ? [
@@ -109,17 +135,14 @@ describe("opencode: tools", () => {
   test("leaves the reasoning out for a model OpenCode translates", async (t) => {
     assert.equal("reasoning_content" in (await toolTurn(t, "claude-sonnet-5-5")), false);
   });
+
+  test("on Go, gives its own open models their reasoning back, but not MiniMax M3, which Go translates", async (t) => {
+    assert.equal((await toolTurn(t, "kimi-k3.1-pro", go)).reasoning_content, "I should look it up");
+    assert.equal("reasoning_content" in (await toolTurn(t, "minimax-m3", go)), false);
+  });
 });
 
 describe("opencode: one-off answers", () => {
-  const completion = json({
-    id: "c",
-    object: "chat.completion",
-    created: 0,
-    model: "m",
-    choices: [{ index: 0, message: { role: "assistant", content: "Weekend plans", refusal: null }, finish_reason: "stop" }],
-  });
-
   test("think as little as each model allows", async (t) => {
     const { api, provider } = await opencode(t, () => completion);
     for (const model of ["claude-haiku-5-5", "gpt-6-luna", "deepseek-v4-pro", "minimax-m3"]) {
@@ -151,5 +174,42 @@ describe("opencode: checking a key", () => {
   test("says what the key offers when the model isn't in its list", async (t) => {
     const { provider } = await opencode(t, () => modelList(["glm-5.3"]));
     await assert.rejects(provider.verify("oc_sk_check", "kimi-k3"), { message: "This key can't use kimi-k3. It offers glm-5.3" });
+  });
+});
+
+describe("opencode go", () => {
+  test("ties every chat to a session at Go's address, the chat's own or one made for it", async (t) => {
+    const { api, provider } = await go(t, () => completionStream([chunk({ content: "Hi" }, "stop")]));
+    await provider.chat(chatRequest({ apiKey: "oc_sk_go", model: "glm-5.3-flash", effort: "low", cacheKey: "chat-7" }).req);
+    await provider.chat(chatRequest({ apiKey: "oc_sk_go", model: "glm-5.3-flash", effort: "low" }).req);
+    assert.deepEqual(api.requests.map((r) => r.path), ["/inference/go/openai/v1/chat/completions", "/inference/go/openai/v1/chat/completions"]);
+    assert.equal(api.requests[0].headers["x-opencode-session"], "chat-7");
+    // Go turns away a request with no session, so a reply outside a chat gets one of its own.
+    assert.match(String(api.requests[1].headers["x-opencode-session"]), /^[0-9a-f-]{36}$/);
+  });
+
+  test("names a chat under the chat's session, thinking as little as each model allows", async (t) => {
+    const { api, provider } = await go(t, () => completion);
+    for (const model of ["kimi-k3.1-pro", "kimi-k3", "gpt-6-luna", "minimax-m3"]) {
+      await provider.complete({ apiKey: "oc_sk_go", model, system: "Name it.", prompt: "Chat", cacheKey: "chat-7" });
+    }
+    assert.deepEqual(
+      api.requests.map((r) => r.headers["x-opencode-session"]),
+      ["chat-7", "chat-7", "chat-7", "chat-7"],
+    );
+    // On Go, Kimi K3 thinks only at its most.
+    assert.deepEqual(
+      api.requests.map((r) => r.body.reasoning_effort),
+      ["low", "max", "none", undefined],
+    );
+  });
+
+  test("checks a key against Go's own model list", async (t) => {
+    const { api, provider } = await go(t, () => modelList(["glm-5.3-flash", "kimi-k3.1-pro"]));
+    await provider.verify("oc_sk_go", "kimi-k3.1-pro");
+    assert.deepEqual(
+      api.requests.map((r) => `${r.method} ${r.path} ${r.headers.authorization}`),
+      ["GET /inference/go/v1/models Bearer oc_sk_go"],
+    );
   });
 });

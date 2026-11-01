@@ -13,7 +13,10 @@ export function anthropicClient(apiKey: string, maxRetries: number): Anthropic {
   return new Anthropic({ apiKey, authToken: null, baseURL: ANTHROPIC_API, maxRetries });
 }
 
-/** OpenAI's own API, or a service in its format at `baseURL` (DeepSeek, Gemini, Grok, another service). */
-export function openaiClient(apiKey: string, baseURL: string, maxRetries: number): OpenAI {
-  return new OpenAI({ apiKey, baseURL, organization: null, project: null, maxRetries });
+/**
+ * OpenAI's own API, or a service in its format at `baseURL` (DeepSeek, Gemini, Grok, another service).
+ * `headers` go with every request, such as the name OpenCode asks a client to give itself.
+ */
+export function openaiClient(apiKey: string, baseURL: string, maxRetries: number, headers?: Record<string, string>): OpenAI {
+  return new OpenAI({ apiKey, baseURL, organization: null, project: null, maxRetries, defaultHeaders: headers });
 }

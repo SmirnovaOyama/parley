@@ -32,8 +32,10 @@ export type Dialect = {
   baseURL: string | null;
   /** The address its model list hangs off, where that isn't the chat's (OpenCode lists a level up). */
   modelsBaseURL?: string;
-  /** Headers a chat's requests carry besides the key, such as the conversation OpenCode routes by. */
-  headers?: (req: ChatRequest) => Record<string, string>;
+  /** Headers a request carries besides the key, such as the conversation OpenCode routes by. */
+  headers?: (req: { cacheKey?: string }) => Record<string, string>;
+  /** The name it's told the client goes by, where the service asks for one (OpenCode does). */
+  userAgent?: string;
   /** The request fields that set a thinking level, and ask for the reasoning when it's shown. */
   thinking: (effort: string, model: string, show: boolean) => Record<string, unknown>;
   /** The fields for a short one-off answer (a chat's title): as little thinking as the model allows. */
@@ -74,11 +76,14 @@ type ServiceUsage = {
   opencode?: { tokens?: { input: number; output: number; cache_read?: number; cache_write_5m?: number; cache_write_1h?: number } };
 };
 
+/** What every request to the service carries: the client's own name, where it wants one. */
+const clientHeaders = (dialect: Dialect) => (dialect.userAgent ? { "User-Agent": dialect.userAgent } : undefined);
+
 function clientFor(dialect: Dialect, apiKey: string, baseUrl: string | undefined, maxRetries: number) {
   const baseURL = dialect.baseURL ?? baseUrl;
   if (!baseURL) throw new Error(t("This key has no address to send to"));
   // A local service may need no key, but the SDK wants one.
-  return openaiClient(apiKey || "none", baseURL, maxRetries);
+  return openaiClient(apiKey || "none", baseURL, maxRetries, clientHeaders(dialect));
 }
 
 /**
@@ -402,7 +407,7 @@ export function compatProvider(dialect: Dialect): ChatProvider {
       max_tokens: 1000,
       ...dialect.quick(req.model),
     } as unknown as ChatCompletionCreateParamsNonStreaming;
-    const res = await client.chat.completions.create(params, { signal: req.signal });
+    const res = await client.chat.completions.create(params, { signal: req.signal, headers: dialect.headers?.(req) });
     const choice = res.choices[0];
     if (!choice || choice.finish_reason === "content_filter" || choice.message.refusal) return null;
     return {
@@ -415,7 +420,7 @@ export function compatProvider(dialect: Dialect): ChatProvider {
   /** Checks the key against the service's model list. A service without one gets a one-word question. */
   async function verify(apiKey: string, model: string, baseUrl?: string) {
     const client = clientFor(dialect, apiKey, baseUrl, 1);
-    const lister = dialect.modelsBaseURL ? openaiClient(apiKey, dialect.modelsBaseURL, 1) : client;
+    const lister = dialect.modelsBaseURL ? openaiClient(apiKey, dialect.modelsBaseURL, 1, clientHeaders(dialect)) : client;
     let ids: string[];
     try {
       ids = [];

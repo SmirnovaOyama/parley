@@ -90,6 +90,7 @@ export async function maybeRetitle(convId: string, userId: number, key: KeyRow, 
       system: SYSTEM,
       prompt: `<conversation>\n${transcript}\n</conversation>`,
       signal: AbortSignal.timeout(45_000),
+      cacheKey: convId,
     });
     if (!result) return null;
 

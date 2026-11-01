@@ -95,7 +95,8 @@
 | DeepSeek | Flash、V4 Pro | 文本 | |
 | Gemini | 3.8 Flash、3.1 Pro、3.5 Flash-Lite | 图片、文本 | |
 | Grok | 4.7、4.6、4.3 | 图片（JPEG、PNG）、文本 | 4.7 有推理摘要 |
-| OpenCode | Claude Opus、Sonnet、Haiku、Fable；GPT-6.1 Sol、6 Luna、6 Astra；Gemini 4 Argon、3.8 Flash；Grok 4.7；Kimi K3、GLM-5.3、Qwen3.8 Max、DeepSeek V4 Pro 和 V4.1 Flash、MiniMax M3、Mistral Large 4 | 图片（GLM-5.3 和 DeepSeek V4 Pro 除外）、文本 | 一个按量付费的 key 就能全用上；Go 订阅只给编程智能体用 |
+| OpenCode | Claude Opus、Sonnet、Haiku、Fable；GPT-6.1 Sol、6 Luna、6 Astra；Gemini 4 Argon、3.8 Flash；Grok 4.7；Kimi K3、GLM-5.3、Qwen3.8 Max、DeepSeek V4 Pro 和 V4.1 Flash、MiniMax M3、Mistral Large 4 | 图片（GLM-5.3 和 DeepSeek V4 Pro 除外）、文本 | 一个按量付费的 key 就能全用上 |
+| OpenCode Go | Claude Haiku 5.5、GPT-6 Luna、Gemini 4 Argon、Grok 4.7；Kimi K3.1 Pro 和 K3、GLM-5.3 和 5.3 Flash、Qwen3.8 Max 和 Flash、DeepSeek V4 Pro 和 V4.1 Flash、MiniMax M3 和 M3.1 Flash、MiMo-V2.6 Pro | 图片（GLM-5.3 和 DeepSeek V4 Pro 除外）、文本 | 用的是 Go 订阅的额度。OpenCode 说 Go 是给编程智能体用的，会留意流量；工作区的地区设置选上 Global 后才能用 DeepSeek |
 | 其他服务 | 你填写的任意模型名 | 文本，开启后也能读图片 | 预设了 OpenRouter、Groq、Mistral、通义千问、Kimi、GLM 和 Ollama，千问、Kimi、GLM 都有国内地址 |
 
 费用估算用的价格在 [`server/providers/catalog.ts`](server/providers/catalog.ts)。其他服务可以在 key 上填价格，不填就按免费计算。

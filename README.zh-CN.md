@@ -184,7 +184,7 @@ API（端口 8787）会同时提供 `dist/` 里构建好的网页。
 | 配置 | 作用 |
 |---|---|
 | `KEY_ENCRYPTION_SECRET` | 必填。用来加密数据库里的 API key。请妥善保管，设定后不要再改，否则已保存的 key 无法解密。 |
-| `VITE_APP_NAME` | 网站名称，显示在侧边栏和浏览器标签上。Parley 启动时读取，改了重启即可。 |
+| `VITE_APP_NAME` | 网站名称，显示在侧边栏和浏览器标签上（不设就叫 Parley AI）。Parley 启动时读取，改了重启即可。 |
 | `DATABASE_PATH` | SQLite 数据库的位置（默认 `data/chat.db`），文件存在它旁边。 |
 | `PORT` | API 端口（默认 8787）。 |
 | `SMTP_URL`、`MAIL_FROM` | 发信设置，重设密码的链接和邮箱奖励功能要用。 |

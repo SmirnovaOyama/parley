@@ -70,7 +70,7 @@ On the **Variables** tab:
 |---|---|
 | `CLOUDFLARE_ACCOUNT_ID` | Your account ID |
 | `PARLEY_DOMAIN` | The address for the site, like `chat.example.com`. Pick a name nothing else uses: the deploy creates it. |
-| `VITE_APP_NAME` | Optional. The site's name (Parley unless set). |
+| `VITE_APP_NAME` | Optional. The site's name (Parley AI unless set). |
 | `MAIL_FROM` | Optional. The sender of password reset emails, like `Chat <no-reply@example.com>`. |
 
 On the **Secrets** tab:

@@ -120,7 +120,7 @@ app.get("/manifest.webmanifest", (c) => {
       id: "/",
       name: env.appName,
       short_name: env.appName,
-      description: t("Chat with AI models"),
+      description: t("Chat and work with LLMs"),
       start_url: "/",
       scope: "/",
       display: "standalone",

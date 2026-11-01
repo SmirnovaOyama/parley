@@ -5,8 +5,13 @@
 import { useId, type CSSProperties } from "react";
 import { APP_NAME } from "../lib/brand.ts";
 
-/** The lettering spells "Parley", so it only stands in for the name while the site is called that. */
-export const HAND_LETTERED = APP_NAME.trim().toLowerCase() === "parley";
+const NAME = APP_NAME.trim().toLowerCase();
+
+/**
+ * The lettering spells "Parley AI", or "Parley" on a site still named that, so it only stands in for
+ * the name while the site is called one of those.
+ */
+export const HAND_LETTERED = NAME === "parley ai" || NAME === "parley";
 
 /** When a stroke starts and how long the pen takes over it, for the drawing-in animation. */
 const pen = (at: number, len = 0) => ({ "--at": `${at}ms`, ...(len ? { "--len": `${len}ms` } : null) }) as CSSProperties;
@@ -78,8 +83,8 @@ export function ParleyFlag({ size = 60, draw = false, className }: { size?: numb
 }
 
 // "Parley" in the same ink, one path per pen stroke, in the order a hand writes them. Drawn upright
-// on a 112×62 grid (baseline 44) and slanted as a whole; the y's tail sweeps back under the word.
-const LETTERS = [
+// on a grid 62 high (baseline 44) and slanted as a whole; the y's tail sweeps back under the word.
+const PARLEY = [
   "M8.6 45.4 C8.2 33.6 8.4 21.6 9.2 10.4",
   "M9.4 11 C15 9 21.8 10.6 22.2 16.8 C22.6 22.8 15.8 25.8 10.4 25.4",
   "M39.4 26.4 C37.6 22.4 31.6 22.4 29.8 28.2 C28.4 33.4 30.2 42.4 35.2 42.4 C37.6 42.4 39 40.4 39.8 37.4",
@@ -91,20 +96,29 @@ const LETTERS = [
   "M88.2 23 C89.4 29.6 91.8 36.2 95.2 42.4",
   "M102.6 22.6 C99.6 33.8 96.2 44.4 92.4 52.6 C90.8 55.8 87.6 57.4 83.4 57 C79.4 56.6 76 55.4 73.2 53.8",
 ];
-// How long the pen spends on each stroke (longer for the e's loop and the y's tail), and when each
-// starts: one after another like handwriting, the next just before the last one lifts.
-const STROKE_MS = [145, 160, 175, 120, 95, 110, 135, 210, 105, 225];
+// Then "AI", in capitals as tall as the P and a word's space along: the A's legs in one stroke, up
+// and down, then its bar, then the I.
+const AI = [
+  "M114.4 44.8 C117.4 33.4 120.8 21.8 124.8 10.6 C128.4 21.8 131.8 33.2 135 44.4",
+  "M117.6 32 C122 31.2 126.8 31 131.8 31.4",
+  "M142.8 10.6 C142.3 21.9 142.1 33.3 142.5 44.6",
+];
+const WITH_AI = NAME === "parley ai";
+const LETTERS = WITH_AI ? [...PARLEY, ...AI] : PARLEY;
+// How long the pen spends on each stroke (longer for the e's loop, the y's tail and the A), and
+// when each starts: one after another like handwriting, the next just before the last one lifts.
+const STROKE_MS = [145, 160, 175, 120, 95, 110, 135, 210, 105, 225, ...(WITH_AI ? [200, 90, 100] : [])];
 const STROKE_AT = STROKE_MS.map((_, i) => STROKE_MS.slice(0, i).reduce((sum, ms) => sum + ms - 25, 0));
 
 /**
- * The site's name: hand-lettered while it's Parley, plain text once an admin renames the site.
- * `start` delays the drawing-in, so it can follow the flag.
+ * The site's name: hand-lettered while it's Parley AI (or Parley), plain text once an admin renames
+ * the site. `start` delays the drawing-in, so it can follow the flag.
  */
 export function Wordmark({ draw = false, start = 0 }: { draw?: boolean; start?: number }) {
   const id = useSvgId();
   if (!HAND_LETTERED) return <>{APP_NAME}</>;
   return (
-    <svg className={`brand-word${draw ? " is-drawing" : ""}`} viewBox="0 0 112 62" role="img" aria-label={APP_NAME}>
+    <svg className={`brand-word${draw ? " is-drawing" : ""}`} viewBox={`0 0 ${WITH_AI ? 152 : 112} 62`} role="img" aria-label={APP_NAME}>
       <defs>
         <InkFilter id={`${id}-ink`} seed={23} />
       </defs>

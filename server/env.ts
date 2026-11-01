@@ -37,7 +37,7 @@ export const env = {
   databasePath: process.env.DATABASE_PATH ?? "data/chat.db",
   keyEncryptionSecret: secret,
   /** The site's name, written into the web app's page and used in emails. */
-  appName: process.env.VITE_APP_NAME?.trim() || "Parley",
+  appName: process.env.VITE_APP_NAME?.trim() || "Parley AI",
   /** Outgoing mail for reset links and verification codes, e.g. smtps://user:password@smtp.example.com:465. */
   smtpUrl: process.env.SMTP_URL?.trim() || null,
   /** The sender; defaults to the SMTP account itself. */

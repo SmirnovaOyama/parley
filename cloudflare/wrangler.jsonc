@@ -30,7 +30,7 @@
     "Parley": { "type": "durable-object", "storage": "sqlite" }
   },
   "vars": {
-    "VITE_APP_NAME": "Parley",
+    "VITE_APP_NAME": "Parley AI",
     "MAIL_FROM": "",
     "DB_BUCKET": "parley-db",
     "FILES_BUCKET": "parley-files"

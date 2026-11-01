@@ -265,7 +265,7 @@ describe("api", () => {
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-type") ?? "", /^application\/manifest\+json/);
     const manifest = (await res.json()) as { name: string; start_url: string; display: string; icons: { src: string; purpose?: string }[] };
-    assert.deepEqual([manifest.name, manifest.start_url, manifest.display], ["Parley", "/", "standalone"]);
+    assert.deepEqual([manifest.name, manifest.start_url, manifest.display], ["Parley AI", "/", "standalone"]);
     assert.deepEqual(manifest.icons.map((i) => i.src), ["/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"]);
     assert.equal(manifest.icons.at(-1)?.purpose, "maskable");
   });
@@ -360,7 +360,7 @@ describe("api", () => {
     const from = server.log().length;
     assert.equal((await chinese.request("POST", "/api/auth/forgot", { email }, { "x-forwarded-for": "203.0.113.9" })).status, 200);
     await resetToken(email, from);
-    assert.match(server.log().slice(from), new RegExp(`\\[mail\\] to ${email}: 重置你的 Parley 密码`));
+    assert.match(server.log().slice(from), new RegExp(`\\[mail\\] to ${email}: 重置你的 Parley AI 密码`));
   });
 
   test("a reset link stops working when it expires, a newer one is sent, or the password changes", async () => {
@@ -1115,7 +1115,7 @@ describe("api", () => {
     // A passkey's options take the password too.
     assert.equal((await owner.json("POST", "/api/auth/two-step/passkeys/options", { password: "not it" })).status, 400);
     const options = (await owner.json("POST", "/api/auth/two-step/passkeys/options", { password })).body.options;
-    assert.equal(options.rp.name, "Parley");
+    assert.equal(options.rp.name, "Parley AI");
     assert.ok(options.challenge);
 
     // A reset link sets the password but doesn't sign in past the second step.

@@ -173,7 +173,7 @@ describe("signing in on the server's own page", () => {
     assert.equal(q.get("code_challenge_method"), "S256");
     assert.ok(q.get("code_challenge") && q.get("state"));
     assert.equal(q.get("resource"), mcp.url);
-    assert.deepEqual(mcp.auth.registrations.map((r) => [r.client_name, r.redirect_uris]), [["Parley", [CALLBACK]]]);
+    assert.deepEqual(mcp.auth.registrations.map((r) => [r.client_name, r.redirect_uris]), [["Parley AI", [CALLBACK]]]);
     // The same registration serves everyone coming back to the same address; another address registers again.
     await startSignIn(server(), bob, CALLBACK, "account");
     assert.equal(mcp.auth.registrations.length, 1);

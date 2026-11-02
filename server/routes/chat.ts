@@ -95,9 +95,12 @@ const HEARTBEAT_MS = 20_000;
 
 /**
  * Replies being written right now, so a person can stop one or come back to it, with what it has
- * asked them and the plan it's carrying out so far.
+ * asked them, the plan it's carrying out, and what it has written and thought so far.
  */
-const generating = new Map<string, { controller: AbortController; userId: number; comparisonId?: string; moments?: () => Moment[] }>();
+const generating = new Map<
+  string,
+  { controller: AbortController; userId: number; comparisonId?: string; moments?: () => Moment[]; live?: () => { text: string; thinking: string } }
+>();
 const recentSends = new Map<number, number[]>();
 const hourSends = new Map<number, number[]>();
 const recentUploads = new Map<number, number[]>();
@@ -299,6 +302,8 @@ chatRoutes.get("/conversations/:id", (c) => {
     // it asked and planned before.
     asks: generating.has(conv.id) ? asksOf(conv.id) : [],
     moments: generating.get(conv.id)?.moments?.() ?? [],
+    // What it has written and thought so far, so coming back shows the reply as it goes on.
+    live: generating.get(conv.id)?.live?.() ?? null,
     share: shareInfo(conv),
     sharing: getSettings().sharing,
   });
@@ -794,7 +799,10 @@ export async function prepareChat(
       onStatus: (status, detail) => void send("status", { status, detail }),
     });
     const reply = generating.get(convId);
-    if (reply?.controller === controller) reply.moments = kit.moments;
+    if (reply?.controller === controller) {
+      reply.moments = kit.moments;
+      reply.live = () => ({ text: partial, thinking: thought });
+    }
     const webToolsFor = (k: KeyRow) => searchTool && searchAllowed && !hasTools(k.provider) && !!k.web_search && searchServiceReady();
     // Models that can't run code write files out as text instead, while their key's "Make files" is on.
     const fileToolFor = (k: KeyRow) => !hasTools(k.provider) && !!k.code_execution;

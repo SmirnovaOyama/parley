@@ -21,6 +21,11 @@ export type UiMessage = Message & {
   notice?: string;
   /** Questions it's waiting on before a tool runs. */
   asks?: Ask[];
+  /**
+   * What the row is known by while it changes from a stand-in to the saved message, which has
+   * another id, so what's open in it (its thinking, say) stays open.
+   */
+  key?: number;
 };
 
 type Props = {
@@ -66,7 +71,7 @@ export function Transcript({ messages, readOnly, showModel = true, stackTables =
           />
         ) : (
           <AssistantMessage
-            key={m.id}
+            key={m.key ?? m.id}
             message={m}
             readOnly={readOnly}
             showModel={showModel}
@@ -267,7 +272,7 @@ function AssistantMessage({ message, readOnly, showModel, stackTables, switcher,
     <div className="msg msg-assistant" data-message-id={message.id} aria-busy={message.streaming || undefined}>
       {waiting && !message.thinking && !asks.length && !message.moments?.length && !BUSY_PHASES.has(message.phase ?? "") && <Thinking phase={message.phase} />}
       {message.thinking && (
-        <ThinkingFold text={message.thinking} ms={message.thinkingMs} live={!!message.streaming && !message.text} />
+        <ThinkingFold text={message.thinking} ms={message.thinkingMs} live={!!message.streaming && !message.text} streaming={!!message.streaming} />
       )}
       {piecesOf(message.text, message.moments ?? []).map((piece, i, all) =>
         piece.kind === "text" ? (
@@ -331,16 +336,40 @@ function duration(ms: number): string {
 }
 
 /**
+ * Whether the person last chose to watch a reply think, kept in this browser. A reply still being
+ * written when its fold appears again (they left the chat and came back to it) opens or stays
+ * folded as they left it.
+ */
+const WATCH_KEY = "watchThinking";
+
+function watching(): boolean {
+  try {
+    return localStorage.getItem(WATCH_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function watch(on: boolean) {
+  try {
+    if (on) localStorage.setItem(WATCH_KEY, "1");
+    else localStorage.removeItem(WATCH_KEY);
+  } catch {
+    // Private windows can refuse storage; then a reply's thinking starts folded.
+  }
+}
+
+/**
  * The model's thinking, folded above its reply: "Thinking" with moving dots while it thinks
  * (unfold to watch), then "Thought for 8s". Unfolds in place, in muted text.
  */
-function ThinkingFold({ text, ms, live }: { text: string; ms: number | null; live: boolean }) {
-  const [open, setOpen] = useState(false);
+function ThinkingFold({ text, ms, live, streaming }: { text: string; ms: number | null; live: boolean; streaming: boolean }) {
+  const [open, setOpen] = useState(() => streaming && watching());
   const scrollRef = useRef<HTMLDivElement>(null);
   const label = live ? t("Thinking") : ms == null ? t("Thought") : ms < 1500 ? t("Thought briefly") : t("Thought for {duration}", { duration: duration(ms) });
   // Long reasoning streams many tokens a second. Folded, nobody can see it, so it isn't rendered
   // until first opened, and while folded again it keeps the text it last showed.
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState(open);
   const shown = useRef(text);
   if (open) shown.current = text;
 
@@ -358,7 +387,8 @@ function ThinkingFold({ text, ms, live }: { text: string; ms: number | null; liv
         aria-expanded={open}
         onClick={() => {
           setOpened(true);
-          setOpen((o) => !o);
+          setOpen(!open);
+          if (streaming) watch(!open);
         }}
       >
         {/* When thinking ends the mark folds away, so the words slide back instead of jumping. */}

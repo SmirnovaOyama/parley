@@ -363,6 +363,27 @@ export function CoworkJobPage() {
   }, []);
   useLayoutEffect(() => { if (size && atFoot.current) window.scrollTo({ top: document.documentElement.scrollHeight }); }, [size]);
 
+  // On a wide screen the panel stands still between the header and the message box as the work
+  // scrolls past, so the page tells it how tall those two are; both change, with a long title or a
+  // longer message.
+  const pageRef = useRef<HTMLDivElement>(null);
+  const loaded = !!job;
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    const header = page?.querySelector<HTMLElement>(":scope > .oy-page-header");
+    const dock = page?.querySelector<HTMLElement>(":scope > .cowork-dock");
+    if (!page || !header || !dock) return;
+    const place = () => {
+      page.style.setProperty("--cowork-top", `${(parseFloat(getComputedStyle(header).top) || 0) + header.offsetHeight}px`);
+      page.style.setProperty("--cowork-bottom", `${dock.offsetHeight}px`);
+    };
+    place();
+    const watch = new ResizeObserver(place);
+    watch.observe(header);
+    watch.observe(dock);
+    return () => watch.disconnect();
+  }, [loaded]);
+
   const act = async (name: string, run: () => Promise<unknown>) => {
     if (busy) return false;
     setBusy(name);
@@ -388,9 +409,9 @@ export function CoworkJobPage() {
   };
 
   const done = job?.progress.filter((item) => item.status === "done").length ?? 0;
-  return <div className="tasks-page cowork-page cowork-job">
+  return <div ref={pageRef} className="tasks-page cowork-page cowork-job">
+    {/* No status under the title: the work stream says it where it happens, working, waiting or done. */}
     <PageHeader title={job?.title ?? t("Job")} back={{ label: t("Cowork"), to: "/cowork" }}
-      subtitle={job ? <span className="cowork-status" role="status">{working(job) && <BusyMark label={null} size={14} />}{statusText(job)}</span> : undefined}
       trailing={job?.conversationId ? <SlideLink to={`/chat/${job.conversationId}`} direction="forward" className="task-text-action task-answer-link">{t("Open the chat")}</SlideLink> : undefined} />
     {loadError && <div className="oy-page-column"><Advisory action={<button type="button" className="task-text-action" onClick={() => void load()}>{t("Try again")}</button>}>{loadError}</Advisory></div>}
     {missing ? <div className="oy-page-column"><EmptyState title={t("This job isn't here")}>{t("It may have been deleted")}</EmptyState></div>
